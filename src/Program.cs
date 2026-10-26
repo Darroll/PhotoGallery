@@ -90,7 +90,11 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    // always revalidate the app shell so a new release is picked up without a hard refresh
+    OnPrepareResponse = ctx => ctx.Context.Response.Headers.CacheControl = "no-cache"
+});
 
 app.MapGet("/healthz", () => Results.Ok("ok"));
 PublicApi.Map(app);
