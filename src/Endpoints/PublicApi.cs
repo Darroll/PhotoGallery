@@ -31,7 +31,7 @@ public static class PublicApi
             return Results.Ok(list);
         });
 
-        app.MapGet("/api/g/{slug}", async (string slug, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg) =>
+        app.MapGet("/api/g/{slug}", async (string slug, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ActivityLog activity) =>
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
             if (g == null) return Results.NotFound();
@@ -42,6 +42,7 @@ public static class PublicApi
                     ? Results.Json(new { needsPassword = true, title = g.Title }, statusCode: 401)
                     : Results.StatusCode(403);
 
+            activity.Record(ctx, "view_gallery", g.Id);
             var admin = a.Admin;
             var photos = await db.Photos.Where(p => p.GalleryId == g.Id && (p.Approved || admin))
                 .Select(p => new { p.Id, w = p.Width, h = p.Height, p.Name, raw = p.RawRelPath != null, rawOnly = p.RawRelPath != null && p.RawRelPath == p.RelPath, taken = p.TakenAt, added = p.AddedAt, p.Approved })
@@ -71,20 +72,34 @@ public static class PublicApi
             });
         });
 
-        app.MapPost("/api/g/{slug}/unlock", async (string slug, UnlockRequest req, HttpContext ctx, AppDb db, AccessService access) =>
+        app.MapPost("/api/g/{slug}/viewed/{photoId:int}", async (string slug, int photoId, HttpContext ctx, AppDb db, AccessService access, ActivityLog activity) =>
+        {
+            if (ctx.Request.Headers["X-Requested-With"] != "pg") return Results.BadRequest();
+            var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
+            if (g == null) return Results.NotFound();
+            var a = await access.CheckAsync(ctx, g);
+            if (!a.Allowed) return Results.StatusCode(403);
+            if (!await db.Photos.AnyAsync(p => p.Id == photoId && p.GalleryId == g.Id && p.Approved)) return Results.NotFound();
+            activity.Record(ctx, "view_photo", g.Id, photoId);
+            return Results.NoContent();
+        }).RequireRateLimiting("viewed");
+
+        app.MapPost("/api/g/{slug}/unlock", async (string slug, UnlockRequest req, HttpContext ctx, AppDb db, AccessService access, ActivityLog activity) =>
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
             if (g == null || g.Visibility != Visibility.Protected || string.IsNullOrEmpty(g.PasswordHash))
                 return Results.StatusCode(401);
-            if (!Passwords.Verify(req.Password ?? "", g.PasswordHash)) return Results.StatusCode(401);
+            if (!Passwords.Verify(req.Password ?? "", g.PasswordHash)) { activity.Record(ctx, "unlock_fail", g.Id); return Results.StatusCode(401); }
+            activity.Record(ctx, "unlock_ok", g.Id);
             access.Issue(ctx, g, null);
             return Results.NoContent();
         }).RequireRateLimiting("unlock");
 
-        app.MapGet("/s/{token}", async (string token, HttpContext ctx, AppDb db, AccessService access) =>
+        app.MapGet("/s/{token}", async (string token, HttpContext ctx, AppDb db, AccessService access, ActivityLog activity) =>
         {
             var link = await db.ShareLinks.Include(l => l.Gallery).FirstOrDefaultAsync(l => l.Token == token);
-            if (link?.Gallery == null || !link.IsValid(DateTime.UtcNow)) return Results.Redirect("/expired");
+            if (link?.Gallery == null || !link.IsValid(DateTime.UtcNow)) { activity.Record(ctx, "share_invalid", link?.GalleryId, null, link?.Label ?? ""); return Results.Redirect("/expired"); }
+            activity.Record(ctx, "share_open", link.GalleryId, null, link.Label);
             access.Issue(ctx, link.Gallery, link);
             return Results.Redirect($"/g/{Uri.EscapeDataString(link.Gallery.Slug)}");
         });
@@ -105,7 +120,7 @@ public static class PublicApi
         });
 
         // single-photo download: ?size=original | <px>  &fmt=png|webp|tif
-        app.MapGet("/dl/{id:int}", async (int id, string? size, string? fmt, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images) =>
+        app.MapGet("/dl/{id:int}", async (int id, string? size, string? fmt, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity) =>
         {
             var p = await db.Photos.Include(x => x.Gallery).FirstOrDefaultAsync(x => x.Id == id);
             if (p?.Gallery == null) return Results.NotFound();
@@ -123,6 +138,7 @@ public static class PublicApi
                 var path = cfg.ResolvePhoto(p, p.RelPath);
                 if (path == null || !File.Exists(path)) return Results.NotFound();
                 if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);
+                activity.Record(ctx, "download", g.Id, p.Id, "original");
                 return Results.File(path, ImageService.ContentType(Path.GetExtension(path).TrimStart('.')), p.Name);
             }
 
@@ -132,10 +148,11 @@ public static class PublicApi
             var v = await images.GetVariantAsync(p, "size", px, f, wm);
             if (v == null) return Results.NotFound();
             if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);
+            activity.Record(ctx, "download", g.Id, p.Id, $"{px}px {f}");
             return Results.File(v.Value.path, ImageService.ContentType(f), $"{baseName}_{px}.{f}");
         });
 
-        app.MapGet("/dl/{id:int}/raw", async (int id, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg) =>
+        app.MapGet("/dl/{id:int}/raw", async (int id, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ActivityLog activity) =>
         {
             var p = await db.Photos.Include(x => x.Gallery).FirstOrDefaultAsync(x => x.Id == id);
             if (p?.Gallery == null || p.RawRelPath == null) return Results.NotFound();
@@ -146,10 +163,11 @@ public static class PublicApi
             var path = cfg.ResolvePhoto(p, p.RawRelPath);
             if (path == null || !File.Exists(path)) return Results.NotFound();
             if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);
+            activity.Record(ctx, "download", g.Id, p.Id, "raw");
             return Results.File(path, "application/octet-stream", Path.GetFileName(path));
         });
 
-        app.MapGet("/api/g/{slug}/zip", async (string slug, string? size, string? fmt, bool? raw, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images) =>
+        app.MapGet("/api/g/{slug}/zip", async (string slug, string? size, string? fmt, bool? raw, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity) =>
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
             if (g == null) return Results.NotFound();
@@ -174,6 +192,7 @@ public static class PublicApi
             photos = GalleryRules.Sort(photos, g, x => x.TakenAt, x => x.Name, x => x.AddedAt);
             if (photos.Count == 0) return Results.NotFound();
             if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);
+            activity.Record(ctx, "zip", g.Id, null, (original ? "original" : $"{px}px {f}") + (includeRaw ? " +RAW" : ""));
 
             var body = ctx.Features.Get<IHttpBodyControlFeature>();
             if (body != null) body.AllowSynchronousIO = true;
@@ -224,7 +243,7 @@ public static class PublicApi
             return Results.Empty;
         });
 
-        app.MapPost("/api/g/{slug}/upload", async (string slug, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images) =>
+        app.MapPost("/api/g/{slug}/upload", async (string slug, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity) =>
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
             if (g == null) return Results.NotFound();
@@ -290,6 +309,7 @@ public static class PublicApi
                 File.Delete(full);
                 return Results.BadRequest("not a valid image");
             }
+            activity.Record(ctx, "upload", g.Id, photo.Id, safeName);
             return Results.Accepted(value: new { pending = !a.Admin });
         }).RequireRateLimiting("upload").DisableAntiforgery();
     }

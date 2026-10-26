@@ -94,12 +94,15 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<Gallery> Galleries => Set<Gallery>();
     public DbSet<Photo> Photos => Set<Photo>();
     public DbSet<ShareLink> ShareLinks => Set<ShareLink>();
+    public DbSet<Visit> Visits => Set<Visit>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<Gallery>().HasIndex(g => g.Slug).IsUnique();
         b.Entity<Photo>().HasIndex(p => new { p.GalleryId, p.RelPath }).IsUnique();
         b.Entity<ShareLink>().HasIndex(l => l.Token).IsUnique();
+        b.Entity<Visit>().HasIndex(v => v.Time);
+        b.Entity<Visit>().HasIndex(v => new { v.GalleryId, v.Time });
         b.Entity<Photo>().HasOne(p => p.Gallery).WithMany(g => g.Photos).HasForeignKey(p => p.GalleryId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<ShareLink>().HasOne(l => l.Gallery).WithMany(g => g.Links).HasForeignKey(l => l.GalleryId).OnDelete(DeleteBehavior.Cascade);
     }

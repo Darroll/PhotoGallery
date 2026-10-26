@@ -27,6 +27,12 @@ Self-hosted photo galleries for Unraid, written in ASP.NET Core 9 (SQLite + libv
 
 Each photo has its own address, `/g/<gallery>/p/<id>`, which can be shared (protected galleries still ask for the password or link first). Opening the viewer adds one history entry; moving between photos or running the slideshow only replaces the address. The mouse Back button, Esc and the Close button return to the grid at the same scroll position, and Forward reopens the photo.
 
+### Visitor statistics
+
+`/admin/stats` (and a Statistics button on every gallery's settings page) shows unique IPs, gallery and photo views, downloads by size/format, ZIPs, share-link opens, wrong passwords, guest uploads, top galleries and photos, countries and a recent-activity table with each visitor's full IP address and browser. Bots and crawlers (detected from the user agent) are kept on a separate tab. Your own admin visits are not recorded. Retention (default 180 days) and a delete-all button are in Site settings.
+
+The visitor IP comes from `CF-Connecting-IP` when Cloudflare proxies the site, otherwise from the address SWAG forwards. Country is only known while Cloudflare proxies the site. IP addresses are personal data: keep only what you need and tell visitors if your local rules require it.
+
 ### Thumbnails
 
 Grid thumbnails and viewing images are built in the background after every scan (and shortly after start-up), then cached in `/data/cache`. A gallery's settings page has **Generate missing** (builds only what is absent) and **Rebuild all**; Site settings shows the cache size, can **clean up stale files** (deleted or replaced photos, old watermark variants) and **generate missing** / **rebuild all** for every gallery.

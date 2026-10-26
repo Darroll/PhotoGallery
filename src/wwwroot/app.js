@@ -54,6 +54,7 @@ async function route(force = false) {
   }
   galleryView = null; closeLightbox(); app.replaceChildren();
   document.title = site.title;
+  if (parts[0] === 'admin' && parts[1] === 'stats') return viewStats(app);
   if (parts[0] === 'admin' && parts[1] === 'settings') return viewSettings(app);
   if (parts[0] === 'admin' && parts[1] === 'galleries' && parts[2]) return viewGallerySettings(app, Number(parts[2]));
   if (parts[0] === 'admin') return viewAdmin(app);
@@ -267,13 +268,14 @@ function openLightbox(index, play, mode = 'push') {
     h('div', { class: 'bar top' }, h('div', { class: 'row' }, title, counter), h('div', { class: 'row' }, playBtn, speed, fsBtn, closeBtn)),
     h('div', { class: 'stage' }, prev, img, next),
     h('div', { class: 'bar' }, dl));
-  lb = { i: index, timer: null, idle: null, playing: false };
+  lb = { i: index, timer: null, idle: null, playing: false, lastSeen: null };
 
   const show = (i, updateUrl = true) => {
     lb.i = (i + list.length) % list.length;
     const p = list[lb.i];
     if (updateUrl) history.replaceState(history.state, '', photoPath(p));
     img.src = `/img/${p.id}/view`;
+    if (p.id !== lb.lastSeen) { lb.lastSeen = p.id; fetch(`/api/g/${encodeURIComponent(G.slug)}/viewed/${p.id}`, { method: 'POST', headers: { 'X-Requested-With': 'pg' }, credentials: 'same-origin', keepalive: true }).catch(() => {}); }
     title.textContent = p.name; counter.textContent = `${lb.i + 1} / ${list.length}`;
     const unlink = G.admin && p.raw && !p.rawOnly
       ? h('button', { class: 'danger', text: 'Unlink RAW', onclick: async () => { if (confirm('Unlink the RAW from this photo?')) { await api(`/api/admin/photos/${p.id}/link-raw`, { method: 'DELETE' }); route(true); } } })
@@ -328,6 +330,7 @@ async function viewAdmin(app) {
   if (!me.data || !me.data.admin) return adminLogin(app);
   const [gals, folders, homeOrder] = await Promise.all([api('/api/admin/galleries'), api('/api/admin/folders'), api('/api/admin/settings/home')]);
   app.append(h('div', { class: 'toolbar' }, h('h1', { text: 'Admin' }), h('span', { class: 'grow' }),
+    h('a', { class: 'btn', href: '/admin/stats', text: 'Statistics' }),
     h('a', { class: 'btn', href: '/admin/settings', text: 'Site settings' }),
     h('button', { text: 'Log out', onclick: async () => { await api('/api/admin/logout', { method: 'POST' }); route(); } })));
   app.append(newGalleryPanel((folders.data || []).filter(f => !f.galleryId).map(f => f.path)));
@@ -455,6 +458,7 @@ async function viewSettings(app) {
     h('p', { class: 'muted', text: 'Preview (not saved until you click Save):' }), preview));
   refresh();
   app.append(homePanel());
+  app.append(statsSettingsPanel());
   app.append(cachePanel());
 }
 
@@ -473,6 +477,29 @@ function homePanel() {
       const r = await api('/api/admin/settings/home', { method: 'PUT', body: { order: sel.value } });
       toast(r.ok ? 'Saved' : 'Save failed');
     } })));
+}
+
+function statsSettingsPanel() {
+  const enabled = h('input', { type: 'checkbox', checked: true });
+  const days = h('input', { type: 'number', min: 0, max: 3650, value: 180 });
+  days.style.width = '110px';
+  const msg = h('span', { class: 'muted' });
+  api('/api/admin/stats/settings').then(r => { if (r.ok) { enabled.checked = r.data.enabled; days.value = r.data.retentionDays; } });
+  return h('div', { class: 'panel' }, h('h3', { text: 'Visitor statistics' }),
+    h('p', { class: 'muted', text: 'Records gallery views, photo views, downloads, password attempts and uploads with the visitor IP address, country (when available) and browser. Your own admin visits are not recorded. IP addresses are personal data, so keep only what you need.' }),
+    h('div', { class: 'row' }, h('label', {}, enabled, ' Record visitor activity')),
+    h('div', { class: 'row' }, h('label', {}, 'Keep records for ', days, ' days (0 = forever)')),
+    h('div', { class: 'row' },
+      h('button', { class: 'primary', text: 'Save', onclick: async () => {
+        const r = await api('/api/admin/stats/settings', { method: 'PUT', body: { enabled: enabled.checked, retentionDays: Number(days.value) || 0 } });
+        msg.textContent = r.ok ? 'Saved' : 'Save failed';
+      } }),
+      h('a', { class: 'btn', href: '/admin/stats', text: 'Open statistics' }),
+      h('button', { class: 'danger', text: 'Delete all records...', onclick: async () => {
+        if (!confirm('Permanently delete ALL recorded visitor activity?')) return;
+        const r = await api('/api/admin/stats', { method: 'DELETE' });
+        msg.textContent = r.ok ? `Deleted ${r.data.removed} records` : 'Failed';
+      } }), msg));
 }
 
 function cachePanel() {
@@ -660,6 +687,7 @@ async function viewGallerySettings(app, id) {
 
   app.append(
     h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/admin', text: '\u2190 All galleries' }), h('h1', { text: g.title }), h('span', { class: 'grow' }),
+      h('a', { class: 'btn', href: '/admin/stats?gallery=' + g.id, text: 'Statistics' }),
       h('a', { class: 'btn', href: '/g/' + encodeURIComponent(g.slug), text: 'View gallery' })),
     h('p', { class: 'muted counts', text: countsLine(g) }),
     general, access, downloads, wmUp, raw,
@@ -767,6 +795,93 @@ function rawLinker(g) {
   };
   load();
   return box;
+}
+
+// ---------- statistics ----------
+const kindLabels = { view_gallery: 'Viewed gallery', view_photo: 'Viewed photo', download: 'Downloaded', zip: 'Downloaded ZIP', unlock_ok: 'Unlocked (password)', unlock_fail: 'Wrong password', share_open: 'Opened share link', share_invalid: 'Bad/expired link', upload: 'Uploaded' };
+
+async function viewStats(app) {
+  const me = await api('/api/admin/me');
+  if (!me.data || !me.data.admin) return adminLogin(app);
+  const qs = new URLSearchParams(location.search);
+  const state = { days: Number(qs.get('days') ?? 30), gallery: qs.get('gallery') || '', who: qs.get('who') || 'visitors', kind: '', skip: 0 };
+  const galleries = (await api('/api/admin/galleries')).data || [];
+
+  const body = h('div');
+  const rangeSel = h('select', {}, [[7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days'], [365, 'Last year'], [0, 'All time']].map(([v, t]) => h('option', { value: v, text: t, selected: v === state.days })));
+  const galSel = h('select', {}, [h('option', { value: '', text: 'All galleries' }), ...galleries.map(g => h('option', { value: g.id, text: g.title, selected: String(g.id) === state.gallery }))]);
+  const tabs = h('div', { class: 'tabs' });
+  const sync = () => { const q = new URLSearchParams(); if (state.days !== 30) q.set('days', state.days); if (state.gallery) q.set('gallery', state.gallery); if (state.who !== 'visitors') q.set('who', state.who); history.replaceState(history.state, '', '/admin/stats' + (q.toString() ? '?' + q : '')); };
+  const q = () => { const p = new URLSearchParams({ days: state.days, who: state.who }); if (state.gallery) p.set('gallery', state.gallery); return p; };
+
+  const load = async () => {
+    sync();
+    const r = await api('/api/admin/stats?' + q());
+    if (!r.ok) { body.replaceChildren(h('p', { class: 'err', text: 'Could not load statistics.' })); return; }
+    const d = r.data;
+    tabs.replaceChildren(...[['visitors', `Visitors (${d.visitorEvents})`], ['bots', `Bots & crawlers (${d.botEvents})`], ['all', 'All']].map(([v, t]) =>
+      h('button', { class: 'tab' + (state.who === v ? ' on' : ''), text: t, onclick: () => { state.who = v; state.skip = 0; load(); } })));
+    const t = d.totals;
+    const tile = (n, label) => h('div', { class: 'tile' }, h('div', { class: 'tile-n', text: String(n) }), h('div', { class: 'muted', text: label }));
+    const max = Math.max(1, ...d.byDay.map(x => x.views + x.downloads));
+    const chart = d.byDay.length ? h('div', { class: 'bars' }, d.byDay.map(x => {
+      const col = h('div', { class: 'bar-col', title: `${x.date}: ${x.views} views, ${x.downloads} downloads` });
+      const v = h('div', { class: 'bar views' }), dl = h('div', { class: 'bar dls' });
+      v.style.height = (x.views / max * 100) + '%'; dl.style.height = (x.downloads / max * 100) + '%';
+      col.append(dl, v); return col;
+    })) : h('p', { class: 'muted', text: 'No activity in this period.' });
+    body.replaceChildren(
+      h('div', { class: 'tiles' }, tile(t.uniqueVisitors, 'Unique IP addresses'), tile(t.galleryViews, 'Gallery views'), tile(t.photoViews, 'Photo views'),
+        tile(t.downloads, 'Photo downloads'), tile(t.zips, 'ZIP downloads'), tile(t.shareOpens, 'Share link opens'), tile(t.uploads, 'Guest uploads'), tile(t.unlockFails, 'Wrong passwords')),
+      h('div', { class: 'panel' }, h('h3', { text: 'Activity per day' }), chart, h('div', { class: 'muted', text: 'Blue = views, orange = downloads' })),
+      h('div', { class: 'two' },
+        h('div', { class: 'panel' }, h('h3', { text: 'Galleries' }), d.topGalleries.length ? h('table', {},
+          h('tr', {}, ['Gallery', 'Views', 'Photo views', 'Downloads', 'IPs'].map(x => h('th', { text: x }))),
+          d.topGalleries.map(g => h('tr', {}, h('td', {}, h('a', { href: '/admin/stats?gallery=' + g.id, text: g.title })), h('td', { text: g.views }), h('td', { text: g.photoViews }), h('td', { text: g.downloads }), h('td', { text: g.visitors })))) : h('p', { class: 'muted', text: 'Nothing yet.' })),
+        h('div', { class: 'panel' }, h('h3', { text: 'Top photos' }), d.topPhotos.length ? h('table', {},
+          h('tr', {}, ['', 'Photo', 'Views', 'Downloads'].map(x => h('th', { text: x }))),
+          d.topPhotos.map(p => h('tr', {}, h('td', {}, h('img', { src: `/img/${p.id}/thumb`, alt: '', class: 'tiny' })), h('td', { text: p.name + (p.gallery ? ` (${p.gallery})` : '') }), h('td', { text: p.views }), h('td', { text: p.downloads })))) : h('p', { class: 'muted', text: 'Nothing yet.' }))),
+      h('div', { class: 'two' },
+        h('div', { class: 'panel' }, h('h3', { text: 'Countries' }), d.countries.length ? h('table', {}, h('tr', {}, ['Country', 'IPs', 'Events'].map(x => h('th', { text: x }))),
+          d.countries.map(c => h('tr', {}, h('td', { text: c.country }), h('td', { text: c.visitors }), h('td', { text: c.events })))) : h('p', { class: 'muted', text: 'Country is only known while Cloudflare proxies the site.' })),
+        h('div', { class: 'panel' }, h('h3', { text: 'What was downloaded' }), d.downloadsBy.length ? h('table', {}, h('tr', {}, ['Type', 'Count'].map(x => h('th', { text: x }))),
+          d.downloadsBy.map(x => h('tr', {}, h('td', { text: x.detail || '-' }), h('td', { text: x.count })))) : h('p', { class: 'muted', text: 'No downloads yet.' }))),
+      activityPanel());
+  };
+
+  const activityPanel = () => {
+    const box = h('div', { class: 'panel' }, h('h3', { text: 'Recent activity' }));
+    const kindSel = h('select', {}, [h('option', { value: '', text: 'All actions' }), ...Object.entries(kindLabels).map(([v, t]) => h('option', { value: v, text: t, selected: v === state.kind }))]);
+    const table = h('table', {});
+    const more = h('button', { text: 'Load more' });
+    const info = h('span', { class: 'muted' });
+    let skip = 0;
+    const fetchPage = async (reset) => {
+      if (reset) { skip = 0; table.replaceChildren(h('tr', {}, ['Time', 'IP address', 'Country', 'Action', 'Gallery', 'Photo / detail', 'Browser'].map(x => h('th', { text: x })))); }
+      const p = q(); p.set('skip', skip); p.set('take', 50); if (state.kind) p.set('kind', state.kind);
+      const r = await api('/api/admin/stats/activity?' + p);
+      if (!r.ok) return;
+      for (const it of r.data.items) {
+        table.append(h('tr', {}, h('td', { text: new Date(it.time).toLocaleString() }), h('td', { text: it.ip || '-' }), h('td', { text: it.country || '-' }),
+          h('td', { text: kindLabels[it.kind] || it.kind }), h('td', { text: it.gallery }), h('td', { text: [it.photo, it.detail].filter(Boolean).join(' - ') }),
+          h('td', { class: 'ua', title: it.userAgent, text: (it.isBot ? '[bot] ' : '') + it.userAgent })));
+      }
+      skip += r.data.items.length;
+      info.textContent = `Showing ${Math.min(skip, r.data.total)} of ${r.data.total}`;
+      more.style.display = skip < r.data.total ? '' : 'none';
+    };
+    kindSel.onchange = () => { state.kind = kindSel.value; fetchPage(true); };
+    more.onclick = () => fetchPage(false);
+    box.append(h('div', { class: 'row' }, kindSel, info), h('div', { class: 'scroll' }, table), more);
+    fetchPage(true);
+    return box;
+  };
+
+  rangeSel.onchange = () => { state.days = Number(rangeSel.value); load(); };
+  galSel.onchange = () => { state.gallery = galSel.value; load(); };
+  app.append(h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/admin', text: '\u2190 Admin' }), h('h1', { text: 'Statistics' }), h('span', { class: 'grow' }), rangeSel, galSel, h('a', { class: 'btn', href: '/admin/settings', text: 'Settings' })),
+    tabs, body);
+  load();
 }
 
 // ---------- boot ----------

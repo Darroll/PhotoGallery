@@ -42,6 +42,7 @@ class AppSettings
 {
     public WatermarkSettings Watermark { get; set; } = new();
     public HomeSettings Home { get; set; } = new();
+    public StatsSettings Stats { get; set; } = new();
 }
 
 /// <summary>App-level settings kept in DATA_DIR/settings.json (editable from the admin Settings page).</summary>
@@ -66,6 +67,7 @@ public class SettingsService
                     data = new AppSettings { Watermark = JsonSerializer.Deserialize<WatermarkSettings>(text, JsonOpts) ?? new() };
                 data.Watermark = data.Watermark.Sanitized();
                 data.Home = data.Home.Sanitized();
+                data.Stats = (data.Stats ?? new()).Sanitized();
             }
             else
             {
@@ -88,6 +90,21 @@ public class SettingsService
     public HomeSettings Home
     {
         get { lock (gate) return new HomeSettings { Order = data.Home.Order }; }
+    }
+
+    public StatsSettings Stats
+    {
+        get { lock (gate) return new StatsSettings { Enabled = data.Stats.Enabled, RetentionDays = data.Stats.RetentionDays }; }
+    }
+
+    public StatsSettings SetStats(StatsSettings s)
+    {
+        lock (gate)
+        {
+            data.Stats = s.Sanitized();
+            Save();
+            return new StatsSettings { Enabled = data.Stats.Enabled, RetentionDays = data.Stats.RetentionDays };
+        }
     }
 
     public WatermarkSettings SetWatermark(WatermarkSettings s)

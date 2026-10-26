@@ -16,6 +16,8 @@ builder.Services.AddSingleton<ImageService>();
 builder.Services.AddSingleton<ThumbnailService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ThumbnailService>());
 builder.Services.AddSingleton<CacheService>();
+builder.Services.AddSingleton<ActivityLog>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ActivityLog>());
 builder.Services.AddScoped<AccessService>();
 builder.Services.AddScoped<Scanner>();
 builder.Services.AddHostedService<RescanService>();
@@ -49,6 +51,7 @@ builder.Services.AddRateLimiter(o =>
     o.AddPolicy("login", c => Per(c, 8));
     o.AddPolicy("unlock", c => Per(c, 10));
     o.AddPolicy("upload", c => Per(c, 30));
+    o.AddPolicy("viewed", c => Per(c, 240));
 });
 
 if (cfg.TrustProxy)
@@ -125,5 +128,6 @@ app.UseStaticFiles(new StaticFileOptions
 app.MapGet("/healthz", () => Results.Ok("ok"));
 PublicApi.Map(app);
 AdminApi.Map(app);
+StatsApi.Map(app);
 
 app.Run();
