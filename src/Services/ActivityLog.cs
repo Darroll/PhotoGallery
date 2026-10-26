@@ -26,8 +26,10 @@ public class StatsSettings
     public bool Enabled { get; set; } = true;
     /// <summary>0 keeps records forever.</summary>
     public int RetentionDays { get; set; } = 180;
+    /// <summary>Count visits made while signed in as admin (off by default; handy for testing).</summary>
+    public bool IncludeAdmin { get; set; }
 
-    public StatsSettings Sanitized() => new() { Enabled = Enabled, RetentionDays = Math.Clamp(RetentionDays, 0, 3650) };
+    public StatsSettings Sanitized() => new() { Enabled = Enabled, RetentionDays = Math.Clamp(RetentionDays, 0, 3650), IncludeAdmin = IncludeAdmin };
 }
 
 /// <summary>Collects visitor activity without slowing requests down: records are queued and written in batches.</summary>
@@ -54,7 +56,8 @@ public class ActivityLog(IServiceScopeFactory scopes, SettingsService settings, 
 
     public void Record(HttpContext ctx, string kind, int? galleryId = null, int? photoId = null, string detail = "")
     {
-        if (!settings.Stats.Enabled || AccessService.IsAdmin(ctx)) return;
+        var st = settings.Stats;
+        if (!st.Enabled || (AccessService.IsAdmin(ctx) && !st.IncludeAdmin)) return;
         var ua = ctx.Request.Headers.UserAgent.ToString();
         var country = ctx.Request.Headers["CF-IPCountry"].ToString();
         queue.Writer.TryWrite(new Visit

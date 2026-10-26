@@ -487,17 +487,19 @@ function homePanel() {
 
 function statsSettingsPanel() {
   const enabled = h('input', { type: 'checkbox', checked: true });
+  const includeAdmin = h('input', { type: 'checkbox' });
   const days = h('input', { type: 'number', min: 0, max: 3650, value: 180 });
   days.style.width = '110px';
   const msg = h('span', { class: 'muted' });
-  api('/api/admin/stats/settings').then(r => { if (r.ok) { enabled.checked = r.data.enabled; days.value = r.data.retentionDays; } });
+  api('/api/admin/stats/settings').then(r => { if (r.ok) { enabled.checked = r.data.enabled; days.value = r.data.retentionDays; includeAdmin.checked = !!r.data.includeAdmin; } });
   return h('div', { class: 'panel' }, h('h3', { text: 'Visitor statistics' }),
-    h('p', { class: 'muted', text: 'Records gallery views, photo views, downloads, password attempts and uploads with the visitor IP address, country (when available) and browser. Your own admin visits are not recorded. IP addresses are personal data, so keep only what you need.' }),
+    h('p', { class: 'muted', text: 'Records gallery views, photo views, downloads, password attempts and uploads with the visitor IP address, country (when available) and browser. Visits you make while signed in as admin are not recorded unless you switch that on below (useful for testing). IP addresses are personal data, so keep only what you need.' }),
     h('div', { class: 'row' }, h('label', {}, enabled, ' Record visitor activity')),
+    h('div', { class: 'row' }, h('label', {}, includeAdmin, ' Also record my own visits while signed in as admin')),
     h('div', { class: 'row' }, h('label', {}, 'Keep records for ', days, ' days (0 = forever)')),
     h('div', { class: 'row' },
       h('button', { class: 'primary', text: 'Save', onclick: async () => {
-        const r = await api('/api/admin/stats/settings', { method: 'PUT', body: { enabled: enabled.checked, retentionDays: Number(days.value) || 0 } });
+        const r = await api('/api/admin/stats/settings', { method: 'PUT', body: { enabled: enabled.checked, retentionDays: Number(days.value) || 0, includeAdmin: includeAdmin.checked } });
         msg.textContent = r.ok ? 'Saved' : 'Save failed';
       } }),
       h('a', { class: 'btn', href: '/admin/stats', text: 'Open statistics' }),

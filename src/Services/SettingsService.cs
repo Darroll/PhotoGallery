@@ -94,7 +94,7 @@ public class SettingsService
 
     public StatsSettings Stats
     {
-        get { lock (gate) return new StatsSettings { Enabled = data.Stats.Enabled, RetentionDays = data.Stats.RetentionDays }; }
+        get { lock (gate) return new StatsSettings { Enabled = data.Stats.Enabled, RetentionDays = data.Stats.RetentionDays, IncludeAdmin = data.Stats.IncludeAdmin }; }
     }
 
     public StatsSettings SetStats(StatsSettings s)
@@ -103,7 +103,7 @@ public class SettingsService
         {
             data.Stats = s.Sanitized();
             Save();
-            return new StatsSettings { Enabled = data.Stats.Enabled, RetentionDays = data.Stats.RetentionDays };
+            return new StatsSettings { Enabled = data.Stats.Enabled, RetentionDays = data.Stats.RetentionDays, IncludeAdmin = data.Stats.IncludeAdmin };
         }
     }
 
