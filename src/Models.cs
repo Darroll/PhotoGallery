@@ -4,6 +4,9 @@ namespace PhotoGallery;
 
 public enum Visibility { Public = 0, Unlisted = 1, Protected = 2 }
 
+/// <summary>Order of photos inside a gallery.</summary>
+public enum GallerySort { Taken = 0, Name = 1, Added = 2 }
+
 /// <summary>How a RAW file is matched to its processed image by file name.</summary>
 public enum RawMatch { SameFolder = 0, Anywhere = 1, Fuzzy = 2 }
 
@@ -20,6 +23,18 @@ public class Gallery
     /// <summary>Changes whenever the password changes; invalidates old access cookies.</summary>
     public string AccessStamp { get; set; } = Guid.NewGuid().ToString("N");
     public RawMatch RawMatchMode { get; set; } = RawMatch.Anywhere;
+    /// <summary>When true, RAW frames without an edited image are hidden until the viewer turns the curated filter off.</summary>
+    public bool HideRawOnly { get; set; } = true;
+    public GallerySort SortMode { get; set; } = GallerySort.Taken;
+    public bool SortDesc { get; set; }
+    public DateTime? EventDate { get; set; }
+    public string Location { get; set; } = "";
+    /// <summary>Comma separated long-edge sizes offered for download; empty = all configured sizes.</summary>
+    public string AllowedSizes { get; set; } = "";
+    /// <summary>Comma separated lossless formats (png,webp,tif); empty = all.</summary>
+    public string AllowedFormats { get; set; } = "";
+    /// <summary>After this moment the gallery is unavailable to everyone but the admin.</summary>
+    public DateTime? ExpiresAt { get; set; }
     public bool AllowDownload { get; set; } = true;
     public bool AllowRaw { get; set; }
     public bool AllowZip { get; set; } = true;

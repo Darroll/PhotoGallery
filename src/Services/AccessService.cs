@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PhotoGallery;
 
-public record AccessInfo(bool Allowed, bool Admin, ShareLink? Link, bool NeedsPassword);
+public record AccessInfo(bool Allowed, bool Admin, ShareLink? Link, bool NeedsPassword, bool Expired = false);
 
 public class AccessService(IDataProtectionProvider dpp, AppDb db)
 {
@@ -17,6 +17,7 @@ public class AccessService(IDataProtectionProvider dpp, AppDb db)
     public async Task<AccessInfo> CheckAsync(HttpContext ctx, Gallery g)
     {
         if (IsAdmin(ctx)) return new(true, true, null, false);
+        if (GalleryRules.IsExpired(g)) return new(false, false, null, false, true);
         if (g.Visibility != Visibility.Protected) return new(true, false, null, false);
 
         if (ctx.Request.Cookies.TryGetValue(CookieName(g.Id), out var raw) && !string.IsNullOrEmpty(raw))

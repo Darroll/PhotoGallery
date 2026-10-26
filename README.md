@@ -16,6 +16,13 @@ Self-hosted photo galleries for Unraid, written in ASP.NET Core 9 (SQLite + libv
 | Expiring links, download limits | Share links with expiry date and max downloads; revocable. A ZIP counts as one download. |
 | Guest uploads | Per gallery. Always moderated: nothing shows until you approve it. Stored in `/data`, never in your library. |
 
+### Admin pages
+
+- `/admin`: create galleries from library folders; list of galleries with cover, status chips and a Settings link.
+- `/admin/galleries/<id>`: per-gallery settings in collapsible sections (General, Access & sharing, Downloads, Watermark & uploads, RAW files - collapsed by default) with a single Save button and an unsaved-changes warning.
+- Per-gallery options include photo order (capture time / name / date added, reversible), event date and location, auto-expire date, offered download sizes and formats, and the curated-only default.
+- `/admin/settings`: site-wide watermark (none / text / PNG) with live preview.
+
 ### Design notes you should know
 
 - **"Lossless" and resizing:** shrinking an image always discards pixels. The sized exports add *no extra compression loss* on top of the downscale. For zero change, use *Original*.

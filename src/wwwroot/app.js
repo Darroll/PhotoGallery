@@ -35,18 +35,22 @@ let site = { title: 'Photos', sizes: [], formats: [] };
 const fmtDate = (s) => s ? new Date(/Z$|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z').toLocaleString() : '';
 
 // ---------- routing ----------
+let dirtyGuard = null; // set by pages with unsaved changes: returns true when it is OK to leave
 async function route() {
   closeLightbox();
+  dirtyGuard = null;
   const parts = location.pathname.split('/').filter(Boolean);
   const app = $('#app'); app.replaceChildren();
   document.title = site.title;
   if (parts[0] === 'g' && parts[1]) return viewGallery(app, decodeURIComponent(parts[1]));
   if (parts[0] === 'admin' && parts[1] === 'settings') return viewSettings(app);
+  if (parts[0] === 'admin' && parts[1] === 'galleries' && parts[2]) return viewGallerySettings(app, Number(parts[2]));
   if (parts[0] === 'admin') return viewAdmin(app);
   if (parts[0] === 'expired') return app.append(h('div', { class: 'center' }, h('h1', { text: 'Link unavailable' }), h('p', { class: 'sub', text: 'This share link has expired or was revoked.' })));
   return viewHome(app);
 }
 window.addEventListener('popstate', route);
+window.addEventListener('beforeunload', (e) => { if (dirtyGuard && !dirtyGuard(true)) { e.preventDefault(); e.returnValue = ''; } });
 // old bookmarks like /#/g/slug -> /g/slug
 if (location.hash.startsWith('#/')) history.replaceState(null, '', location.hash.slice(1));
 // in-app links navigate without a page load
@@ -54,7 +58,11 @@ document.addEventListener('click', (e) => {
   const a = e.target.closest && e.target.closest('a[href]');
   if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || a.target === '_blank' || a.hasAttribute('download')) return;
   const href = a.getAttribute('href');
-  if (href === '/' || /^\/(g|admin|expired)(\/|$)/.test(href)) { e.preventDefault(); go(href); }
+  if (href === '/' || /^\/(g|admin|expired)(\/|$)/.test(href)) {
+    e.preventDefault();
+    if (dirtyGuard && !dirtyGuard()) return;
+    go(href);
+  }
 });
 function go(path) { if (path !== location.pathname) history.pushState(null, '', path); route(); window.scrollTo(0, 0); }
 
@@ -62,6 +70,11 @@ function renderHeader() {
   const top = $('#top'); top.replaceChildren(
     h('a', { class: 'brand', href: '/', text: site.title }),
     h('nav', {}, h('a', { href: '/admin', text: 'Admin' })));
+}
+
+function eventLine(g) {
+  const d = g.eventDate ? new Date(/Z$|[+-]\d\d:\d\d$/.test(g.eventDate) ? g.eventDate : g.eventDate + 'Z').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }) : '';
+  return [d, g.location].filter(Boolean).join(' \u00B7 ');
 }
 
 // ---------- home ----------
@@ -72,7 +85,7 @@ async function viewHome(app) {
   app.append(h('div', { class: 'cards' }, r.data.map(g =>
     h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
       g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
-      h('div', { class: 'meta' }, h('b', { text: g.title }), h('span', { class: 'muted', text: `${g.count} photos` }))))));
+      h('div', { class: 'meta' }, h('b', { text: g.title }), g.eventDate || g.location ? h('span', { class: 'muted', text: eventLine(g) }) : null, h('span', { class: 'muted', text: `${g.count} photos` }))))));
 }
 
 // ---------- gallery ----------
@@ -81,10 +94,12 @@ let G = null; // current gallery payload
 async function viewGallery(app, slug) {
   const r = await api('/api/g/' + encodeURIComponent(slug));
   if (r.status === 401 && r.data && r.data.needsPassword) return passwordPrompt(app, slug, r.data.title);
+  if (r.status === 410) return app.append(h('div', { class: 'center' }, h('h1', { text: (r.data && r.data.title) || 'Gallery closed' }), h('p', { class: 'sub', text: 'This gallery is no longer available.' })));
   if (!r.ok) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Not available' }), h('p', { class: 'sub', text: 'This gallery does not exist or you do not have access.' })));
   G = r.data;
   document.title = G.title + ' - ' + site.title;
   app.append(h('h1', { text: G.title }));
+  if (G.eventDate || G.location) app.append(h('p', { class: 'muted', text: eventLine(G) }));
   if (G.description) app.append(h('p', { class: 'sub', text: G.description }));
   if (G.link) {
     const bits = [];
@@ -98,7 +113,7 @@ async function viewGallery(app, slug) {
   const tb = h('div', { class: 'toolbar' });
   const countLabel = h('span', { class: 'muted' });
   const slideBtn = h('button', { class: 'primary', text: '\u25B6 Slideshow', onclick: () => openLightbox(0, true) });
-  const curated = h('input', { type: 'checkbox', checked: true });
+  const curated = h('input', { type: 'checkbox', checked: G.hideRawOnly !== false });
   const curatedText = h('span');
   const rawBtn = h('label', { class: 'switch', title: 'Curated photos are the edited ones. Turn this off to also see unedited RAW frames.' }, curated, curatedText);
   const grid = h('div', { class: 'grid' });
@@ -148,12 +163,12 @@ function passwordPrompt(app, slug, title) {
 function sizeSelect(allowOriginal) {
   const s = h('select');
   if (allowOriginal) s.append(h('option', { value: 'original', text: 'Original file' }));
-  for (const px of site.sizes) s.append(h('option', { value: px, text: `${px}px long edge` }));
+  for (const px of (G ? G.sizes : site.sizes)) s.append(h('option', { value: px, text: `${px}px long edge` }));
   return s;
 }
 function fmtSelect() {
   const s = h('select');
-  for (const f of site.formats) s.append(h('option', { value: f, text: fmtLabels[f] || f }));
+  for (const f of (G ? G.formats : site.formats)) s.append(h('option', { value: f, text: fmtLabels[f] || f }));
   return s;
 }
 
@@ -281,12 +296,33 @@ async function viewAdmin(app) {
   if (!me.data || !me.data.admin) return adminLogin(app);
   const [gals, folders] = await Promise.all([api('/api/admin/galleries'), api('/api/admin/folders')]);
   app.append(h('div', { class: 'toolbar' }, h('h1', { text: 'Admin' }), h('span', { class: 'grow' }),
-    h('a', { class: 'btn', href: '/admin/settings', text: 'Settings' }),
+    h('a', { class: 'btn', href: '/admin/settings', text: 'Site settings' }),
     h('button', { text: 'Log out', onclick: async () => { await api('/api/admin/logout', { method: 'POST' }); route(); } })));
   app.append(newGalleryPanel(folders.data || []));
   const list = gals.data || [];
-  if (!list.length) app.append(h('p', { class: 'muted', text: 'No galleries yet. Create one from a folder above.' }));
-  for (const g of list) app.append(galleryPanel(g));
+  app.append(h('h2', { text: `Galleries (${list.length})` }));
+  if (!list.length) return app.append(h('p', { class: 'muted', text: 'No galleries yet. Create one from a folder above.' }));
+  app.append(h('div', { class: 'gal-list' }, list.map(galleryRow)));
+}
+
+const visShort = { 0: 'Public', 1: 'Unlisted', 2: 'Protected' };
+function galleryRow(g) {
+  const settingsHref = '/admin/galleries/' + g.id;
+  const expired = g.expiresAt && new Date(/Z$/.test(g.expiresAt) ? g.expiresAt : g.expiresAt + 'Z') <= new Date();
+  return h('div', { class: 'gal-row' },
+    h('a', { href: settingsHref, class: 'gal-thumb' }, g.cover ? h('img', { src: `/img/${g.cover}/thumb`, alt: '', loading: 'lazy' }) : h('span', { class: 'muted', text: 'No cover' })),
+    h('div', { class: 'gal-info' },
+      h('a', { href: settingsHref, class: 'gal-name', text: g.title }),
+      h('div', { class: 'chips' },
+        h('span', { class: 'chip v' + g.visibility, text: visShort[g.visibility] }),
+        h('span', { class: 'chip', text: `${g.count} photos` }),
+        g.pending ? h('span', { class: 'chip warn', text: `${g.pending} pending` }) : null,
+        expired ? h('span', { class: 'chip warn', text: 'Expired' }) : null,
+        g.hasPassword ? h('span', { class: 'chip', text: 'Password' }) : null),
+      h('div', { class: 'muted', text: '/g/' + g.slug })),
+    h('div', { class: 'gal-actions' },
+      h('a', { class: 'btn', href: '/g/' + encodeURIComponent(g.slug), text: 'View' }),
+      h('a', { class: 'btn primary', href: settingsHref, text: 'Settings' })));
 }
 
 function adminLogin(app) {
@@ -318,7 +354,7 @@ function newGalleryPanel(folders) {
       h('button', { class: 'primary', text: 'Create & scan', onclick: async () => {
         out.textContent = 'Scanning...';
         const r = await api('/api/admin/galleries', { method: 'POST', body: { title: title.value, folder: folder.value, visibility: Number(vis.value) } });
-        if (r.ok) route(); else out.textContent = typeof r.data === 'string' ? r.data : 'Failed';
+        if (r.ok) go('/admin/galleries/' + r.data.gallery.id); else out.textContent = typeof r.data === 'string' ? r.data : 'Failed';
       } }), out));
 }
 
@@ -381,62 +417,207 @@ async function viewSettings(app) {
   refresh();
 }
 
-function galleryPanel(g) {
-  const panel = h('div', { class: 'panel' });
-  const title = h('input', { type: 'text', value: g.title });
-  const slug = h('input', { type: 'text', value: g.slug });
-  const desc = h('textarea', { value: g.description || '' });
-  const vis = h('select', {}, Object.entries(visLabels).map(([v, t]) => h('option', { value: v, text: t, selected: Number(v) === g.visibility })));
-  const pw = h('input', { type: 'password', placeholder: g.hasPassword ? '(password set - type to change, "-" to clear)' : '(no password)', autocomplete: 'new-password' });
-  const dl = checkRow('Allow downloads', g.allowDownload), raw = checkRow('Allow RAW download', g.allowRaw), zip = checkRow('Allow ZIP', g.allowZip);
-  const up = checkRow('Allow guest uploads (moderated)', g.allowGuestUpload);
-  const rawMode = h('select', {}, [[0, 'Same folder, same file name'], [1, 'Same file name, any folder'], [2, 'Name starts with RAW name (e.g. IMG_1234-Edit.png)']].map(([v, t]) => h('option', { value: v, text: t, selected: v === g.rawMatchMode })));
-  const wv = checkRow('Watermark on screen', g.watermarkView), wd = checkRow('Watermark downloads (blocks originals & RAW)', g.watermarkDownload);
-  const msg = h('span', { class: 'muted' });
+function section(title, hint, open, ...body) {
+  const d = h('details', { class: 'section', open });
+  d.append(h('summary', {}, h('span', { class: 'section-title', text: title }), hint ? h('span', { class: 'muted', text: hint }) : null),
+    h('div', { class: 'section-body' }, body));
+  return d;
+}
+function field(label, el, hint) {
+  return h('div', { class: 'field' }, h('label', { text: label }), h('div', {}, el, hint ? h('div', { class: 'muted', text: hint }) : null));
+}
+const toLocalInput = (iso) => {
+  if (!iso) return '';
+  const d = new Date(/Z$/.test(iso) ? iso : iso + 'Z'); const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 
-  const save = async () => {
-    const body = { title: title.value, slug: slug.value, description: desc.value, visibility: Number(vis.value),
-      allowDownload: dl.box.checked, allowRaw: raw.box.checked, allowZip: zip.box.checked, allowGuestUpload: up.box.checked,
-      watermarkView: wv.box.checked, watermarkDownload: wd.box.checked, rawMatchMode: Number(rawMode.value) };
+async function viewGallerySettings(app, id) {
+  const me = await api('/api/admin/me');
+  if (!me.data || !me.data.admin) return adminLogin(app);
+  const gals = await api('/api/admin/galleries');
+  const g = (gals.data || []).find(x => x.id === id);
+  if (!g) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Gallery not found' }), h('a', { class: 'btn', href: '/admin', text: 'Back to admin' })));
+  document.title = g.title + ' settings - ' + site.title;
+
+  let dirty = false;
+  const status = h('span', { class: 'muted' });
+  const saveBtn = h('button', { class: 'primary', text: 'Save changes', disabled: true });
+  const touch = () => { dirty = true; saveBtn.disabled = false; status.textContent = 'Unsaved changes'; };
+  dirtyGuard = (silent) => !dirty || (silent ? false : confirm('You have unsaved changes. Leave this page and discard them?'));
+  const track = (el) => { el.addEventListener('input', touch); el.addEventListener('change', touch); return el; };
+
+  // --- General ---
+  const title = track(h('input', { type: 'text', value: g.title }));
+  const slug = track(h('input', { type: 'text', value: g.slug }));
+  const desc = track(h('textarea', { value: g.description || '' }));
+  const eventDate = track(h('input', { type: 'date', value: g.eventDate ? g.eventDate.slice(0, 10) : '' }));
+  const location_ = track(h('input', { type: 'text', value: g.location || '', placeholder: 'e.g. Field 3, Springfield' }));
+  const sortMode = track(h('select', {}, [[0, 'Capture time'], [1, 'File name'], [2, 'Date added']].map(([v, t]) => h('option', { value: v, text: t, selected: v === g.sortMode }))));
+  const sortDesc = track(h('input', { type: 'checkbox', checked: g.sortDesc }));
+  const coverImg = h('img', { class: 'cover-prev', alt: '' });
+  const setCover = (cid) => { coverImg.style.display = cid ? '' : 'none'; if (cid) coverImg.src = `/img/${cid}/thumb`; };
+  setCover(g.cover);
+  const pickerBox = h('div');
+  const coverBtn = h('button', { text: 'Choose cover...', onclick: async () => {
+    if (pickerBox.childNodes.length) { pickerBox.replaceChildren(); return; }
+    const r = await api('/api/g/' + encodeURIComponent(g.slug));
+    const photos = ((r.data && r.data.photos) || []).filter(p => p.approved && !p.rawOnly);
+    pickerBox.append(h('p', { class: 'muted', text: 'Click a photo to make it the gallery cover.' }),
+      h('div', { class: 'picker' }, photos.map(p => h('img', { src: `/img/${p.id}/thumb`, alt: p.name, title: p.name, loading: 'lazy', onclick: async () => {
+        const cr = await api(`/api/admin/galleries/${g.id}/cover`, { method: 'PUT', body: { photoId: p.id } });
+        if (cr.ok) { setCover(p.id); toast('Cover updated'); pickerBox.replaceChildren(); }
+      } }))));
+  } });
+  const scanMsg = h('span', { class: 'muted' });
+  const general = section('General', 'Name, date, order, cover', true,
+    h('div', { class: 'form1' },
+      field('Title', title), field('URL name', slug, `Gallery address: /g/${g.slug}`), field('Description', desc),
+      field('Event date', eventDate), field('Location', location_),
+      field('Photo order', h('div', { class: 'row' }, sortMode, h('label', {}, sortDesc, ' Reverse (newest / Z-A first)'))),
+      field('Cover image', h('div', {}, h('div', { class: 'row' }, coverImg, coverBtn), pickerBox)),
+      field('Folder', h('code', { text: g.folder }), 'Photos are read from this library folder.'),
+      field('Rescan', h('div', { class: 'row' }, h('button', { text: 'Rescan folder now', onclick: async () => {
+        scanMsg.textContent = 'Scanning...';
+        const r = await api(`/api/admin/galleries/${g.id}/scan`, { method: 'POST' });
+        scanMsg.textContent = r.ok ? `Added ${r.data.added}, removed ${r.data.removed}; ${r.data.paired} paired with RAW, ${r.data.rawOnly} RAW-only` : (typeof r.data === 'string' ? r.data : 'Failed');
+      } }), scanMsg), 'Folders are also rescanned automatically.'),
+      field('Delete', h('button', { class: 'danger', text: 'Delete gallery...', onclick: async () => {
+        if (!confirm('Remove this gallery from the site? Your original photo files are NOT deleted.')) return;
+        dirty = false; await api('/api/admin/galleries/' + g.id, { method: 'DELETE' }); go('/admin');
+      } }))));
+
+  // --- Access & sharing ---
+  const vis = track(h('select', {}, Object.entries(visLabels).map(([v, t]) => h('option', { value: v, text: t, selected: Number(v) === g.visibility }))));
+  const pw = track(h('input', { type: 'password', placeholder: g.hasPassword ? 'Password set (type to change, - to remove)' : 'No password', autocomplete: 'new-password' }));
+  const expires = track(h('input', { type: 'datetime-local', value: toLocalInput(g.expiresAt) }));
+  const access = section('Access & sharing', 'Who can open it, passwords, links', true,
+    h('div', { class: 'form1' },
+      field('Visibility', vis, 'Public shows on the home page. Unlisted needs the link. Protected needs a password or a share link.'),
+      field('Password', pw),
+      field('Auto-expire', expires, 'After this time the gallery closes for everyone but you. Nothing is deleted. Clear to keep it open.')),
+    h('h3', { text: 'Share links' }), linksManager(g));
+
+  // --- Downloads ---
+  const allowDl = track(h('input', { type: 'checkbox', checked: g.allowDownload }));
+  const allowZip = track(h('input', { type: 'checkbox', checked: g.allowZip }));
+  const selSizes = (g.allowedSizes || '').split(',').filter(Boolean).map(Number);
+  const sizeBoxes = site.sizes.map(px => ({ px, box: track(h('input', { type: 'checkbox', checked: selSizes.length === 0 || selSizes.includes(px) })) }));
+  const selFmts = (g.allowedFormats || '').split(',').filter(Boolean);
+  const fmtBoxes = site.formats.map(f => ({ f, box: track(h('input', { type: 'checkbox', checked: selFmts.length === 0 || selFmts.includes(f) })) }));
+  const downloads = section('Downloads', 'What viewers can take', true,
+    h('div', { class: 'form1' },
+      field('Downloads', h('label', {}, allowDl, ' Allow viewers to download photos')),
+      field('ZIP', h('label', {}, allowZip, ' Allow downloading the whole gallery as a ZIP')),
+      field('Sizes offered', h('div', { class: 'row' }, sizeBoxes.map(x => h('label', {}, x.box, ` ${x.px}px`))), 'Long edge. The original file is always available unless watermarking downloads.'),
+      field('Formats offered', h('div', { class: 'row' }, fmtBoxes.map(x => h('label', {}, x.box, ' ' + (fmtLabels[x.f] || x.f)))), 'All sized downloads are lossless.')));
+
+  // --- Watermark & uploads ---
+  const wmView = track(h('input', { type: 'checkbox', checked: g.watermarkView }));
+  const wmDl = track(h('input', { type: 'checkbox', checked: g.watermarkDownload }));
+  const guestUp = track(h('input', { type: 'checkbox', checked: g.allowGuestUpload }));
+  const wmUp = section('Watermark & uploads', 'Branding and guest photos', true,
+    h('div', { class: 'form1' },
+      field('On screen', h('label', {}, wmView, ' Watermark photos shown in the gallery'), 'Style is set in Site settings.'),
+      field('Downloads', h('label', {}, wmDl, ' Watermark sized downloads'), 'This also blocks original and RAW downloads, which cannot carry a watermark.'),
+      field('Guest uploads', h('label', {}, guestUp, ' Let visitors upload photos'), 'Uploads stay hidden until you approve them.')),
+    h('p', {}, h('a', { href: '/admin/settings', text: 'Open site settings (watermark style)' })), pendingManager(g));
+
+  // --- RAW files (collapsed) ---
+  const rawMode = track(h('select', {}, [[0, 'Same folder, same file name'], [1, 'Same file name, any folder'], [2, 'Name starts with the RAW name (IMG_1234-Edit.png)']].map(([v, t]) => h('option', { value: v, text: t, selected: v === g.rawMatchMode }))));
+  const allowRaw = track(h('input', { type: 'checkbox', checked: g.allowRaw }));
+  const hideRaw = track(h('input', { type: 'checkbox', checked: g.hideRawOnly }));
+  const raw = section('RAW files', 'Matching, filter and downloads', false,
+    h('div', { class: 'form1' },
+      field('Match RAW to image by', rawMode, 'Used on rescan. Rescan the folder after changing this.'),
+      field('RAW downloads', h('label', {}, allowRaw, ' Let viewers download the RAW file'), 'Blocked while downloads are watermarked.'),
+      field('Curated filter', h('label', {}, hideRaw, ' Hide RAW frames with no edited image until the viewer turns the filter off'))),
+    rawLinker(g));
+
+  saveBtn.onclick = async () => {
+    const body = {
+      title: title.value, slug: slug.value, description: desc.value, location: location_.value,
+      eventDate: eventDate.value || '', sortMode: Number(sortMode.value), sortDesc: sortDesc.checked,
+      visibility: Number(vis.value), expiresAt: expires.value ? new Date(expires.value).toISOString() : '',
+      allowDownload: allowDl.checked, allowZip: allowZip.checked,
+      allowedSizes: sizeBoxes.every(x => x.box.checked) ? '' : sizeBoxes.filter(x => x.box.checked).map(x => x.px).join(','),
+      allowedFormats: fmtBoxes.every(x => x.box.checked) ? '' : fmtBoxes.filter(x => x.box.checked).map(x => x.f).join(','),
+      watermarkView: wmView.checked, watermarkDownload: wmDl.checked, allowGuestUpload: guestUp.checked,
+      rawMatchMode: Number(rawMode.value), allowRaw: allowRaw.checked, hideRawOnly: hideRaw.checked
+    };
     if (pw.value) body.password = pw.value === '-' ? '' : pw.value;
     const r = await api('/api/admin/galleries/' + g.id, { method: 'PUT', body });
-    if (r.ok) { toast('Saved'); route(); } else msg.textContent = typeof r.data === 'string' ? r.data : 'Failed';
+    if (r.ok) { dirty = false; toast('Saved'); route(); }
+    else status.textContent = typeof r.data === 'string' ? r.data : 'Save failed';
   };
 
-  const linksBox = h('div');
-  const loadLinks = async () => {
+  app.append(
+    h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/admin', text: '\u2190 All galleries' }), h('h1', { text: g.title }), h('span', { class: 'grow' }),
+      h('a', { class: 'btn', href: '/g/' + encodeURIComponent(g.slug), text: 'View gallery' })),
+    general, access, downloads, wmUp, raw,
+    h('div', { class: 'savebar' }, saveBtn, status));
+}
+
+function linksManager(g) {
+  const box = h('div');
+  const load = async () => {
     const r = await api(`/api/admin/galleries/${g.id}/links`);
-    linksBox.replaceChildren(h('table', {},
+    box.replaceChildren(h('table', {},
       h('tr', {}, ['Label', 'Link', 'Expires', 'Downloads', ''].map(t => h('th', { text: t }))),
       (r.data || []).map(l => {
         const url = `${location.origin}/s/${l.token}`;
-        const state = l.revoked ? 'revoked' : (l.expiresAt && new Date(l.expiresAt) < new Date() ? 'expired' : '');
+        const state = l.revoked ? 'revoked' : (l.expiresAt && new Date(l.expiresAt.endsWith('Z') ? l.expiresAt : l.expiresAt + 'Z') < new Date() ? 'expired' : '');
         return h('tr', {},
           h('td', { text: l.label || '-' }),
           h('td', {}, h('a', { href: url, text: '/s/' + l.token.slice(0, 8) + '...', target: '_blank' }), ' ',
             h('button', { text: 'Copy', onclick: async () => { try { await navigator.clipboard.writeText(url); toast('Copied'); } catch { prompt('Copy link', url); } } })),
           h('td', { text: (l.expiresAt ? fmtDate(l.expiresAt) : 'never') + (state ? ` (${state})` : '') }),
           h('td', { text: `${l.downloadCount}${l.maxDownloads ? ' / ' + l.maxDownloads : ''}` }),
-          h('td', {}, l.revoked ? '' : h('button', { class: 'danger', text: 'Revoke', onclick: async () => { await api('/api/admin/links/' + l.id, { method: 'DELETE' }); loadLinks(); } })));
+          h('td', {}, l.revoked ? '' : h('button', { class: 'danger', text: 'Revoke', onclick: async () => { await api('/api/admin/links/' + l.id, { method: 'DELETE' }); load(); } })));
       })));
   };
-  const lLabel = h('input', { type: 'text', placeholder: 'Label (e.g. Team parents)' });
-  const lDays = h('input', { type: 'number', placeholder: 'Expires in days', min: 1 });
-  const lMax = h('input', { type: 'number', placeholder: 'Max downloads', min: 1 });
-  lDays.style.width = '150px'; lMax.style.width = '150px';
+  const label = h('input', { type: 'text', placeholder: 'Label (e.g. Team parents)' });
+  const days = h('input', { type: 'number', placeholder: 'Expires in days', min: 1 });
+  const max = h('input', { type: 'number', placeholder: 'Max downloads', min: 1 });
+  days.style.width = '150px'; max.style.width = '150px';
+  load();
+  return h('div', {}, h('div', { class: 'row' }, label, days, max,
+    h('button', { text: 'Create link', onclick: async () => {
+      const r = await api(`/api/admin/galleries/${g.id}/links`, { method: 'POST', body: { label: label.value, expiresInDays: Number(days.value) || null, maxDownloads: Number(max.value) || null } });
+      if (r.ok) { label.value = ''; days.value = ''; max.value = ''; load(); }
+    } })), box);
+}
 
-  const rawBox = h('div');
-  const loadRawLinks = async () => {
-    rawBox.replaceChildren();
+function pendingManager(g) {
+  const box = h('div');
+  (async () => {
+    const r = await api('/api/g/' + encodeURIComponent(g.slug));
+    const pend = ((r.data && r.data.photos) || []).filter(p => !p.approved);
+    if (!pend.length) return;
+    box.append(h('h3', { text: `Pending guest uploads (${pend.length})` }),
+      h('div', { class: 'grid' }, pend.map(p => {
+        const it = h('div', { class: 'ph pending' }, h('img', { src: `/img/${p.id}/thumb`, alt: p.name }));
+        it.style.width = '180px'; it.style.height = '140px'; it.style.cursor = 'default';
+        return h('div', {}, it, h('div', { class: 'row' },
+          h('button', { class: 'primary', text: 'Approve', onclick: async () => { await api(`/api/admin/photos/${p.id}/approve`, { method: 'POST' }); route(); } }),
+          h('button', { class: 'danger', text: 'Reject', onclick: async () => { await api(`/api/admin/photos/${p.id}`, { method: 'DELETE' }); route(); } })));
+      })));
+  })();
+  return box;
+}
+
+function rawLinker(g) {
+  const box = h('div');
+  const load = async () => {
+    box.replaceChildren();
     const r = await api('/api/g/' + encodeURIComponent(g.slug));
     const photos = (r.data && r.data.photos) || [];
     const rawOnly = photos.filter(p => p.rawOnly);
     const candidates = photos.filter(p => !p.raw && !p.rawOnly);
+    box.append(h('p', { class: 'muted', text: `${photos.filter(p => p.raw && !p.rawOnly).length} photos have a RAW attached. ${rawOnly.length} RAW files have no edited image.` }));
     if (!rawOnly.length) return;
     const listId = 'dl-' + g.id;
-    const dlist = h('datalist', { id: listId }, candidates.map(p => h('option', { value: p.name })));
-    rawBox.append(h('h3', { text: `RAW files without an edited version (${rawOnly.length})` }),
-      h('p', { class: 'muted', text: 'If a RAW belongs to an edited image whose name does not match, type that image file name to link them.' }), dlist,
+    box.append(h('h3', { text: 'Link a RAW to an edited image by name' }), h('datalist', { id: listId }, candidates.map(p => h('option', { value: p.name }))),
       h('table', {}, rawOnly.map(p => {
         const input = h('input', { type: 'text', placeholder: 'Edited image file name', list: listId });
         return h('tr', {}, h('td', {}, h('img', { src: `/img/${p.id}/thumb`, alt: '', class: 'tiny' })), h('td', { text: p.name }),
@@ -444,54 +625,12 @@ function galleryPanel(g) {
             const target = candidates.find(c => c.name.toLowerCase() === input.value.trim().toLowerCase());
             if (!target) { toast('No matching image name'); return; }
             const lr = await api(`/api/admin/photos/${target.id}/link-raw`, { method: 'POST', body: { rawPhotoId: p.id } });
-            if (lr.ok) { toast('Linked'); loadRawLinks(); } else toast(typeof lr.data === 'string' ? lr.data : 'Failed');
+            if (lr.ok) { toast('Linked'); load(); } else toast(typeof lr.data === 'string' ? lr.data : 'Failed');
           } })));
       })));
   };
-  const pendingBox = h('div');
-  const loadPending = async () => {
-    pendingBox.replaceChildren();
-    if (!g.pending) return;
-    const r = await api('/api/g/' + encodeURIComponent(g.slug));
-    const pend = (r.data && r.data.photos || []).filter(p => !p.approved);
-    pendingBox.append(h('h3', { text: `Pending guest uploads (${pend.length})` }),
-      h('div', { class: 'grid' }, pend.map(p => {
-        const it = h('div', { class: 'ph pending' }, h('img', { src: `/img/${p.id}/thumb`, alt: p.name }));
-        it.style.width = '180px'; it.style.height = '140px'; it.style.cursor = 'default';
-        const bar = h('div', { class: 'row' },
-          h('button', { class: 'primary', text: 'Approve', onclick: async () => { await api(`/api/admin/photos/${p.id}/approve`, { method: 'POST' }); route(); } }),
-          h('button', { class: 'danger', text: 'Reject', onclick: async () => { await api(`/api/admin/photos/${p.id}`, { method: 'DELETE' }); route(); } }));
-        return h('div', {}, it, bar);
-      })));
-  };
-
-  panel.append(
-    h('div', { class: 'toolbar' }, g.cover ? h('img', { src: `/img/${g.cover}/thumb`, alt: 'cover', class: 'tiny' }) : null, h('h3', { text: g.title }), h('span', { class: 'muted', text: `${g.count} photos · folder: ${g.folder}` }), h('span', { class: 'grow' }),
-      h('a', { class: 'btn', href: '/g/' + encodeURIComponent(g.slug), text: 'Open' }),
-      h('button', { text: 'Rescan folder', onclick: async () => {
-        msg.textContent = 'Scanning...'; const r = await api(`/api/admin/galleries/${g.id}/scan`, { method: 'POST' });
-        msg.textContent = r.ok ? `Added ${r.data.added}, removed ${r.data.removed}; ${r.data.paired} paired with RAW, ${r.data.rawOnly} RAW-only${r.data.skippedRaw ? ', skipped ' + r.data.skippedRaw : ''}` : (r.data || 'Failed'); if (r.ok) loadRawLinks();
-      } }),
-      h('button', { class: 'danger', text: 'Delete gallery', onclick: async () => {
-        if (!confirm('Remove this gallery from the site? Your original photo files are NOT deleted.')) return;
-        await api('/api/admin/galleries/' + g.id, { method: 'DELETE' }); route();
-      } })),
-    h('div', { class: 'form' },
-      h('label', { text: 'Title' }), title, h('label', { text: 'URL slug' }), slug, h('label', { text: 'Description' }), desc,
-      h('label', { text: 'Visibility' }), vis, h('label', { text: 'Password' }), pw,
-      h('label', { text: 'Match RAW by' }), rawMode),
-    h('div', { class: 'row' }, dl.el, raw.el, zip.el, up.el),
-    h('div', { class: 'row' }, wv.el, wd.el),
-    h('div', { class: 'row' }, h('button', { class: 'primary', text: 'Save settings', onclick: save }), msg),
-    h('h3', { text: 'Share links' }),
-    h('div', { class: 'row' }, lLabel, lDays, lMax,
-      h('button', { text: 'Create link', onclick: async () => {
-        const r = await api(`/api/admin/galleries/${g.id}/links`, { method: 'POST', body: { label: lLabel.value, expiresInDays: Number(lDays.value) || null, maxDownloads: Number(lMax.value) || null } });
-        if (r.ok) { lLabel.value = ''; lDays.value = ''; lMax.value = ''; loadLinks(); }
-      } })),
-    linksBox, pendingBox, rawBox);
-  loadLinks(); loadPending(); loadRawLinks();
-  return panel;
+  load();
+  return box;
 }
 
 // ---------- boot ----------

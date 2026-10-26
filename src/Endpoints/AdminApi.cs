@@ -11,7 +11,9 @@ public static class AdminApi
     record LoginRequest(string? Password);
     record GalleryInput(string? Title, string? Description, string? Folder, string? Slug, Visibility? Visibility,
         string? Password, bool? AllowDownload, bool? AllowRaw, bool? AllowZip, bool? AllowGuestUpload,
-        bool? WatermarkView, bool? WatermarkDownload, RawMatch? RawMatchMode);
+        bool? WatermarkView, bool? WatermarkDownload, RawMatch? RawMatchMode,
+        bool? HideRawOnly, GallerySort? SortMode, bool? SortDesc, string? EventDate, string? Location,
+        string? AllowedSizes, string? AllowedFormats, string? ExpiresAt);
     record LinkRawInput(int RawPhotoId);
     record LinkInput(string? Label, int? ExpiresInDays, int? MaxDownloads);
     record CoverInput(int PhotoId);
@@ -27,7 +29,9 @@ public static class AdminApi
         g.Id, g.Slug, g.Title, g.Description, g.Folder, g.Visibility,
         hasPassword = !string.IsNullOrEmpty(g.PasswordHash),
         g.AllowDownload, g.AllowRaw, g.AllowZip, g.AllowGuestUpload, g.WatermarkView, g.WatermarkDownload,
-        rawMatchMode = g.RawMatchMode, cover = g.CoverPhotoId, count, pending
+        rawMatchMode = g.RawMatchMode, hideRawOnly = g.HideRawOnly, sortMode = g.SortMode, sortDesc = g.SortDesc,
+        eventDate = g.EventDate, g.Location, g.AllowedSizes, g.AllowedFormats, expiresAt = g.ExpiresAt,
+        cover = g.CoverPhotoId, count, pending
     };
 
     public static void Map(WebApplication app)
@@ -141,6 +145,14 @@ public static class AdminApi
             if (input.WatermarkView != null) g.WatermarkView = input.WatermarkView.Value;
             if (input.WatermarkDownload != null) g.WatermarkDownload = input.WatermarkDownload.Value;
             if (input.RawMatchMode != null) g.RawMatchMode = input.RawMatchMode.Value;
+            if (input.HideRawOnly != null) g.HideRawOnly = input.HideRawOnly.Value;
+            if (input.SortMode != null) g.SortMode = input.SortMode.Value;
+            if (input.SortDesc != null) g.SortDesc = input.SortDesc.Value;
+            if (input.Location != null) g.Location = input.Location.Trim();
+            if (input.EventDate != null) g.EventDate = DateTime.TryParse(input.EventDate, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ed) ? ed : null;
+            if (input.ExpiresAt != null) g.ExpiresAt = DateTime.TryParse(input.ExpiresAt, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ex) ? ex : null;
+            if (input.AllowedSizes != null) g.AllowedSizes = string.Join(',', input.AllowedSizes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(s => int.TryParse(s, out _)));
+            if (input.AllowedFormats != null) g.AllowedFormats = string.Join(',', input.AllowedFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => s.ToLowerInvariant()).Where(s => ImageService.LosslessFormats.Contains(s)));
             await db.SaveChangesAsync();
             return Results.Ok(Dto(g, await db.Photos.CountAsync(p => p.GalleryId == id && p.Approved), await db.Photos.CountAsync(p => p.GalleryId == id && !p.Approved)));
         });

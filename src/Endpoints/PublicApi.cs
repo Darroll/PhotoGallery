@@ -20,21 +20,23 @@ public static class PublicApi
 
         app.MapGet("/api/galleries", async (AppDb db) =>
         {
-            var list = await db.Galleries.Where(g => g.Visibility == Visibility.Public)
+            var now = DateTime.UtcNow;
+            var list = await db.Galleries.Where(g => g.Visibility == Visibility.Public && (g.ExpiresAt == null || g.ExpiresAt > now))
                 .OrderByDescending(g => g.CreatedAt)
                 .Select(g => new
                 {
-                    g.Slug, g.Title, g.Description, cover = g.CoverPhotoId,
+                    g.Slug, g.Title, g.Description, g.Location, eventDate = g.EventDate, cover = g.CoverPhotoId,
                     count = g.Photos.Count(p => p.Approved)
                 }).ToListAsync();
             return Results.Ok(list);
         });
 
-        app.MapGet("/api/g/{slug}", async (string slug, HttpContext ctx, AppDb db, AccessService access) =>
+        app.MapGet("/api/g/{slug}", async (string slug, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg) =>
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
             if (g == null) return Results.NotFound();
             var a = await access.CheckAsync(ctx, g);
+            if (a.Expired) return Results.Json(new { expired = true, title = g.Title }, statusCode: 410);
             if (!a.Allowed)
                 return a.NeedsPassword
                     ? Results.Json(new { needsPassword = true, title = g.Title }, statusCode: 401)
@@ -42,14 +44,15 @@ public static class PublicApi
 
             var admin = a.Admin;
             var photos = await db.Photos.Where(p => p.GalleryId == g.Id && (p.Approved || admin))
-                .OrderBy(p => p.TakenAt).ThenBy(p => p.Name)
-                .Select(p => new { p.Id, w = p.Width, h = p.Height, p.Name, raw = p.RawRelPath != null, rawOnly = p.RawRelPath != null && p.RawRelPath == p.RelPath, taken = p.TakenAt, p.Approved })
+                .Select(p => new { p.Id, w = p.Width, h = p.Height, p.Name, raw = p.RawRelPath != null, rawOnly = p.RawRelPath != null && p.RawRelPath == p.RelPath, taken = p.TakenAt, added = p.AddedAt, p.Approved })
                 .ToListAsync();
+            photos = GalleryRules.Sort(photos, g, x => x.taken, x => x.Name, x => x.added);
 
             var locked = g.WatermarkDownload && !admin;
             return Results.Ok(new
             {
                 g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId,
+                g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, sizes = GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
                 allowDownload = g.AllowDownload,
                 allowOriginal = g.AllowDownload && !locked,
                 allowRaw = g.AllowDownload && g.AllowRaw && !locked,
@@ -123,9 +126,9 @@ public static class PublicApi
                 return Results.File(path, ImageService.ContentType(Path.GetExtension(path).TrimStart('.')), p.Name);
             }
 
-            if (!int.TryParse(size, out var px) || !cfg.Sizes.Contains(px)) return Results.BadRequest("Unknown size");
+            if (!int.TryParse(size, out var px) || !GalleryRules.Sizes(g, cfg).Contains(px)) return Results.BadRequest("Unknown size");
             var f = (fmt ?? "png").ToLowerInvariant();
-            if (!ImageService.LosslessFormats.Contains(f)) return Results.BadRequest("Unknown format");
+            if (!GalleryRules.Formats(g).Contains(f)) return Results.BadRequest("Unknown format");
             var v = await images.GetVariantAsync(p, "size", px, f, wm);
             if (v == null) return Results.NotFound();
             if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);
@@ -159,15 +162,16 @@ public static class PublicApi
             var f = (fmt ?? "png").ToLowerInvariant();
             if (!original)
             {
-                if (!int.TryParse(size, out px) || !cfg.Sizes.Contains(px)) return Results.BadRequest("Unknown size");
-                if (!ImageService.LosslessFormats.Contains(f)) return Results.BadRequest("Unknown format");
+                if (!int.TryParse(size, out px) || !GalleryRules.Sizes(g, cfg).Contains(px)) return Results.BadRequest("Unknown size");
+                if (!GalleryRules.Formats(g).Contains(f)) return Results.BadRequest("Unknown format");
             }
             var wmLock = g.WatermarkDownload && !a.Admin;
             if (original && wmLock) return Results.StatusCode(403);
             var includeRaw = raw == true && (a.Admin || (g.AllowRaw && !wmLock));
 
             var photos = await db.Photos.Where(p => p.GalleryId == g.Id && (p.Approved || a.Admin))
-                .OrderBy(p => p.TakenAt).ThenBy(p => p.Name).ToListAsync();
+                .ToListAsync();
+            photos = GalleryRules.Sort(photos, g, x => x.TakenAt, x => x.Name, x => x.AddedAt);
             if (photos.Count == 0) return Results.NotFound();
             if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);
 
