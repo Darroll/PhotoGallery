@@ -312,7 +312,7 @@ public static class AdminApi
         secured.MapGet("/cache", async (CacheService cache, ThumbnailService thumbs) =>
         {
             var s = await cache.StatsAsync();
-            return Results.Ok(new { bytes = s.Bytes, files = s.Files, staleFiles = s.StaleFiles, staleBytes = s.StaleBytes, busyGalleries = thumbs.BusyGalleries });
+            return Results.Ok(new { bytes = s.Bytes, files = s.Files, staleFiles = s.StaleFiles, staleBytes = s.StaleBytes, busyGalleries = thumbs.BusyGalleries, missing = s.Missing });
         });
 
         secured.MapPost("/cache/clean", async (CacheService cache) => Results.Ok(await cache.CleanAsync()));
@@ -324,7 +324,26 @@ public static class AdminApi
             return Results.Ok(new { galleries = ids.Count });
         });
 
-        secured.MapGet("/galleries/{id:int}/thumbnails", (int id, ThumbnailService thumbs) => Results.Ok(thumbs.Status(id)));
+        secured.MapGet("/galleries/{id:int}/thumbnails", async (int id, ThumbnailService thumbs, CacheService cache) =>
+        {
+            var s = thumbs.Status(id);
+            return Results.Ok(new { s.Total, s.Done, s.Running, s.Queued, missing = await cache.MissingAsync(id) });
+        });
+
+        // builds only what is not cached yet (rebuild deletes first)
+        secured.MapPost("/galleries/{id:int}/thumbnails/generate", async (int id, AppDb db, ThumbnailService thumbs) =>
+        {
+            if (!await db.Galleries.AnyAsync(g => g.Id == id)) return Results.NotFound();
+            thumbs.Enqueue(id);
+            return Results.Accepted();
+        });
+
+        secured.MapPost("/cache/generate-all", async (AppDb db, ThumbnailService thumbs) =>
+        {
+            var ids = await db.Galleries.Select(g => g.Id).ToListAsync();
+            foreach (var gid in ids) thumbs.Enqueue(gid);
+            return Results.Ok(new { galleries = ids.Count });
+        });
 
         secured.MapPost("/galleries/{id:int}/thumbnails/rebuild", async (int id, AppDb db, ThumbnailService thumbs) =>
         {

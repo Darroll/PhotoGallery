@@ -429,7 +429,7 @@ function cachePanel() {
     const r = await api('/api/admin/cache');
     if (!r.ok) { info.textContent = 'Could not read the cache.'; return; }
     const c = r.data;
-    info.textContent = `${fmtBytes(c.bytes)} in ${c.files} files. Stale: ${c.staleFiles} files (${fmtBytes(c.staleBytes)}). ` +
+    info.textContent = `${fmtBytes(c.bytes)} in ${c.files} files. Stale: ${c.staleFiles} files (${fmtBytes(c.staleBytes)}). Photos missing thumbnails: ${c.missing}. ` +
       (c.busyGalleries ? `${c.busyGalleries} galleries are building thumbnails now.` : 'No thumbnail jobs running.');
     if (c.busyGalleries) timer = setTimeout(() => { if (info.isConnected) load(); }, 3000);
   };
@@ -440,6 +440,10 @@ function cachePanel() {
       h('button', { text: 'Clean up stale files', onclick: async () => {
         const r = await api('/api/admin/cache/clean', { method: 'POST' });
         msg.textContent = r.ok ? `Removed ${r.data.files} files, freed ${fmtBytes(r.data.bytes)}` : 'Failed'; load();
+      } }),
+      h('button', { text: 'Generate missing thumbnails', onclick: async () => {
+        const r = await api('/api/admin/cache/generate-all', { method: 'POST' });
+        msg.textContent = r.ok ? `Checking ${r.data.galleries} galleries in the background` : 'Failed'; setTimeout(load, 800);
       } }),
       h('button', { text: 'Rebuild all thumbnails', onclick: async () => {
         if (!confirm('Delete and rebuild thumbnails for every gallery? This can take a while on big galleries.')) return;
@@ -602,7 +606,11 @@ async function viewGallerySettings(app, id) {
 
 function thumbControl(g) {
   const label = h('span', { class: 'muted' });
-  const btn = h('button', { text: 'Rebuild thumbnails', onclick: async () => {
+  const genBtn = h('button', { text: 'Generate missing', title: 'Build only the thumbnails that do not exist yet', onclick: async () => {
+    await api(`/api/admin/galleries/${g.id}/thumbnails/generate`, { method: 'POST' });
+    poll();
+  } });
+  const btn = h('button', { text: 'Rebuild all', onclick: async () => {
     if (!confirm('Delete and rebuild all thumbnails for this gallery? Photos stay slow to open until they are rebuilt.')) return;
     await api(`/api/admin/galleries/${g.id}/thumbnails/rebuild`, { method: 'POST' });
     poll();
@@ -616,11 +624,12 @@ function thumbControl(g) {
     const t = r.data || {};
     if (t.running) label.textContent = `Building ${t.done} / ${t.total}...`;
     else if (t.queued) label.textContent = 'Queued...';
-    else label.textContent = t.total ? `Up to date (${t.total} photos)` : '';
+    else label.textContent = t.missing ? `${t.missing} photos are missing thumbnails` : 'All thumbnails built';
+    genBtn.disabled = !!(t.running || t.queued) || !t.missing;
     if (t.running || t.queued) timer = setTimeout(poll, 2000);
   };
   setTimeout(poll, 200);
-  return h('div', { class: 'row' }, btn, label);
+  return h('div', { class: 'row' }, genBtn, btn, label);
 }
 
 function linksManager(g) {

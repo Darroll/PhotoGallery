@@ -25,7 +25,7 @@ Self-hosted photo galleries for Unraid, written in ASP.NET Core 9 (SQLite + libv
 
 ### Thumbnails
 
-Grid thumbnails and viewing images are built in the background after every scan (and shortly after start-up), then cached in `/data/cache`. A gallery's settings page has **Rebuild thumbnails**; Site settings shows the cache size, can **clean up stale files** (deleted or replaced photos, old watermark variants) and **rebuild all**.
+Grid thumbnails and viewing images are built in the background after every scan (and shortly after start-up), then cached in `/data/cache`. A gallery's settings page has **Generate missing** (builds only what is absent) and **Rebuild all**; Site settings shows the cache size, can **clean up stale files** (deleted or replaced photos, old watermark variants) and **generate missing** / **rebuild all** for every gallery.
 
 ### Design notes you should know
 

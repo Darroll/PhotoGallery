@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PhotoGallery;
 
-public record CacheStats(long Bytes, int Files, int StaleFiles, long StaleBytes);
+public record CacheStats(long Bytes, int Files, int StaleFiles, long StaleBytes, int Missing);
 public record CleanResult(int Files, long Bytes);
 
 /// <summary>Reports on and cleans the derived-image cache (never touches the photo library).</summary>
@@ -15,7 +15,29 @@ public class CacheService(AppConfig cfg, ImageService images, IServiceScopeFacto
             foreach (var f in Directory.EnumerateFiles(cfg.CacheDir, "*", SearchOption.AllDirectories))
                 try { bytes += new FileInfo(f).Length; files++; } catch { }
         var stale = await FindStaleAsync();
-        return new CacheStats(bytes, files, stale.Count, stale.Sum(s => s.size));
+        return new CacheStats(bytes, files, stale.Count, stale.Sum(s => s.size), await MissingAsync(null));
+    }
+
+    /// <summary>Number of photos whose grid thumbnail or viewing image has not been built yet.</summary>
+    public async Task<int> MissingAsync(int? galleryId)
+    {
+        using var scope = scopes.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDb>();
+        var galleries = await db.Galleries.AsNoTracking().ToDictionaryAsync(g => g.Id);
+        var photos = await db.Photos.AsNoTracking().Where(p => p.Approved && (galleryId == null || p.GalleryId == galleryId)).ToListAsync();
+        var wmAvailable = images.WatermarkAvailable;
+        int missing = 0;
+        foreach (var p in photos)
+        {
+            var src = images.PeekSource(p);
+            if (src == null || !File.Exists(src)) { if (p.RawOnly) missing++; continue; }   // RAW preview not extracted yet
+            var stamp = File.GetLastWriteTimeUtc(src).Ticks.ToString("x");
+            var dir = Path.Combine(cfg.CacheDir, "variants", p.Id.ToString());
+            var wm = galleries.TryGetValue(p.GalleryId, out var g) && g.WatermarkView && wmAvailable;
+            var viewTag = wm ? images.CurrentWatermarkTag : "n";
+            if (!File.Exists(Path.Combine(dir, $"thumb480_n_{stamp}.webp")) || !File.Exists(Path.Combine(dir, $"view2048_{viewTag}_{stamp}.webp"))) missing++;
+        }
+        return missing;
     }
 
     public async Task<CleanResult> CleanAsync()
