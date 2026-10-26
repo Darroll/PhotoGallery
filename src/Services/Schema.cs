@@ -13,6 +13,8 @@ public static class Schema
             ""Ip"" TEXT NOT NULL, ""Country"" TEXT NOT NULL, ""UserAgent"" TEXT NOT NULL, ""IsBot"" INTEGER NOT NULL, ""Detail"" TEXT NOT NULL)");
         db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Visits_Time"" ON ""Visits"" (""Time"")");
         db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Visits_GalleryId_Time"" ON ""Visits"" (""GalleryId"", ""Time"")");
+        AddColumn(db, "Visits", "VisitorId", "TEXT NOT NULL DEFAULT ''");
+        db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Visits_VisitorId"" ON ""Visits"" (""VisitorId"")");
         AddColumn(db, "Photos", "RawLocked", "INTEGER NOT NULL DEFAULT 0");
         AddColumn(db, "Galleries", "RawMatchMode", "INTEGER NOT NULL DEFAULT 1");
         AddColumn(db, "Galleries", "HideRawOnly", "INTEGER NOT NULL DEFAULT 1");

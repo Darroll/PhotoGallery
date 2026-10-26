@@ -510,18 +510,20 @@ function homePanel() {
 function statsSettingsPanel() {
   const enabled = h('input', { type: 'checkbox', checked: true });
   const includeAdmin = h('input', { type: 'checkbox' });
+  const useCookie = h('input', { type: 'checkbox', checked: true });
   const days = h('input', { type: 'number', min: 0, max: 3650, value: 180 });
   days.style.width = '110px';
   const msg = h('span', { class: 'muted' });
-  api('/api/admin/stats/settings').then(r => { if (r.ok) { enabled.checked = r.data.enabled; days.value = r.data.retentionDays; includeAdmin.checked = !!r.data.includeAdmin; } });
+  api('/api/admin/stats/settings').then(r => { if (r.ok) { enabled.checked = r.data.enabled; days.value = r.data.retentionDays; includeAdmin.checked = !!r.data.includeAdmin; useCookie.checked = r.data.useCookie !== false; } });
   return h('div', { class: 'panel' }, h('h3', { text: 'Visitor statistics' }),
     h('p', { class: 'muted', text: 'Records gallery views, photo views, downloads, password attempts and uploads with the visitor IP address, country (when available) and browser. Visits you make while signed in as admin are not recorded unless you switch that on below (useful for testing). IP addresses are personal data, so keep only what you need.' }),
     h('div', { class: 'row' }, h('label', {}, enabled, ' Record visitor activity')),
     h('div', { class: 'row' }, h('label', {}, includeAdmin, ' Also record my own visits while signed in as admin')),
+    h('div', { class: 'row' }, h('label', {}, useCookie, ' Tell browsers apart with an anonymous id cookie (separates people who share an IP address)')),
     h('div', { class: 'row' }, h('label', {}, 'Keep records for ', days, ' days (0 = forever)')),
     h('div', { class: 'row' },
       h('button', { class: 'primary', text: 'Save', onclick: async () => {
-        const r = await api('/api/admin/stats/settings', { method: 'PUT', body: { enabled: enabled.checked, retentionDays: Number(days.value) || 0, includeAdmin: includeAdmin.checked } });
+        const r = await api('/api/admin/stats/settings', { method: 'PUT', body: { enabled: enabled.checked, retentionDays: Number(days.value) || 0, includeAdmin: includeAdmin.checked, useCookie: useCookie.checked } });
         msg.textContent = r.ok ? 'Saved' : 'Save failed';
       } }),
       h('a', { class: 'btn', href: '/admin/stats', text: 'Open statistics' }),
@@ -836,14 +838,14 @@ async function viewStats(app) {
   const me = await api('/api/admin/me');
   if (!me.data || !me.data.admin) return adminLogin(app);
   const qs = new URLSearchParams(location.search);
-  const state = { days: Number(qs.get('days') ?? 30), gallery: qs.get('gallery') || '', who: qs.get('who') || 'visitors', kind: '', skip: 0, view: qs.get('view') || 'overview', ip: qs.get('ip') || '', sort: qs.get('sort') || 'recent' };
+  const state = { days: Number(qs.get('days') ?? 30), gallery: qs.get('gallery') || '', who: qs.get('who') || 'visitors', kind: '', skip: 0, view: qs.get('view') || 'overview', ip: qs.get('visitor') || (qs.get('ip') ? 'ip:' + qs.get('ip') : ''), group: qs.get('group') || 'cookie', sort: qs.get('sort') || 'recent' };
   const galleries = (await api('/api/admin/galleries')).data || [];
 
   const body = h('div');
   const rangeSel = h('select', {}, [[7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days'], [365, 'Last year'], [0, 'All time']].map(([v, t]) => h('option', { value: v, text: t, selected: v === state.days })));
   const galSel = h('select', {}, [h('option', { value: '', text: 'All galleries' }), ...galleries.map(g => h('option', { value: g.id, text: g.title, selected: String(g.id) === state.gallery }))]);
   const tabs = h('div', { class: 'tabs' });
-  const sync = () => { const q = new URLSearchParams(); if (state.days !== 30) q.set('days', state.days); if (state.gallery) q.set('gallery', state.gallery); if (state.who !== 'visitors') q.set('who', state.who); if (state.ip) q.set('ip', state.ip); else if (state.view === 'visitors') q.set('view', 'visitors'); if (state.view === 'visitors' && state.sort !== 'recent') q.set('sort', state.sort); history.replaceState(history.state, '', '/admin/stats' + (q.toString() ? '?' + q : '')); };
+  const sync = () => { const q = new URLSearchParams(); if (state.days !== 30) q.set('days', state.days); if (state.gallery) q.set('gallery', state.gallery); if (state.who !== 'visitors') q.set('who', state.who); if (state.ip) q.set('visitor', state.ip); else if (state.view === 'visitors') q.set('view', 'visitors'); if (state.group !== 'cookie') q.set('group', state.group); if (state.view === 'visitors' && state.sort !== 'recent') q.set('sort', state.sort); history.replaceState(history.state, '', '/admin/stats' + (q.toString() ? '?' + q : '')); };
   const q = () => { const p = new URLSearchParams({ days: state.days, who: state.who }); if (state.gallery) p.set('gallery', state.gallery); return p; };
 
   const load = async () => {
@@ -895,34 +897,41 @@ async function viewStats(app) {
       activityPanel());
   };
 
+  const uaLabel = (ua) => {
+    if (!ua) return 'Unknown browser';
+    const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /curl|wget|python|bot|crawl|spider/i.test(ua) ? 'Bot' : 'Browser';
+    const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac OS X|Macintosh/.test(ua) ? 'Mac' : /CrOS/.test(ua) ? 'Chromebook' : /Linux/.test(ua) ? 'Linux' : '';
+    return os ? `${browser} on ${os}` : browser;
+  };
   const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
-  const visitorLink = (ip) => h('a', { href: '/admin/stats?ip=' + encodeURIComponent(ip) + '&days=' + state.days + (state.gallery ? '&gallery=' + state.gallery : ''), text: ip });
+  const visitorHref = (key) => '/admin/stats?visitor=' + encodeURIComponent(key) + '&group=' + state.group + '&days=' + state.days + (state.gallery ? '&gallery=' + state.gallery : '');
 
   const loadVisitors = async () => {
     document.title = 'Statistics by visitor - ' + site.title;
-    const p = q(); p.set('sort', state.sort); p.set('take', 100);
+    const p = q(); p.set('sort', state.sort); p.set('group', state.group); p.set('take', 100);
     const r = await api('/api/admin/stats/visitors?' + p);
     if (!r.ok) { body.replaceChildren(h('p', { class: 'err', text: 'Could not load visitors.' })); return; }
     whoTabs(r.data);
     const sortSel = h('select', {}, [['recent', 'Most recent'], ['events', 'Most active'], ['photos', 'Most photo views'], ['downloads', 'Most downloads']].map(([v, t]) => h('option', { value: v, text: t, selected: v === state.sort })));
     sortSel.onchange = () => { state.sort = sortSel.value; load(); };
+    const groupSel = h('select', {}, [['cookie', 'Visitor (cookie, else IP + browser)'], ['browser', 'IP + browser'], ['ip', 'IP address only']].map(([v, t]) => h('option', { value: v, text: t, selected: v === state.group })));
+    groupSel.onchange = () => { state.group = groupSel.value; load(); };
     const rows = r.data.items;
     body.replaceChildren(h('div', { class: 'panel' },
-      h('div', { class: 'row' }, h('h3', { text: `${r.data.total} IP addresses` }), h('span', { class: 'grow' }), sortSel),
-      h('p', { class: 'muted', text: 'Click an IP address to see everything that visitor looked at.' }),
+      h('div', { class: 'row' }, h('h3', { text: `${r.data.total} visitors` }), h('span', { class: 'grow' }), h('label', {}, 'Group by ', groupSel), sortSel),
+      h('p', { class: 'muted', text: state.group === 'cookie' ? 'Each browser gets an anonymous id cookie, so people sharing an IP address are told apart. Older records without a cookie are grouped by IP + browser.' : state.group === 'browser' ? 'Same IP address, different browsers or devices are shown as different visitors.' : 'Everything from one IP address is one visitor.' }),
       rows.length ? h('div', { class: 'scroll' }, h('table', {},
-        h('tr', {}, ['IP address', 'Country', 'Last seen', 'First seen', 'Events', 'Photo views', 'Downloads', 'Galleries', 'Browser'].map(x => h('th', { text: x }))),
-        rows.map(v => h('tr', {}, h('td', {}, visitorLink(v.ip)), h('td', { text: v.country || '-' }),
+        h('tr', {}, ['Visitor', 'Country', 'Last seen', 'First seen', 'Events', 'Photo views', 'Downloads', 'Galleries'].map(x => h('th', { text: x }))),
+        rows.map(v => h('tr', {}, h('td', {}, h('a', { href: visitorHref(v.key), text: state.group === 'ip' ? v.ip : uaLabel(v.userAgent) + (v.isBot ? ' (bot)' : '') }), h('div', { class: 'muted', title: v.userAgent, text: v.ips.join(', ') + (v.ipCount > v.ips.length ? ` +${v.ipCount - v.ips.length}` : '') + (state.group === 'ip' && v.browserCount > 1 ? ` \u00B7 ${v.browserCount} browsers` : '') + (state.group === 'cookie' && !v.cookie ? ' \u00B7 no cookie' : '') })), h('td', { text: v.country || '-' }),
           h('td', { text: ago(v.last), title: new Date(v.last).toLocaleString() }), h('td', { text: new Date(v.first).toLocaleDateString() }),
           h('td', { text: v.events }), h('td', { text: v.photoViews }), h('td', { text: v.downloads }),
-          h('td', { text: v.galleries.join(', ') }),
-          h('td', { class: 'ua', title: v.userAgent, text: (v.isBot ? '[bot] ' : '') + v.userAgent }))))) : h('p', { class: 'muted', text: 'No visitors in this period.' })));
+          h('td', { text: v.galleries.join(', ') }))))) : h('p', { class: 'muted', text: 'No visitors in this period.' })));
   };
 
   const loadVisitor = async () => {
     tabs.replaceChildren();
-    document.title = 'Visitor ' + state.ip + ' - ' + site.title;
-    const p = new URLSearchParams({ ip: state.ip, days: state.days }); if (state.gallery) p.set('gallery', state.gallery);
+    document.title = 'Visitor ' + state.ip.replace(/^[a-z]+:/, '').split('|')[0] + ' - ' + site.title;
+    const p = new URLSearchParams({ key: state.ip, group: state.group, days: state.days }); if (state.gallery) p.set('gallery', state.gallery);
     const r = await api('/api/admin/stats/visitor?' + p);
     const back = h('button', { text: '\u2190 All visitors', onclick: () => { state.ip = ''; state.view = 'visitors'; load(); } });
     if (!r.ok) { body.replaceChildren(back, h('p', { class: 'muted', text: 'No activity from this IP address in the selected period.' })); return; }
@@ -930,7 +939,9 @@ async function viewStats(app) {
     const tile = (n, label) => h('div', { class: 'tile' }, h('div', { class: 'tile-n', text: String(n) }), h('div', { class: 'muted', text: label }));
     const when = (a, b) => { const x = new Date(a), y = new Date(b); const day = x.toLocaleDateString() === y.toLocaleDateString(); return `${x.toLocaleString()} \u2013 ${day ? y.toLocaleTimeString() : y.toLocaleString()}`; };
     body.replaceChildren(
-      h('div', { class: 'toolbar' }, back, h('h2', { text: s.ip }), s.isBot ? h('span', { class: 'chip warn', text: 'bot / crawler' }) : null, s.country ? h('span', { class: 'chip', text: s.country }) : null, h('span', { class: 'muted', text: `First seen ${new Date(s.first).toLocaleString()} \u00B7 last seen ${new Date(s.last).toLocaleString()}` })),
+      h('div', { class: 'toolbar' }, back, h('h2', { text: uaLabel(d.browsers[0] && d.browsers[0].userAgent) + ' \u00B7 ' + s.ip }), s.isBot ? h('span', { class: 'chip warn', text: 'bot / crawler' }) : null, s.country ? h('span', { class: 'chip', text: s.country }) : null, h('span', { class: 'muted', text: `First seen ${new Date(s.first).toLocaleString()} \u00B7 last seen ${new Date(s.last).toLocaleString()}` })),
+      d.neighbours.length ? h('div', { class: 'panel' }, h('h3', { text: 'Others on the same IP address' }), h('p', { class: 'muted', text: 'Other visitors seen from the same address, for example the rest of the household.' }),
+        h('table', {}, h('tr', {}, ['Visitor', 'IP', 'Events', 'Last seen'].map(x => h('th', { text: x }))), d.neighbours.map(n => h('tr', {}, h('td', {}, h('a', { href: visitorHref(n.key), text: uaLabel(n.userAgent) + (n.cookie ? '' : ' (no cookie)') })), h('td', { text: n.ip }), h('td', { text: n.events }), h('td', { text: new Date(n.last).toLocaleString() }))))) : '',
       h('div', { class: 'tiles' }, tile(s.events, 'Events'), tile(s.galleryViews, 'Gallery views'), tile(s.photoViews, 'Photo views'), tile(s.downloads, 'Photo downloads'), tile(s.zips, 'ZIP downloads'), tile(s.unlockFails, 'Wrong passwords'), tile(s.uploads, 'Uploads')),
       h('div', { class: 'panel' }, h('h3', { text: `Visits (${d.sessions.length}${d.sessions.length === 30 ? '+' : ''})` }),
         h('p', { class: 'muted', text: 'A new visit starts after 30 minutes without activity.' }),
@@ -942,8 +953,10 @@ async function viewStats(app) {
         h('div', { class: 'panel' }, h('h3', { text: 'Galleries visited' }), d.galleries.length ? h('table', {},
           h('tr', {}, ['Gallery', 'Views', 'Photo views', 'Downloads', 'Last'].map(x => h('th', { text: x }))),
           d.galleries.map(g => h('tr', {}, h('td', { text: g.title }), h('td', { text: g.views }), h('td', { text: g.photoViews }), h('td', { text: g.downloads }), h('td', { text: new Date(g.last).toLocaleString() })))) : h('p', { class: 'muted', text: 'None.' })),
-        h('div', { class: 'panel' }, h('h3', { text: 'Browsers' }), h('table', {}, h('tr', {}, ['Browser', 'Events'].map(x => h('th', { text: x }))),
-          d.browsers.map(b => h('tr', {}, h('td', { class: 'ua2', text: b.userAgent || '(none)' }), h('td', { text: b.events })))))),
+        h('div', { class: 'panel' }, h('h3', { text: 'Browsers and IP addresses' }), h('table', {}, h('tr', {}, ['Browser', 'Events'].map(x => h('th', { text: x }))),
+          d.browsers.map(b => h('tr', {}, h('td', { class: 'ua2', text: b.userAgent || '(none)' }), h('td', { text: b.events })))),
+          h('table', {}, h('tr', {}, ['IP address', 'Events', 'Last'].map(x => h('th', { text: x }))),
+          d.ips.map(i => h('tr', {}, h('td', { text: i.ip + (i.country ? ' (' + i.country + ')' : '') }), h('td', { text: i.events }), h('td', { text: new Date(i.last).toLocaleString() })))))),
       h('div', { class: 'panel' }, h('h3', { text: `Photos looked at (${d.photos.length})` }), d.photos.length ? h('div', { class: 'photo-cards' }, d.photos.map(ph =>
         h('div', { class: 'photo-card' }, h('img', { src: `/img/${ph.id}/thumb`, alt: ph.name, loading: 'lazy' }),
           h('div', { class: 'pc-name', text: ph.name, title: ph.name }),
@@ -967,7 +980,7 @@ async function viewStats(app) {
       const r = await api('/api/admin/stats/activity?' + p);
       if (!r.ok) return;
       for (const it of r.data.items) {
-        table.append(h('tr', {}, h('td', { text: new Date(it.time).toLocaleString() }), h('td', {}, it.ip ? h('a', { href: '/admin/stats?ip=' + encodeURIComponent(it.ip) + '&days=' + state.days, text: it.ip }) : '-'), h('td', { text: it.country || '-' }),
+        table.append(h('tr', {}, h('td', { text: new Date(it.time).toLocaleString() }), h('td', {}, it.ip ? h('a', { href: '/admin/stats?visitor=' + encodeURIComponent(it.visitorId ? 'c:' + it.visitorId : 'ip:' + it.ip) + '&group=' + (it.visitorId ? 'cookie' : 'ip') + '&days=' + state.days, text: it.ip }) : '-'), h('td', { text: it.country || '-' }),
           h('td', { text: kindLabels[it.kind] || it.kind }), h('td', { text: it.gallery }), h('td', { text: [it.photo, it.detail].filter(Boolean).join(' - ') }),
           h('td', { class: 'ua', title: it.userAgent, text: (it.isBot ? '[bot] ' : '') + it.userAgent })));
       }

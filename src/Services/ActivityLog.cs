@@ -15,6 +15,8 @@ public class Visit
     public int? GalleryId { get; set; }
     public int? PhotoId { get; set; }
     public string Ip { get; set; } = "";
+    /// <summary>Anonymous per-browser id from the first-party cookie (empty for bots, or when the cookie is switched off).</summary>
+    public string VisitorId { get; set; } = "";
     public string Country { get; set; } = "";
     public string UserAgent { get; set; } = "";
     public bool IsBot { get; set; }
@@ -28,8 +30,10 @@ public class StatsSettings
     public int RetentionDays { get; set; } = 180;
     /// <summary>Count visits made while signed in as admin (off by default; handy for testing).</summary>
     public bool IncludeAdmin { get; set; }
+    /// <summary>Give each browser an anonymous id cookie so two people on one IP and device type can be told apart.</summary>
+    public bool UseCookie { get; set; } = true;
 
-    public StatsSettings Sanitized() => new() { Enabled = Enabled, RetentionDays = Math.Clamp(RetentionDays, 0, 3650), IncludeAdmin = IncludeAdmin };
+    public StatsSettings Sanitized() => new() { Enabled = Enabled, RetentionDays = Math.Clamp(RetentionDays, 0, 3650), IncludeAdmin = IncludeAdmin, UseCookie = UseCookie };
 }
 
 /// <summary>Collects visitor activity without slowing requests down: records are queued and written in batches.</summary>
@@ -54,17 +58,36 @@ public class ActivityLog(IServiceScopeFactory scopes, SettingsService settings, 
 
     static string Normalize(IPAddress ip) => (ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip).ToString();
 
+    public const string CookieName = "pgv";
+    static readonly Regex VidRx = new("^[A-Za-z0-9_-]{16,32}$", RegexOptions.Compiled);
+
+    /// <summary>Reads the anonymous visitor id, issuing a new one (2 years) when the browser has none.</summary>
+    static string VisitorCookie(HttpContext ctx)
+    {
+        if (ctx.Request.Cookies.TryGetValue(CookieName, out var existing) && existing != null && VidRx.IsMatch(existing)) return existing;
+        var id = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        if (!ctx.Response.HasStarted)
+            ctx.Response.Cookies.Append(CookieName, id, new CookieOptions
+            {
+                HttpOnly = true, SameSite = SameSiteMode.Lax, Secure = ctx.Request.IsHttps,
+                Expires = DateTimeOffset.UtcNow.AddYears(2), Path = "/", IsEssential = true
+            });
+        return id;
+    }
+
     public void Record(HttpContext ctx, string kind, int? galleryId = null, int? photoId = null, string detail = "")
     {
         var st = settings.Stats;
         if (!st.Enabled || (AccessService.IsAdmin(ctx) && !st.IncludeAdmin)) return;
         var ua = ctx.Request.Headers.UserAgent.ToString();
         var country = ctx.Request.Headers["CF-IPCountry"].ToString();
+        var isBot = LooksLikeBot(ua);
+        var vid = isBot || !st.UseCookie ? "" : VisitorCookie(ctx);
         queue.Writer.TryWrite(new Visit
         {
             Time = DateTime.UtcNow, Kind = kind, GalleryId = galleryId, PhotoId = photoId,
-            Ip = ClientIp(ctx), Country = country.Length == 2 ? country.ToUpperInvariant() : "",
-            UserAgent = ua.Length > 300 ? ua[..300] : ua, IsBot = LooksLikeBot(ua), Detail = detail
+            Ip = ClientIp(ctx), VisitorId = vid, Country = country.Length == 2 ? country.ToUpperInvariant() : "",
+            UserAgent = ua.Length > 300 ? ua[..300] : ua, IsBot = isBot, Detail = detail
         });
     }
 
