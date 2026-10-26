@@ -58,6 +58,7 @@ async function route(force = false) {
   if (parts[0] === 'admin' && parts[1] === 'settings') return viewSettings(app);
   if (parts[0] === 'admin' && parts[1] === 'galleries' && parts[2]) return viewGallerySettings(app, Number(parts[2]));
   if (parts[0] === 'admin') return viewAdmin(app);
+  if (parts[0] === 'expired') document.title = 'Link unavailable - ' + site.title;
   if (parts[0] === 'expired') return app.append(h('div', { class: 'center' }, h('h1', { text: 'Link unavailable' }), h('p', { class: 'sub', text: 'This share link has expired or was revoked.' })));
   return viewHome(app);
 }
@@ -112,7 +113,9 @@ let G = null; // current gallery payload
 async function viewGallery(app, slug) {
   const r = await api('/api/g/' + encodeURIComponent(slug));
   if (r.status === 401 && r.data && r.data.needsPassword) return passwordPrompt(app, slug, r.data.title);
+  if (r.status === 410) document.title = ((r.data && r.data.title) || 'Gallery') + ' - Closed';
   if (r.status === 410) return app.append(h('div', { class: 'center' }, h('h1', { text: (r.data && r.data.title) || 'Gallery closed' }), h('p', { class: 'sub', text: 'This gallery is no longer available.' })));
+  if (!r.ok) document.title = 'Not available - ' + site.title;
   if (!r.ok) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Not available' }), h('p', { class: 'sub', text: 'This gallery does not exist or you do not have access.' })));
   G = r.data;
   document.title = G.title;
@@ -168,7 +171,7 @@ async function viewGallery(app, slug) {
 }
 
 function passwordPrompt(app, slug, title) {
-  document.title = title || site.title;
+  document.title = (title || 'Private gallery') + ' - Password';
   const input = h('input', { type: 'password', placeholder: 'Password', autocomplete: 'current-password' });
   const err = h('div', { class: 'err' });
   const go = async () => {
@@ -243,6 +246,7 @@ function uploadControl(slug) {
 // photos only replaces the address, so Back (or the mouse Back button) returns straight to the grid.
 const gridPath = () => '/g/' + encodeURIComponent(G.slug);
 const photoPath = (p) => gridPath() + '/p/' + p.id;
+const photoTitle = (p) => `${p.name}${G.photos.filter(x => x.name === p.name).length > 1 ? ` (#${p.id})` : ''} - ${G.title}`;
 function syncViewer(pid, mode = 'sync') {
   if (!pid) { closeLightbox(); return; }
   let i = G.list.findIndex(p => p.id === pid);
@@ -283,7 +287,7 @@ function openLightbox(index, play, mode = 'push') {
     if (updateUrl) history.replaceState(history.state, '', photoPath(p));
     img.src = `/img/${p.id}/view`;
     if (p.id !== lb.lastSeen) { lb.lastSeen = p.id; fetch(`/api/g/${encodeURIComponent(G.slug)}/viewed/${p.id}`, { method: 'POST', headers: { 'X-Requested-With': 'pg' }, credentials: 'same-origin', keepalive: true }).catch(() => {}); }
-    title.textContent = p.name; document.title = p.name; counter.textContent = `${lb.i + 1} / ${list.length}`;
+    title.textContent = p.name; document.title = photoTitle(p); counter.textContent = `${lb.i + 1} / ${list.length}`;
     const unlink = G.admin && p.raw && !p.rawOnly
       ? h('button', { class: 'danger', text: 'Unlink RAW', onclick: async () => { if (confirm('Unlink the RAW from this photo?')) { await api(`/api/admin/photos/${p.id}/link-raw`, { method: 'DELETE' }); route(true); } } })
       : null;
@@ -376,6 +380,7 @@ function galleryRow(g, move) {
 }
 
 function adminLogin(app) {
+  document.title = 'Admin sign in - ' + site.title;
   const input = h('input', { type: 'password', placeholder: 'Admin password', autocomplete: 'current-password' });
   const err = h('div', { class: 'err' });
   const go = async () => {
@@ -589,8 +594,9 @@ async function viewGallerySettings(app, id) {
   if (!me.data || !me.data.admin) return adminLogin(app);
   const gals = await api('/api/admin/galleries');
   const g = (gals.data || []).find(x => x.id === id);
+  if (!g) document.title = 'Gallery not found - ' + site.title;
   if (!g) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Gallery not found' }), h('a', { class: 'btn', href: '/admin', text: 'Back to admin' })));
-  document.title = g.title + ' settings';
+  document.title = g.title + ' settings - ' + site.title;
 
   let dirty = false;
   const status = h('span', { class: 'muted' });
@@ -842,6 +848,7 @@ async function viewStats(app) {
 
   const load = async () => {
     sync();
+    { const gn = (galleries.find(x => String(x.id) === state.gallery) || {}).title; document.title = (gn ? 'Statistics: ' + gn : 'Statistics') + ' - ' + site.title; }
     const r = await api('/api/admin/stats?' + q());
     if (!r.ok) { body.replaceChildren(h('p', { class: 'err', text: 'Could not load statistics.' })); return; }
     const d = r.data;

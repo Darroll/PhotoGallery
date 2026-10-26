@@ -124,6 +124,8 @@ public static class AdminApi
         secured.MapPost("/galleries", async (GalleryInput input, AppDb db, AppConfig cfg, Scanner scanner) =>
         {
             if (string.IsNullOrWhiteSpace(input.Title)) return Results.BadRequest("Title required");
+            var wanted = input.Title.Trim().ToLower();
+            if (await db.Galleries.AnyAsync(x => x.Title.ToLower() == wanted)) return Results.BadRequest("A gallery with that name already exists");
             var dir = cfg.Resolve(input.Folder ?? "");
             if (dir == null || !Directory.Exists(dir)) return Results.BadRequest("Folder not found in library");
             var newFolder = cfg.Rel(dir);
@@ -171,7 +173,14 @@ public static class AdminApi
                     folderChanged = true;
                 }
             }
-            if (input.Title != null) g.Title = input.Title.Trim();
+            if (input.Title != null)
+            {
+                var newTitle = input.Title.Trim();
+                if (newTitle.Length == 0) return Results.BadRequest("Title required");
+                var lowered = newTitle.ToLower();
+                if (await db.Galleries.AnyAsync(x => x.Id != g.Id && x.Title.ToLower() == lowered)) return Results.BadRequest("A gallery with that name already exists");
+                g.Title = newTitle;
+            }
             if (input.Description != null) g.Description = input.Description;
             if (!string.IsNullOrWhiteSpace(input.Slug))
             {
