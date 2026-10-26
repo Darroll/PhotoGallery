@@ -89,7 +89,28 @@ app.Use(async (ctx, next) =>
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseDefaultFiles();
+// The page is served with a content hash on its asset URLs, so CDNs/browsers can never keep a stale app.js.
+var webRoot = app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+string AssetVersion()
+{
+    using var sha = System.Security.Cryptography.SHA256.Create();
+    foreach (var f in new[] { "app.js", "style.css" })
+        sha.TransformBlock(File.ReadAllBytes(Path.Combine(webRoot, f)), 0, (int)new FileInfo(Path.Combine(webRoot, f)).Length, null, 0);
+    sha.TransformFinalBlock([], 0, 0);
+    return Convert.ToHexString(sha.Hash!)[..10].ToLowerInvariant();
+}
+var indexHtml = File.ReadAllText(Path.Combine(webRoot, "index.html")).Replace("__V__", AssetVersion());
+app.Use(async (ctx, next) =>
+{
+    if (HttpMethods.IsGet(ctx.Request.Method) && ctx.Request.Path is { Value: "/" or "/index.html" })
+    {
+        ctx.Response.Headers.CacheControl = "no-store";
+        ctx.Response.ContentType = "text/html; charset=utf-8";
+        await ctx.Response.WriteAsync(indexHtml);
+        return;
+    }
+    await next();
+});
 app.UseStaticFiles(new StaticFileOptions
 {
     // always revalidate the app shell so a new release is picked up without a hard refresh
