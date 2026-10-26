@@ -114,7 +114,7 @@ app.Use(async (ctx, next) =>
     {
         ctx.Response.Headers.CacheControl = "no-store";
         ctx.Response.ContentType = "text/html; charset=utf-8";
-        await ctx.Response.WriteAsync(indexHtml);
+        await ctx.Response.WriteAsync(indexHtml.Replace("__TITLE__", System.Net.WebUtility.HtmlEncode(ctx.RequestServices.GetRequiredService<SettingsService>().SiteName)));
         return;
     }
     await next();

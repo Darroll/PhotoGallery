@@ -16,6 +16,7 @@ public static class AdminApi
         string? AllowedSizes, string? AllowedFormats, string? ExpiresAt);
     record LinkRawInput(int RawPhotoId);
     record MoveInput(string? Direction);
+    record SiteInput(string? Name);
     record LinkInput(string? Label, int? ExpiresInDays, int? MaxDownloads);
     record CoverInput(int PhotoId);
 
@@ -115,6 +116,8 @@ public static class AdminApi
             return Results.NoContent();
         });
 
+        secured.MapGet("/settings/site", (SettingsService settings) => Results.Ok(new { name = settings.SiteName }));
+        secured.MapPut("/settings/site", (SiteInput input, SettingsService settings) => Results.Ok(new { name = settings.SetSiteName(input.Name) }));
         secured.MapGet("/settings/home", (SettingsService settings) => Results.Ok(settings.Home));
         secured.MapPut("/settings/home", (HomeSettings input, SettingsService settings) => Results.Ok(settings.SetHome(input)));
 

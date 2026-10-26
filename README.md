@@ -73,7 +73,7 @@ Grid thumbnails and viewing images are built in the background after every scan 
 | `DATA_DIR` | `/data` | DB, cache, keys, guest uploads |
 | `SIZES` | `1080,1920,2560,4096` | Offered long-edge sizes |
 | `RESCAN_MINUTES` | `15` | Auto-rescan interval (0 = off) |
-| `SITE_TITLE` | `Photos` | Header title |
+| `SITE_TITLE` | `Photos` | Initial site name; afterwards edit it in Admin -> Site settings |
 | `MAX_UPLOAD_MB` | `100` | Per-file guest upload limit |
 | `MAX_PENDING_PER_GALLERY` | `200` | Pending upload cap |
 | `TRUST_PROXY` | `true` | Honour `X-Forwarded-*` |

@@ -10,9 +10,9 @@ public static class PublicApi
 
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/site", (AppConfig cfg, ImageService img) => new
+        app.MapGet("/api/site", (AppConfig cfg, ImageService img, SettingsService settings) => new
         {
-            title = cfg.SiteTitle,
+            title = settings.SiteName,
             version = cfg.Version, commit = cfg.Commit, built = cfg.BuildDate,
             sizes = cfg.Sizes,
             formats = ImageService.LosslessFormats,

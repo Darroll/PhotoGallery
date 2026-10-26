@@ -40,6 +40,7 @@ public class HomeSettings
 
 class AppSettings
 {
+    public string SiteName { get; set; } = "";
     public WatermarkSettings Watermark { get; set; } = new();
     public HomeSettings Home { get; set; } = new();
     public StatsSettings Stats { get; set; } = new();
@@ -68,10 +69,12 @@ public class SettingsService
                 data.Watermark = data.Watermark.Sanitized();
                 data.Home = data.Home.Sanitized();
                 data.Stats = (data.Stats ?? new()).Sanitized();
+                if (string.IsNullOrWhiteSpace(data.SiteName)) { data.SiteName = SanitizeName(cfg.SiteTitle); Save(); }
             }
             else
             {
                 // first run: honour the old WATERMARK_TEXT env var once, then it lives in settings.json
+                data.SiteName = SanitizeName(cfg.SiteTitle);
                 if (!string.IsNullOrWhiteSpace(cfg.LegacyWatermarkText))
                     data.Watermark = new WatermarkSettings { Mode = "text", Text = cfg.LegacyWatermarkText };
                 Save();
@@ -104,6 +107,28 @@ public class SettingsService
             data.Stats = s.Sanitized();
             Save();
             return new StatsSettings { Enabled = data.Stats.Enabled, RetentionDays = data.Stats.RetentionDays, IncludeAdmin = data.Stats.IncludeAdmin };
+        }
+    }
+
+    static string SanitizeName(string? n)
+    {
+        n = (n ?? "").Trim();
+        return n.Length == 0 ? "Photos" : n.Length > 80 ? n[..80] : n;
+    }
+
+    /// <summary>The site name shown in the header, the home page and the browser tab.</summary>
+    public string SiteName
+    {
+        get { lock (gate) return string.IsNullOrWhiteSpace(data.SiteName) ? "Photos" : data.SiteName; }
+    }
+
+    public string SetSiteName(string? name)
+    {
+        lock (gate)
+        {
+            data.SiteName = SanitizeName(name);
+            Save();
+            return data.SiteName;
         }
     }
 

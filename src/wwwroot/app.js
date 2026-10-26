@@ -115,7 +115,7 @@ async function viewGallery(app, slug) {
   if (r.status === 410) return app.append(h('div', { class: 'center' }, h('h1', { text: (r.data && r.data.title) || 'Gallery closed' }), h('p', { class: 'sub', text: 'This gallery is no longer available.' })));
   if (!r.ok) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Not available' }), h('p', { class: 'sub', text: 'This gallery does not exist or you do not have access.' })));
   G = r.data;
-  document.title = G.title + ' - ' + site.title;
+  document.title = G.title;
   app.append(h('h1', { text: G.title }));
   if (G.eventDate || G.location) app.append(h('p', { class: 'muted', text: eventLine(G) }));
   if (G.description) app.append(h('p', { class: 'sub', text: G.description }));
@@ -168,6 +168,7 @@ async function viewGallery(app, slug) {
 }
 
 function passwordPrompt(app, slug, title) {
+  document.title = title || site.title;
   const input = h('input', { type: 'password', placeholder: 'Password', autocomplete: 'current-password' });
   const err = h('div', { class: 'err' });
   const go = async () => {
@@ -282,7 +283,7 @@ function openLightbox(index, play, mode = 'push') {
     if (updateUrl) history.replaceState(history.state, '', photoPath(p));
     img.src = `/img/${p.id}/view`;
     if (p.id !== lb.lastSeen) { lb.lastSeen = p.id; fetch(`/api/g/${encodeURIComponent(G.slug)}/viewed/${p.id}`, { method: 'POST', headers: { 'X-Requested-With': 'pg' }, credentials: 'same-origin', keepalive: true }).catch(() => {}); }
-    title.textContent = p.name; counter.textContent = `${lb.i + 1} / ${list.length}`;
+    title.textContent = p.name; document.title = p.name; counter.textContent = `${lb.i + 1} / ${list.length}`;
     const unlink = G.admin && p.raw && !p.rawOnly
       ? h('button', { class: 'danger', text: 'Unlink RAW', onclick: async () => { if (confirm('Unlink the RAW from this photo?')) { await api(`/api/admin/photos/${p.id}/link-raw`, { method: 'DELETE' }); route(true); } } })
       : null;
@@ -328,10 +329,12 @@ function closeLightbox() {
   document.removeEventListener('keydown', lb.key);
   if (document.fullscreenElement) document.exitFullscreen();
   root.classList.add('hidden'); root.replaceChildren(); document.body.style.overflow = ''; lb = null;
+  if (galleryView && G) document.title = G.title;
 }
 
 // ---------- admin ----------
 async function viewAdmin(app) {
+  document.title = 'Admin - ' + site.title;
   const me = await api('/api/admin/me');
   if (!me.data || !me.data.admin) return adminLogin(app);
   const [gals, folders, homeOrder] = await Promise.all([api('/api/admin/galleries'), api('/api/admin/folders'), api('/api/admin/settings/home')]);
@@ -407,12 +410,14 @@ function newGalleryPanel(folders) {
 }
 
 async function viewSettings(app) {
+  document.title = 'Site settings - ' + site.title;
   const me = await api('/api/admin/me');
   if (!me.data || !me.data.admin) return adminLogin(app);
   const r = await api('/api/admin/settings');
   const w = r.data.watermark;
   let hasPng = r.data.hasPng;
   app.append(h('div', { class: 'toolbar' }, h('h1', { text: 'Settings' }), h('span', { class: 'grow' }), h('a', { class: 'btn', href: '/admin', text: 'Back to admin' })));
+  app.append(siteNamePanel());
 
   const modeSel = h('select', {}, [['none', 'None'], ['text', 'Text'], ['png', 'PNG image']].map(([v, t]) => h('option', { value: v, text: t, selected: v === w.mode })));
   const text = h('input', { type: 'text', value: w.text || '', placeholder: '(c) Your Name', maxlength: 80 });
@@ -473,6 +478,18 @@ const orderLabels = [
   ['name-asc', 'Name, A to Z'], ['name-desc', 'Name, Z to A'],
   ['created-desc', 'Date created, newest first'], ['created-asc', 'Date created, oldest first'],
   ['manual', 'Manual (use the arrows on the admin list)']];
+
+function siteNamePanel() {
+  const name = h('input', { type: 'text', value: site.title, maxlength: 80 });
+  const msg = h('span', { class: 'muted' });
+  return h('div', { class: 'panel' }, h('h3', { text: 'Site name' }),
+    h('p', { class: 'muted', text: 'Shown in the page header, as the home page heading and as the browser tab title on the home page.' }),
+    h('div', { class: 'row' }, name, h('button', { class: 'primary', text: 'Save', onclick: async () => {
+      const r = await api('/api/admin/settings/site', { method: 'PUT', body: { name: name.value } });
+      if (!r.ok) { msg.textContent = 'Save failed'; return; }
+      site.title = r.data.name; name.value = site.title; renderHeader(); document.title = 'Site settings - ' + site.title; msg.textContent = 'Saved';
+    } }), msg));
+}
 
 function homePanel() {
   const sel = h('select', {}, orderLabels.map(([v, t]) => h('option', { value: v, text: t })));
@@ -573,7 +590,7 @@ async function viewGallerySettings(app, id) {
   const gals = await api('/api/admin/galleries');
   const g = (gals.data || []).find(x => x.id === id);
   if (!g) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Gallery not found' }), h('a', { class: 'btn', href: '/admin', text: 'Back to admin' })));
-  document.title = g.title + ' settings - ' + site.title;
+  document.title = g.title + ' settings';
 
   let dirty = false;
   const status = h('span', { class: 'muted' });
@@ -809,6 +826,7 @@ function rawLinker(g) {
 const kindLabels = { view_gallery: 'Viewed gallery', view_photo: 'Viewed photo', download: 'Downloaded', zip: 'Downloaded ZIP', unlock_ok: 'Unlocked (password)', unlock_fail: 'Wrong password', share_open: 'Opened share link', share_invalid: 'Bad/expired link', upload: 'Uploaded' };
 
 async function viewStats(app) {
+  document.title = 'Statistics - ' + site.title;
   const me = await api('/api/admin/me');
   if (!me.data || !me.data.admin) return adminLogin(app);
   const qs = new URLSearchParams(location.search);
