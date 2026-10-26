@@ -99,10 +99,12 @@ string AssetVersion()
     sha.TransformFinalBlock([], 0, 0);
     return Convert.ToHexString(sha.Hash!)[..10].ToLowerInvariant();
 }
+static bool IsAppRoute(PathString p) =>
+    p.Value is "/" or "/index.html" or "/admin" or "/expired" || p.StartsWithSegments("/g") || p.StartsWithSegments("/admin");
 var indexHtml = File.ReadAllText(Path.Combine(webRoot, "index.html")).Replace("__V__", AssetVersion());
 app.Use(async (ctx, next) =>
 {
-    if (HttpMethods.IsGet(ctx.Request.Method) && ctx.Request.Path is { Value: "/" or "/index.html" })
+    if (HttpMethods.IsGet(ctx.Request.Method) && IsAppRoute(ctx.Request.Path))
     {
         ctx.Response.Headers.CacheControl = "no-store";
         ctx.Response.ContentType = "text/html; charset=utf-8";

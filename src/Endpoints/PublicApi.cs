@@ -81,9 +81,9 @@ public static class PublicApi
         app.MapGet("/s/{token}", async (string token, HttpContext ctx, AppDb db, AccessService access) =>
         {
             var link = await db.ShareLinks.Include(l => l.Gallery).FirstOrDefaultAsync(l => l.Token == token);
-            if (link?.Gallery == null || !link.IsValid(DateTime.UtcNow)) return Results.Redirect("/#/expired");
+            if (link?.Gallery == null || !link.IsValid(DateTime.UtcNow)) return Results.Redirect("/expired");
             access.Issue(ctx, link.Gallery, link);
-            return Results.Redirect($"/#/g/{link.Gallery.Slug}");
+            return Results.Redirect($"/g/{Uri.EscapeDataString(link.Gallery.Slug)}");
         });
 
         app.MapGet("/img/{id:int}/{kind}", async (int id, string kind, HttpContext ctx, AppDb db, AccessService access, ImageService images) =>

@@ -37,8 +37,7 @@ const fmtDate = (s) => s ? new Date(/Z$|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z').t
 // ---------- routing ----------
 async function route() {
   closeLightbox();
-  const hash = location.hash.replace(/^#/, '') || '/';
-  const parts = hash.split('/').filter(Boolean);
+  const parts = location.pathname.split('/').filter(Boolean);
   const app = $('#app'); app.replaceChildren();
   document.title = site.title;
   if (parts[0] === 'g' && parts[1]) return viewGallery(app, decodeURIComponent(parts[1]));
@@ -47,12 +46,22 @@ async function route() {
   if (parts[0] === 'expired') return app.append(h('div', { class: 'center' }, h('h1', { text: 'Link unavailable' }), h('p', { class: 'sub', text: 'This share link has expired or was revoked.' })));
   return viewHome(app);
 }
-window.addEventListener('hashchange', route);
+window.addEventListener('popstate', route);
+// old bookmarks like /#/g/slug -> /g/slug
+if (location.hash.startsWith('#/')) history.replaceState(null, '', location.hash.slice(1));
+// in-app links navigate without a page load
+document.addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('a[href]');
+  if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || a.target === '_blank' || a.hasAttribute('download')) return;
+  const href = a.getAttribute('href');
+  if (href === '/' || /^\/(g|admin|expired)(\/|$)/.test(href)) { e.preventDefault(); go(href); }
+});
+function go(path) { if (path !== location.pathname) history.pushState(null, '', path); route(); window.scrollTo(0, 0); }
 
 function renderHeader() {
   const top = $('#top'); top.replaceChildren(
-    h('a', { class: 'brand', href: '#/', text: site.title }),
-    h('nav', {}, h('a', { href: '#/admin', text: 'Admin' })));
+    h('a', { class: 'brand', href: '/', text: site.title }),
+    h('nav', {}, h('a', { href: '/admin', text: 'Admin' })));
 }
 
 // ---------- home ----------
@@ -61,7 +70,7 @@ async function viewHome(app) {
   app.append(h('h1', { text: site.title }), h('p', { class: 'sub', text: 'Public galleries' }));
   if (!r.ok || !r.data.length) return app.append(h('p', { class: 'muted', text: 'No public galleries yet. Private galleries are reached through their share link.' }));
   app.append(h('div', { class: 'cards' }, r.data.map(g =>
-    h('a', { class: 'card', href: '#/g/' + encodeURIComponent(g.slug) },
+    h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
       g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
       h('div', { class: 'meta' }, h('b', { text: g.title }), h('span', { class: 'muted', text: `${g.count} photos` }))))));
 }
@@ -272,7 +281,7 @@ async function viewAdmin(app) {
   if (!me.data || !me.data.admin) return adminLogin(app);
   const [gals, folders] = await Promise.all([api('/api/admin/galleries'), api('/api/admin/folders')]);
   app.append(h('div', { class: 'toolbar' }, h('h1', { text: 'Admin' }), h('span', { class: 'grow' }),
-    h('a', { class: 'btn', href: '#/admin/settings', text: 'Settings' }),
+    h('a', { class: 'btn', href: '/admin/settings', text: 'Settings' }),
     h('button', { text: 'Log out', onclick: async () => { await api('/api/admin/logout', { method: 'POST' }); route(); } })));
   app.append(newGalleryPanel(folders.data || []));
   const list = gals.data || [];
@@ -319,7 +328,7 @@ async function viewSettings(app) {
   const r = await api('/api/admin/settings');
   const w = r.data.watermark;
   let hasPng = r.data.hasPng;
-  app.append(h('div', { class: 'toolbar' }, h('h1', { text: 'Settings' }), h('span', { class: 'grow' }), h('a', { class: 'btn', href: '#/admin', text: 'Back to admin' })));
+  app.append(h('div', { class: 'toolbar' }, h('h1', { text: 'Settings' }), h('span', { class: 'grow' }), h('a', { class: 'btn', href: '/admin', text: 'Back to admin' })));
 
   const modeSel = h('select', {}, [['none', 'None'], ['text', 'Text'], ['png', 'PNG image']].map(([v, t]) => h('option', { value: v, text: t, selected: v === w.mode })));
   const text = h('input', { type: 'text', value: w.text || '', placeholder: '(c) Your Name', maxlength: 80 });
@@ -458,7 +467,7 @@ function galleryPanel(g) {
 
   panel.append(
     h('div', { class: 'toolbar' }, g.cover ? h('img', { src: `/img/${g.cover}/thumb`, alt: 'cover', class: 'tiny' }) : null, h('h3', { text: g.title }), h('span', { class: 'muted', text: `${g.count} photos · folder: ${g.folder}` }), h('span', { class: 'grow' }),
-      h('a', { class: 'btn', href: '#/g/' + encodeURIComponent(g.slug), text: 'Open' }),
+      h('a', { class: 'btn', href: '/g/' + encodeURIComponent(g.slug), text: 'Open' }),
       h('button', { text: 'Rescan folder', onclick: async () => {
         msg.textContent = 'Scanning...'; const r = await api(`/api/admin/galleries/${g.id}/scan`, { method: 'POST' });
         msg.textContent = r.ok ? `Added ${r.data.added}, removed ${r.data.removed}; ${r.data.paired} paired with RAW, ${r.data.rawOnly} RAW-only${r.data.skippedRaw ? ', skipped ' + r.data.skippedRaw : ''}` : (r.data || 'Failed'); if (r.ok) loadRawLinks();
