@@ -10,6 +10,7 @@ public static class Schema
         AddColumn(db, "Photos", "RawLocked", "INTEGER NOT NULL DEFAULT 0");
         AddColumn(db, "Galleries", "RawMatchMode", "INTEGER NOT NULL DEFAULT 1");
         AddColumn(db, "Galleries", "HideRawOnly", "INTEGER NOT NULL DEFAULT 1");
+        AddColumn(db, "Galleries", "SortOrder", "INTEGER NOT NULL DEFAULT 0");
         AddColumn(db, "Galleries", "SortMode", "INTEGER NOT NULL DEFAULT 0");
         AddColumn(db, "Galleries", "SortDesc", "INTEGER NOT NULL DEFAULT 0");
         AddColumn(db, "Galleries", "EventDate", "TEXT NULL");

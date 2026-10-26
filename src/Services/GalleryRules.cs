@@ -17,6 +17,18 @@ public static class GalleryRules
         return allowed.Count == 0 ? ImageService.LosslessFormats : ImageService.LosslessFormats.Where(allowed.Contains).ToArray();
     }
 
+    /// <summary>Orders galleries for the home page and the admin list. Galleries without an event date come last in date orders.</summary>
+    public static List<Gallery> OrderGalleries(IEnumerable<Gallery> list, string order) => order switch
+    {
+        "event-desc" => list.OrderBy(g => g.EventDate == null).ThenByDescending(g => g.EventDate).ThenByDescending(g => g.CreatedAt).ToList(),
+        "event-asc" => list.OrderBy(g => g.EventDate == null).ThenBy(g => g.EventDate).ThenByDescending(g => g.CreatedAt).ToList(),
+        "name-asc" => list.OrderBy(g => g.Title, StringComparer.OrdinalIgnoreCase).ToList(),
+        "name-desc" => list.OrderByDescending(g => g.Title, StringComparer.OrdinalIgnoreCase).ToList(),
+        "created-asc" => list.OrderBy(g => g.CreatedAt).ToList(),
+        "manual" => list.OrderBy(g => g.SortOrder).ThenByDescending(g => g.CreatedAt).ToList(),
+        _ => list.OrderByDescending(g => g.CreatedAt).ToList()
+    };
+
     public static bool IsExpired(Gallery g) => g.ExpiresAt != null && g.ExpiresAt <= DateTime.UtcNow;
 
     public static List<T> Sort<T>(IEnumerable<T> items, Gallery g, Func<T, DateTime> taken, Func<T, string> name, Func<T, DateTime> added)

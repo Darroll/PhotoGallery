@@ -21,7 +21,7 @@ Self-hosted photo galleries for Unraid, written in ASP.NET Core 9 (SQLite + libv
 - `/admin`: create galleries from library folders; list of galleries with cover, status chips and a Settings link.
 - `/admin/galleries/<id>`: per-gallery settings in collapsible sections (General, Access & sharing, Downloads, Watermark & uploads, RAW files - collapsed by default) with a single Save button and an unsaved-changes warning.
 - Per-gallery options include photo order (capture time / name / date added, reversible), event date and location, auto-expire date, offered download sizes and formats, and the curated-only default.
-- `/admin/settings`: site-wide watermark (none / text / PNG) with live preview.
+- `/admin/settings`: site-wide watermark (none / text / PNG) with live preview, the order of galleries on the home page (event date, name, date created or manual with up/down arrows on the admin list), and the thumbnail cache.
 
 ### Photo pages and browser history
 

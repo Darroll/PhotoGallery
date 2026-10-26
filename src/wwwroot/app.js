@@ -31,6 +31,7 @@ function toast(msg) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), 3500);
 }
 const fmtBytes = (n) => n <= 0 ? '0 KB' : n >= 1073741824 ? (n / 1073741824).toFixed(2) + ' GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const fmtLabels = { png: 'PNG (lossless)', webp: 'WebP (lossless)', tif: 'TIFF (lossless)' };
 let site = { title: 'Photos', sizes: [], formats: [] };
 const fmtDate = (s) => s ? new Date(/Z$|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z').toLocaleString() : '';
@@ -95,7 +96,7 @@ async function viewHome(app) {
   app.append(h('div', { class: 'cards' }, r.data.map(g =>
     h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
       g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
-      h('div', { class: 'meta' }, h('b', { text: g.title }), g.eventDate || g.location ? h('span', { class: 'muted', text: eventLine(g) }) : null, h('span', { class: 'muted', text: `${g.count} photos` }))))));
+      h('div', { class: 'meta' }, h('b', { text: g.title }), g.eventDate || g.location ? h('span', { class: 'muted', text: eventLine(g) }) : null, h('span', { class: 'muted', text: plural(g.count, 'photo') }))))));
 }
 
 // ---------- gallery ----------
@@ -325,7 +326,7 @@ function closeLightbox() {
 async function viewAdmin(app) {
   const me = await api('/api/admin/me');
   if (!me.data || !me.data.admin) return adminLogin(app);
-  const [gals, folders] = await Promise.all([api('/api/admin/galleries'), api('/api/admin/folders')]);
+  const [gals, folders, homeOrder] = await Promise.all([api('/api/admin/galleries'), api('/api/admin/folders'), api('/api/admin/settings/home')]);
   app.append(h('div', { class: 'toolbar' }, h('h1', { text: 'Admin' }), h('span', { class: 'grow' }),
     h('a', { class: 'btn', href: '/admin/settings', text: 'Site settings' }),
     h('button', { text: 'Log out', onclick: async () => { await api('/api/admin/logout', { method: 'POST' }); route(); } })));
@@ -333,20 +334,26 @@ async function viewAdmin(app) {
   const list = gals.data || [];
   app.append(h('h2', { text: `Galleries (${list.length})` }));
   if (!list.length) return app.append(h('p', { class: 'muted', text: 'No galleries yet. Create one from a folder above.' }));
-  app.append(h('div', { class: 'gal-list' }, list.map(galleryRow)));
+  const manual = (homeOrder.data && homeOrder.data.order) === 'manual';
+  app.append(h('div', { class: 'gal-list' }, list.map((g, i) => galleryRow(g, manual ? { first: i === 0, last: i === list.length - 1 } : null))));
 }
 
 const visShort = { 0: 'Public', 1: 'Unlisted', 2: 'Protected' };
-function galleryRow(g) {
+function galleryRow(g, move) {
   const settingsHref = '/admin/galleries/' + g.id;
   const expired = g.expiresAt && new Date(/Z$/.test(g.expiresAt) ? g.expiresAt : g.expiresAt + 'Z') <= new Date();
+  const moveBtns = move ? h('div', { class: 'gal-move' },
+    h('button', { text: '\u25B2', title: 'Move up', disabled: move.first, onclick: async () => { await api(`/api/admin/galleries/${g.id}/move`, { method: 'POST', body: { direction: 'up' } }); route(); } }),
+    h('button', { text: '\u25BC', title: 'Move down', disabled: move.last, onclick: async () => { await api(`/api/admin/galleries/${g.id}/move`, { method: 'POST', body: { direction: 'down' } }); route(); } })) : null;
   return h('div', { class: 'gal-row' },
+    moveBtns,
     h('a', { href: settingsHref, class: 'gal-thumb' }, g.cover ? h('img', { src: `/img/${g.cover}/thumb`, alt: '', loading: 'lazy' }) : h('span', { class: 'muted', text: 'No cover' })),
     h('div', { class: 'gal-info' },
       h('a', { href: settingsHref, class: 'gal-name', text: g.title }),
       h('div', { class: 'chips' },
         h('span', { class: 'chip v' + g.visibility, text: visShort[g.visibility] }),
-        h('span', { class: 'chip', text: `${g.count} photos` }),
+        h('span', { class: 'chip', text: plural(g.count, 'photo') }),
+        g.eventDate ? h('span', { class: 'chip', text: eventLine({ eventDate: g.eventDate }) }) : null,
         g.pending ? h('span', { class: 'chip warn', text: `${g.pending} pending` }) : null,
         expired ? h('span', { class: 'chip warn', text: 'Expired' }) : null,
         g.hasPassword ? h('span', { class: 'chip', text: 'Password' }) : null),
@@ -447,7 +454,25 @@ async function viewSettings(app) {
     } }), msg),
     h('p', { class: 'muted', text: 'Preview (not saved until you click Save):' }), preview));
   refresh();
+  app.append(homePanel());
   app.append(cachePanel());
+}
+
+const orderLabels = [
+  ['event-desc', 'Event date, newest first'], ['event-asc', 'Event date, oldest first'],
+  ['name-asc', 'Name, A to Z'], ['name-desc', 'Name, Z to A'],
+  ['created-desc', 'Date created, newest first'], ['created-asc', 'Date created, oldest first'],
+  ['manual', 'Manual (use the arrows on the admin list)']];
+
+function homePanel() {
+  const sel = h('select', {}, orderLabels.map(([v, t]) => h('option', { value: v, text: t })));
+  api('/api/admin/settings/home').then(r => { if (r.ok) sel.value = r.data.order; });
+  return h('div', { class: 'panel' }, h('h3', { text: 'Home page' }),
+    h('p', { class: 'muted', text: 'The order of galleries on the public home page and in the admin list. Galleries without an event date come last when sorting by event date.' }),
+    h('div', { class: 'row' }, sel, h('button', { class: 'primary', text: 'Save order', onclick: async () => {
+      const r = await api('/api/admin/settings/home', { method: 'PUT', body: { order: sel.value } });
+      toast(r.ok ? 'Saved' : 'Save failed');
+    } })));
 }
 
 function cachePanel() {
@@ -485,6 +510,12 @@ function cachePanel() {
 function expiredNote(g, text) {
   const past = g.expiresAt && new Date(/Z$/.test(g.expiresAt) ? g.expiresAt : g.expiresAt + 'Z') <= new Date();
   return past ? 'This gallery has EXPIRED, so visitors cannot see it or find it on the home page. Clear the date and save to reopen it.' : text;
+}
+function countsLine(g) {
+  const bits = [`${g.count} photo${g.count === 1 ? '' : 's'}`];
+  if (g.rawOnly) bits.push(`${g.count - g.rawOnly} edited, ${g.rawOnly} RAW-only`);
+  if (g.pending) bits.push(`${g.pending} awaiting approval`);
+  return bits.join(' \u00B7 ');
 }
 function section(title, hint, open, ...body) {
   const d = h('details', { class: 'section', open });
@@ -630,6 +661,7 @@ async function viewGallerySettings(app, id) {
   app.append(
     h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/admin', text: '\u2190 All galleries' }), h('h1', { text: g.title }), h('span', { class: 'grow' }),
       h('a', { class: 'btn', href: '/g/' + encodeURIComponent(g.slug), text: 'View gallery' })),
+    h('p', { class: 'muted counts', text: countsLine(g) }),
     general, access, downloads, wmUp, raw,
     h('div', { class: 'savebar' }, saveBtn, status));
 }

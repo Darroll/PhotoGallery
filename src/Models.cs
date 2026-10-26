@@ -25,6 +25,8 @@ public class Gallery
     public RawMatch RawMatchMode { get; set; } = RawMatch.Anywhere;
     /// <summary>When true, RAW frames without an edited image are hidden until the viewer turns the curated filter off.</summary>
     public bool HideRawOnly { get; set; } = true;
+    /// <summary>Position used when the home page order is "manual".</summary>
+    public int SortOrder { get; set; }
     public GallerySort SortMode { get; set; } = GallerySort.Taken;
     public bool SortDesc { get; set; }
     public DateTime? EventDate { get; set; }

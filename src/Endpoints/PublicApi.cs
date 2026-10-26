@@ -18,16 +18,16 @@ public static class PublicApi
             watermark = img.WatermarkAvailable
         });
 
-        app.MapGet("/api/galleries", async (AppDb db) =>
+        app.MapGet("/api/galleries", async (AppDb db, SettingsService settings) =>
         {
             var now = DateTime.UtcNow;
-            var list = await db.Galleries.Where(g => g.Visibility == Visibility.Public && (g.ExpiresAt == null || g.ExpiresAt > now))
-                .OrderByDescending(g => g.CreatedAt)
-                .Select(g => new
-                {
-                    g.Slug, g.Title, g.Description, g.Location, eventDate = g.EventDate, cover = g.CoverPhotoId,
-                    count = g.Photos.Count(p => p.Approved)
-                }).ToListAsync();
+            var rows = await db.Galleries.Where(g => g.Visibility == Visibility.Public && (g.ExpiresAt == null || g.ExpiresAt > now))
+                .Select(g => new { g, count = g.Photos.Count(p => p.Approved) }).ToListAsync();
+            var counts = rows.ToDictionary(r => r.g.Id, r => r.count);
+            var list = GalleryRules.OrderGalleries(rows.Select(r => r.g), settings.Home.Order).Select(g => new
+            {
+                g.Slug, g.Title, g.Description, g.Location, eventDate = g.EventDate, cover = g.CoverPhotoId, count = counts[g.Id]
+            });
             return Results.Ok(list);
         });
 

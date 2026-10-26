@@ -15,6 +15,7 @@ public static class AdminApi
         bool? HideRawOnly, GallerySort? SortMode, bool? SortDesc, string? EventDate, string? Location,
         string? AllowedSizes, string? AllowedFormats, string? ExpiresAt);
     record LinkRawInput(int RawPhotoId);
+    record MoveInput(string? Direction);
     record LinkInput(string? Label, int? ExpiresInDays, int? MaxDownloads);
     record CoverInput(int PhotoId);
 
@@ -24,14 +25,14 @@ public static class AdminApi
         return slug.Length == 0 ? "gallery" : slug;
     }
 
-    static object Dto(Gallery g, int count, int pending) => new
+    static object Dto(Gallery g, int count, int pending, int rawOnly = 0) => new
     {
         g.Id, g.Slug, g.Title, g.Description, g.Folder, g.Visibility,
         hasPassword = !string.IsNullOrEmpty(g.PasswordHash),
         g.AllowDownload, g.AllowRaw, g.AllowZip, g.AllowGuestUpload, g.WatermarkView, g.WatermarkDownload,
         rawMatchMode = g.RawMatchMode, hideRawOnly = g.HideRawOnly, sortMode = g.SortMode, sortDesc = g.SortDesc,
         eventDate = g.EventDate, g.Location, g.AllowedSizes, g.AllowedFormats, expiresAt = g.ExpiresAt,
-        cover = g.CoverPhotoId, count, pending
+        cover = g.CoverPhotoId, count, pending, rawOnly
     };
 
     public static void Map(WebApplication app)
@@ -86,16 +87,36 @@ public static class AdminApi
             return Results.Ok(result);
         });
 
-        secured.MapGet("/galleries", async (AppDb db) =>
+        secured.MapGet("/galleries", async (AppDb db, SettingsService settings) =>
         {
-            var list = await db.Galleries.OrderBy(g => g.Title).Select(g => new
+            var rows = await db.Galleries.Select(g => new
             {
                 g,
                 count = g.Photos.Count(p => p.Approved),
-                pending = g.Photos.Count(p => !p.Approved)
+                pending = g.Photos.Count(p => !p.Approved),
+                rawOnly = g.Photos.Count(p => p.Approved && p.RawRelPath != null && p.RawRelPath == p.RelPath)
             }).ToListAsync();
-            return Results.Ok(list.Select(x => Dto(x.g, x.count, x.pending)));
+            var byId = rows.ToDictionary(r => r.g.Id);
+            return Results.Ok(GalleryRules.OrderGalleries(rows.Select(r => r.g), settings.Home.Order)
+                .Select(g => Dto(g, byId[g.Id].count, byId[g.Id].pending, byId[g.Id].rawOnly)));
         });
+
+        // manual gallery order: swap a gallery with its neighbour
+        secured.MapPost("/galleries/{id:int}/move", async (int id, MoveInput input, AppDb db, SettingsService settings) =>
+        {
+            var all = GalleryRules.OrderGalleries(await db.Galleries.ToListAsync(), "manual");
+            var idx = all.FindIndex(x => x.Id == id);
+            if (idx < 0) return Results.NotFound();
+            var to = input.Direction == "up" ? idx - 1 : idx + 1;
+            if (to < 0 || to >= all.Count) return Results.NoContent();
+            (all[idx], all[to]) = (all[to], all[idx]);
+            for (int i = 0; i < all.Count; i++) all[i].SortOrder = i;
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
+
+        secured.MapGet("/settings/home", (SettingsService settings) => Results.Ok(settings.Home));
+        secured.MapPut("/settings/home", (HomeSettings input, SettingsService settings) => Results.Ok(settings.SetHome(input)));
 
         secured.MapPost("/galleries", async (GalleryInput input, AppDb db, AppConfig cfg, Scanner scanner) =>
         {
@@ -110,8 +131,10 @@ public static class AdminApi
             var slug = baseSlug;
             for (int i = 2; await db.Galleries.AnyAsync(g => g.Slug == slug); i++) slug = $"{baseSlug}-{i}";
 
+            var maxOrder = await db.Galleries.AnyAsync() ? await db.Galleries.MaxAsync(x => x.SortOrder) : -1;
             var g = new Gallery
             {
+                SortOrder = maxOrder + 1,
                 Title = input.Title.Trim(), Slug = slug, Folder = cfg.Rel(dir),
                 Description = input.Description ?? "",
                 Visibility = input.Visibility ?? Visibility.Protected,
@@ -124,7 +147,7 @@ public static class AdminApi
             db.Galleries.Add(g);
             await db.SaveChangesAsync();
             var scan = await scanner.ScanAsync(db, g);
-            return Results.Ok(new { gallery = Dto(g, scan.Total, 0), scan });
+            return Results.Ok(new { gallery = Dto(g, scan.Total, 0, scan.RawOnly), scan });
         });
 
         secured.MapPut("/galleries/{id:int}", async (int id, GalleryInput input, AppDb db, AppConfig cfg, Scanner scanner, ThumbnailService thumbs) =>
@@ -182,7 +205,7 @@ public static class AdminApi
                 await db.SaveChangesAsync();
                 await scanner.ScanAsync(db, g);
             }
-            return Results.Ok(Dto(g, await db.Photos.CountAsync(p => p.GalleryId == id && p.Approved), await db.Photos.CountAsync(p => p.GalleryId == id && !p.Approved)));
+            return Results.Ok(Dto(g, await db.Photos.CountAsync(p => p.GalleryId == id && p.Approved), await db.Photos.CountAsync(p => p.GalleryId == id && !p.Approved), await db.Photos.CountAsync(p => p.GalleryId == id && p.Approved && p.RawRelPath != null && p.RawRelPath == p.RelPath)));
         });
 
         // Removes the gallery and cached derivatives. Original files in the library are never touched.
