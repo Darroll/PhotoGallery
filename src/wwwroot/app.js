@@ -298,7 +298,7 @@ async function viewAdmin(app) {
   app.append(h('div', { class: 'toolbar' }, h('h1', { text: 'Admin' }), h('span', { class: 'grow' }),
     h('a', { class: 'btn', href: '/admin/settings', text: 'Site settings' }),
     h('button', { text: 'Log out', onclick: async () => { await api('/api/admin/logout', { method: 'POST' }); route(); } })));
-  app.append(newGalleryPanel(folders.data || []));
+  app.append(newGalleryPanel((folders.data || []).filter(f => !f.galleryId).map(f => f.path)));
   const list = gals.data || [];
   app.append(h('h2', { text: `Galleries (${list.length})` }));
   if (!list.length) return app.append(h('p', { class: 'muted', text: 'No galleries yet. Create one from a folder above.' }));
@@ -345,6 +345,7 @@ function checkRow(label, checked) {
 }
 
 function newGalleryPanel(folders) {
+  if (!folders.length) return h('div', { class: 'panel' }, h('h3', { text: 'New gallery from a library folder' }), h('p', { class: 'muted', text: 'Every folder in the photo library already has a gallery. Add a new folder to the library, then reload this page.' }));
   const title = h('input', { type: 'text', placeholder: 'Gallery title' });
   const folder = h('select', {}, folders.map(f => h('option', { value: f, text: f })));
   const vis = h('select', {}, Object.entries(visLabels).map(([v, t]) => h('option', { value: v, text: t, selected: v === '2' })));
@@ -470,13 +471,18 @@ async function viewGallerySettings(app, id) {
       } }))));
   } });
   const scanMsg = h('span', { class: 'muted' });
+  const folderSelect = track(h('select', {}, h('option', { value: g.folder, text: g.folder, selected: true })));
+  api('/api/admin/folders').then(fr => {
+    const free = (fr.data || []).filter(f => !f.galleryId && f.path !== g.folder).map(f => f.path);
+    folderSelect.append(...free.map(p => h('option', { value: p, text: p })));
+  });
   const general = section('General', 'Name, date, order, cover', true,
     h('div', { class: 'form1' },
       field('Title', title), field('URL name', slug, `Gallery address: /g/${g.slug}`), field('Description', desc),
       field('Event date', eventDate), field('Location', location_),
       field('Photo order', h('div', { class: 'row' }, sortMode, h('label', {}, sortDesc, ' Reverse (newest / Z-A first)'))),
       field('Cover image', h('div', {}, h('div', { class: 'row' }, coverImg, coverBtn), pickerBox)),
-      field('Folder', h('code', { text: g.folder }), 'Photos are read from this library folder.'),
+      field('Library folder', folderSelect, 'Which library folder this gallery shows. Changing it rescans the gallery and resets the cover.'),
       field('Rescan', h('div', { class: 'row' }, h('button', { text: 'Rescan folder now', onclick: async () => {
         scanMsg.textContent = 'Scanning...';
         const r = await api(`/api/admin/galleries/${g.id}/scan`, { method: 'POST' });
@@ -535,8 +541,9 @@ async function viewGallerySettings(app, id) {
     rawLinker(g));
 
   saveBtn.onclick = async () => {
+    if (folderSelect.value !== g.folder && !confirm(`Point this gallery at "${folderSelect.value}"? It will rescan, the cover resets, and hand-made RAW links are lost. Your files are not touched.`)) return;
     const body = {
-      title: title.value, slug: slug.value, description: desc.value, location: location_.value,
+      folder: folderSelect.value, title: title.value, slug: slug.value, description: desc.value, location: location_.value,
       eventDate: eventDate.value || '', sortMode: Number(sortMode.value), sortDesc: sortDesc.checked,
       visibility: Number(vis.value), expiresAt: expires.value ? new Date(expires.value).toISOString() : '',
       allowDownload: allowDl.checked, allowZip: allowZip.checked,

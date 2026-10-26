@@ -65,16 +65,20 @@ public static class AdminApi
 
         var secured = admin.MapGroup("").RequireAuthorization();
 
-        secured.MapGet("/folders", (AppConfig cfg) =>
+        secured.MapGet("/folders", async (AppConfig cfg, AppDb db) =>
         {
-            var result = new List<string>();
+            var taken = (await db.Galleries.Select(x => new { x.Id, x.Title, x.Folder }).ToListAsync())
+                .GroupBy(x => x.Folder, StringComparer.OrdinalIgnoreCase).ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
+            var result = new List<object>();
             if (!Directory.Exists(cfg.LibraryRoot)) return Results.Ok(result);
             void Walk(string dir, int depth)
             {
                 foreach (var d in Directory.EnumerateDirectories(dir).OrderBy(x => x))
                 {
                     if (Scanner.IsHidden(Path.GetFileName(d))) continue;
-                    result.Add(cfg.Rel(d));
+                    var rel = cfg.Rel(d);
+                    taken.TryGetValue(rel, out var owner);
+                    result.Add(new { path = rel, galleryId = owner?.Id, galleryTitle = owner?.Title });
                     if (depth < 2) Walk(d, depth + 1);
                 }
             }
@@ -98,6 +102,9 @@ public static class AdminApi
             if (string.IsNullOrWhiteSpace(input.Title)) return Results.BadRequest("Title required");
             var dir = cfg.Resolve(input.Folder ?? "");
             if (dir == null || !Directory.Exists(dir)) return Results.BadRequest("Folder not found in library");
+            var newFolder = cfg.Rel(dir);
+            var owner = await db.Galleries.Where(x => x.Folder.ToLower() == newFolder.ToLower()).Select(x => x.Title).FirstOrDefaultAsync();
+            if (owner != null) return Results.BadRequest($"That folder already belongs to the gallery \"{owner}\"");
 
             var baseSlug = Slugify(string.IsNullOrWhiteSpace(input.Slug) ? input.Title : input.Slug);
             var slug = baseSlug;
@@ -120,10 +127,24 @@ public static class AdminApi
             return Results.Ok(new { gallery = Dto(g, scan.Total, 0), scan });
         });
 
-        secured.MapPut("/galleries/{id:int}", async (int id, GalleryInput input, AppDb db, AppConfig cfg) =>
+        secured.MapPut("/galleries/{id:int}", async (int id, GalleryInput input, AppDb db, AppConfig cfg, Scanner scanner) =>
         {
             var g = await db.Galleries.FindAsync(id);
             if (g == null) return Results.NotFound();
+            var folderChanged = false;
+            if (!string.IsNullOrWhiteSpace(input.Folder))
+            {
+                var dir = cfg.Resolve(input.Folder);
+                if (dir == null || !Directory.Exists(dir)) return Results.BadRequest("Folder not found in library");
+                var rel = cfg.Rel(dir);
+                if (!string.Equals(rel, g.Folder, StringComparison.OrdinalIgnoreCase))
+                {
+                    var owner = await db.Galleries.Where(x => x.Id != g.Id && x.Folder.ToLower() == rel.ToLower()).Select(x => x.Title).FirstOrDefaultAsync();
+                    if (owner != null) return Results.BadRequest($"That folder already belongs to the gallery \"{owner}\"");
+                    g.Folder = rel;
+                    folderChanged = true;
+                }
+            }
             if (input.Title != null) g.Title = input.Title.Trim();
             if (input.Description != null) g.Description = input.Description;
             if (!string.IsNullOrWhiteSpace(input.Slug))
@@ -154,6 +175,12 @@ public static class AdminApi
             if (input.AllowedSizes != null) g.AllowedSizes = string.Join(',', input.AllowedSizes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(s => int.TryParse(s, out _)));
             if (input.AllowedFormats != null) g.AllowedFormats = string.Join(',', input.AllowedFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => s.ToLowerInvariant()).Where(s => ImageService.LosslessFormats.Contains(s)));
             await db.SaveChangesAsync();
+            if (folderChanged)
+            {
+                g.CoverPhotoId = null; // old cover belonged to the previous folder
+                await db.SaveChangesAsync();
+                await scanner.ScanAsync(db, g);
+            }
             return Results.Ok(Dto(g, await db.Photos.CountAsync(p => p.GalleryId == id && p.Approved), await db.Photos.CountAsync(p => p.GalleryId == id && !p.Approved)));
         });
 
