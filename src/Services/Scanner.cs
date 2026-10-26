@@ -147,6 +147,8 @@ public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs
             var d = Path.Combine(cfg.CacheDir, "variants", p.Id.ToString());
             if (Directory.Exists(d)) try { Directory.Delete(d, true); } catch { }
         }
+        var goneIds = gone.Select(p => p.Id).ToList();
+        if (goneIds.Count > 0) await db.Favorites.Where(f => goneIds.Contains(f.PhotoId)).ExecuteDeleteAsync();
         db.Photos.RemoveRange(gone);
         await db.SaveChangesAsync();
 

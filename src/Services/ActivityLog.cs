@@ -62,6 +62,13 @@ public class ActivityLog(IServiceScopeFactory scopes, SettingsService settings, 
     static readonly Regex VidRx = new("^[A-Za-z0-9_-]{16,32}$", RegexOptions.Compiled);
 
     /// <summary>Reads the anonymous visitor id, issuing a new one (2 years) when the browser has none.</summary>
+    /// <summary>The visitor id if the browser already has one, otherwise empty (never issues a cookie).</summary>
+    public static string ReadVisitorId(HttpContext ctx) =>
+        ctx.Request.Cookies.TryGetValue(CookieName, out var v) && v != null && VidRx.IsMatch(v) ? v : "";
+
+    /// <summary>The visitor id, issuing a new cookie when needed (used by favorites).</summary>
+    public static string EnsureVisitorId(HttpContext ctx) => VisitorCookie(ctx);
+
     static string VisitorCookie(HttpContext ctx)
     {
         if (ctx.Request.Cookies.TryGetValue(CookieName, out var existing) && existing != null && VidRx.IsMatch(existing)) return existing;

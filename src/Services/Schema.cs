@@ -13,6 +13,15 @@ public static class Schema
             ""Ip"" TEXT NOT NULL, ""Country"" TEXT NOT NULL, ""UserAgent"" TEXT NOT NULL, ""IsBot"" INTEGER NOT NULL, ""Detail"" TEXT NOT NULL)");
         db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Visits_Time"" ON ""Visits"" (""Time"")");
         db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Visits_GalleryId_Time"" ON ""Visits"" (""GalleryId"", ""Time"")");
+        AddColumn(db, "Galleries", "FootageLinks", "TEXT NOT NULL DEFAULT '[]'");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""Favorites"" (
+            ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_Favorites"" PRIMARY KEY AUTOINCREMENT,
+            ""GalleryId"" INTEGER NOT NULL, ""PhotoId"" INTEGER NOT NULL, ""VisitorId"" TEXT NOT NULL, ""CreatedAt"" TEXT NOT NULL)");
+        db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_Favorites_GalleryId_PhotoId_VisitorId"" ON ""Favorites"" (""GalleryId"", ""PhotoId"", ""VisitorId"")");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""FavoriteOwners"" (
+            ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_FavoriteOwners"" PRIMARY KEY AUTOINCREMENT,
+            ""GalleryId"" INTEGER NOT NULL, ""VisitorId"" TEXT NOT NULL, ""Name"" TEXT NOT NULL, ""UpdatedAt"" TEXT NOT NULL)");
+        db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_FavoriteOwners_GalleryId_VisitorId"" ON ""FavoriteOwners"" (""GalleryId"", ""VisitorId"")");
         AddColumn(db, "Visits", "VisitorId", "TEXT NOT NULL DEFAULT ''");
         db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_Visits_VisitorId"" ON ""Visits"" (""VisitorId"")");
         AddColumn(db, "Photos", "RawLocked", "INTEGER NOT NULL DEFAULT 0");

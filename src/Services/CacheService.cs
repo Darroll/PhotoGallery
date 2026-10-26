@@ -35,7 +35,7 @@ public class CacheService(AppConfig cfg, ImageService images, IServiceScopeFacto
             var dir = Path.Combine(cfg.CacheDir, "variants", p.Id.ToString());
             var wm = galleries.TryGetValue(p.GalleryId, out var g) && g.WatermarkView && wmAvailable;
             var viewTag = wm ? images.CurrentWatermarkTag : "n";
-            if (!File.Exists(Path.Combine(dir, $"thumb480_n_{stamp}.webp")) || !File.Exists(Path.Combine(dir, $"view2048_{viewTag}_{stamp}.webp"))) missing++;
+            if (!File.Exists(Path.Combine(dir, $"thumb480_n_{stamp}.webp")) || !File.Exists(Path.Combine(dir, $"mid1280_{viewTag}_{stamp}.webp")) || !File.Exists(Path.Combine(dir, $"view2048_{viewTag}_{stamp}.webp"))) missing++;
         }
         return missing;
     }

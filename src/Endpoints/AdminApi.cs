@@ -13,9 +13,10 @@ public static class AdminApi
         string? Password, bool? AllowDownload, bool? AllowRaw, bool? AllowZip, bool? AllowGuestUpload,
         bool? WatermarkView, bool? WatermarkDownload, RawMatch? RawMatchMode,
         bool? HideRawOnly, GallerySort? SortMode, bool? SortDesc, string? EventDate, string? Location,
-        string? AllowedSizes, string? AllowedFormats, string? ExpiresAt);
+        string? AllowedSizes, string? AllowedFormats, string? ExpiresAt, List<LinkItem>? FootageLinks);
     record LinkRawInput(int RawPhotoId);
     record MoveInput(string? Direction);
+    record LinkItem(string? Label, string? Url);
     record SiteInput(string? Name);
     record LinkInput(string? Label, int? ExpiresInDays, int? MaxDownloads);
     record CoverInput(int PhotoId);
@@ -33,7 +34,7 @@ public static class AdminApi
         g.AllowDownload, g.AllowRaw, g.AllowZip, g.AllowGuestUpload, g.WatermarkView, g.WatermarkDownload,
         rawMatchMode = g.RawMatchMode, hideRawOnly = g.HideRawOnly, sortMode = g.SortMode, sortDesc = g.SortDesc,
         eventDate = g.EventDate, g.Location, g.AllowedSizes, g.AllowedFormats, expiresAt = g.ExpiresAt,
-        cover = g.CoverPhotoId, count, pending, rawOnly
+        footageLinks = GalleryRules.Links(g), cover = g.CoverPhotoId, count, pending, rawOnly
     };
 
     public static void Map(WebApplication app)
@@ -205,6 +206,7 @@ public static class AdminApi
             if (input.SortMode != null) g.SortMode = input.SortMode.Value;
             if (input.SortDesc != null) g.SortDesc = input.SortDesc.Value;
             if (input.Location != null) g.Location = input.Location.Trim();
+            if (input.FootageLinks != null) g.FootageLinks = GalleryRules.CleanLinks(input.FootageLinks.Select(l => new GalleryRules.FootageLink(l.Label ?? "", l.Url ?? "")));
             if (input.EventDate != null) g.EventDate = DateTime.TryParse(input.EventDate, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ed) ? ed : null;
             if (input.ExpiresAt != null) g.ExpiresAt = DateTime.TryParse(input.ExpiresAt, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ex) ? ex : null;
             if (input.AllowedSizes != null) g.AllowedSizes = string.Join(',', input.AllowedSizes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(s => int.TryParse(s, out _)));
@@ -230,6 +232,8 @@ public static class AdminApi
                 var d = Path.Combine(cfg.CacheDir, "variants", p.Id.ToString());
                 if (Directory.Exists(d)) Directory.Delete(d, true);
             }
+            await db.Favorites.Where(f => f.GalleryId == id).ExecuteDeleteAsync();
+            await db.FavoriteOwners.Where(o => o.GalleryId == id).ExecuteDeleteAsync();
             db.Galleries.Remove(g);
             await db.SaveChangesAsync();
             return Results.NoContent();
@@ -278,6 +282,40 @@ public static class AdminApi
             l.Revoked = true;
             await db.SaveChangesAsync();
             return Results.NoContent();
+        });
+
+        // --- favorites chosen by visitors ---
+        secured.MapGet("/galleries/{id:int}/favorites", async (int id, AppDb db) =>
+        {
+            var favs = await db.Favorites.AsNoTracking().Where(f => f.GalleryId == id).ToListAsync();
+            var photoIds = favs.Select(f => f.PhotoId).Distinct().ToList();
+            var photos = await db.Photos.AsNoTracking().Where(p => photoIds.Contains(p.Id)).Select(p => new { p.Id, p.Name, p.RawRelPath }).ToDictionaryAsync(p => p.Id);
+            var owners = await db.FavoriteOwners.AsNoTracking().Where(o => o.GalleryId == id).ToDictionaryAsync(o => o.VisitorId, o => o.Name);
+            var vids = favs.Select(f => f.VisitorId).Distinct().ToList();
+            var seen = (await db.Visits.AsNoTracking().Where(v => v.GalleryId == id && vids.Contains(v.VisitorId)).Select(v => new { v.VisitorId, v.Ip, v.Country, v.UserAgent, v.Time }).ToListAsync())
+                .GroupBy(v => v.VisitorId).ToDictionary(grp => grp.Key, grp => grp.OrderByDescending(v => v.Time).First());
+            DateTime Utc(DateTime d) => DateTime.SpecifyKind(d, DateTimeKind.Utc);
+
+            var lists = favs.GroupBy(f => f.VisitorId).Select(grp =>
+            {
+                seen.TryGetValue(grp.Key, out var s);
+                return new
+                {
+                    visitorId = grp.Key, name = owners.TryGetValue(grp.Key, out var n) ? n : "",
+                    count = grp.Count(), updated = Utc(grp.Max(f => f.CreatedAt)),
+                    ip = s?.Ip ?? "", country = s?.Country ?? "", userAgent = s?.UserAgent ?? "",
+                    photos = grp.OrderBy(f => f.CreatedAt).Where(f => photos.ContainsKey(f.PhotoId)).Select(f => new
+                    {
+                        id = f.PhotoId, name = photos[f.PhotoId].Name,
+                        raw = photos[f.PhotoId].RawRelPath != null ? Path.GetFileName(photos[f.PhotoId].RawRelPath!) : ""
+                    }).ToList()
+                };
+            }).OrderByDescending(x => x.updated).ToList();
+
+            var top = favs.GroupBy(f => f.PhotoId).Where(grp => photos.ContainsKey(grp.Key))
+                .Select(grp => new { photoId = grp.Key, name = photos[grp.Key].Name, count = grp.Count() })
+                .OrderByDescending(x => x.count).ThenBy(x => x.name).Take(30).ToList();
+            return Results.Ok(new { lists, top });
         });
 
         // --- guest upload moderation ---

@@ -90,6 +90,7 @@ public class ThumbnailService(IServiceScopeFactory scopes, ImageService images, 
             try
             {
                 await images.GetVariantAsync(p, "thumb", 480, "webp", false);
+                await images.GetVariantAsync(p, "mid", 1280, "webp", wm);
                 await images.GetVariantAsync(p, "view", 2048, "webp", wm);
             }
             catch (Exception ex) { log.LogWarning(ex, "Could not build thumbnails for photo {Id}", p.Id); }

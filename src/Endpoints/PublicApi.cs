@@ -7,6 +7,8 @@ namespace PhotoGallery;
 public static class PublicApi
 {
     record UnlockRequest(string? Password);
+    record FavInput(bool On);
+    record NameInput(string? Name);
 
     public static void Map(WebApplication app)
     {
@@ -45,6 +47,9 @@ public static class PublicApi
 
             activity.Record(ctx, "view_gallery", g.Id);
             var admin = a.Admin;
+            var vid = ActivityLog.ReadVisitorId(ctx);
+            var favoriteIds = vid == "" ? new List<int>() : await db.Favorites.AsNoTracking().Where(f => f.GalleryId == g.Id && f.VisitorId == vid).Select(f => f.PhotoId).ToListAsync();
+            var favoriteName = vid == "" ? "" : await db.FavoriteOwners.AsNoTracking().Where(o => o.GalleryId == g.Id && o.VisitorId == vid).Select(o => o.Name).FirstOrDefaultAsync() ?? "";
             var photos = await db.Photos.Where(p => p.GalleryId == g.Id && (p.Approved || admin))
                 .Select(p => new { p.Id, w = p.Width, h = p.Height, p.Name, raw = p.RawRelPath != null, rawOnly = p.RawRelPath != null && p.RawRelPath == p.RelPath, taken = p.TakenAt, added = p.AddedAt, p.Approved })
                 .ToListAsync();
@@ -54,7 +59,7 @@ public static class PublicApi
             return Results.Ok(new
             {
                 g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId,
-                g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, sizes = GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
+                g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, links = GalleryRules.Links(g), favorites = favoriteIds, favoriteName, sizes = GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
                 allowDownload = g.AllowDownload,
                 allowOriginal = g.AllowDownload && !locked,
                 allowRaw = g.AllowDownload && g.AllowRaw && !locked,
@@ -85,6 +90,44 @@ public static class PublicApi
             return Results.NoContent();
         }).RequireRateLimiting("viewed");
 
+        app.MapPost("/api/g/{slug}/favorite/{photoId:int}", async (string slug, int photoId, FavInput input, HttpContext ctx, AppDb db, AccessService access, ActivityLog activity) =>
+        {
+            if (ctx.Request.Headers["X-Requested-With"] != "pg") return Results.BadRequest();
+            var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
+            if (g == null) return Results.NotFound();
+            var a = await access.CheckAsync(ctx, g);
+            if (!a.Allowed) return Results.StatusCode(403);
+            if (!await db.Photos.AnyAsync(p => p.Id == photoId && p.GalleryId == g.Id && p.Approved)) return Results.NotFound();
+            var vid = ActivityLog.EnsureVisitorId(ctx);
+            var existing = await db.Favorites.FirstOrDefaultAsync(f => f.GalleryId == g.Id && f.PhotoId == photoId && f.VisitorId == vid);
+            if (input.On && existing == null)
+            {
+                if (await db.Favorites.CountAsync(f => f.GalleryId == g.Id && f.VisitorId == vid) >= 2000) return Results.StatusCode(429);
+                db.Favorites.Add(new Favorite { GalleryId = g.Id, PhotoId = photoId, VisitorId = vid });
+                activity.Record(ctx, "favorite", g.Id, photoId);
+            }
+            else if (!input.On && existing != null) db.Favorites.Remove(existing);
+            await db.SaveChangesAsync();
+            return Results.Ok(new { count = await db.Favorites.CountAsync(f => f.GalleryId == g.Id && f.VisitorId == vid) });
+        }).RequireRateLimiting("viewed");
+
+        app.MapPut("/api/g/{slug}/favorite-name", async (string slug, NameInput input, HttpContext ctx, AppDb db, AccessService access) =>
+        {
+            if (ctx.Request.Headers["X-Requested-With"] != "pg") return Results.BadRequest();
+            var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
+            if (g == null) return Results.NotFound();
+            var a = await access.CheckAsync(ctx, g);
+            if (!a.Allowed) return Results.StatusCode(403);
+            var vid = ActivityLog.EnsureVisitorId(ctx);
+            var name = (input.Name ?? "").Trim();
+            if (name.Length > 60) name = name[..60];
+            var owner = await db.FavoriteOwners.FirstOrDefaultAsync(o => o.GalleryId == g.Id && o.VisitorId == vid);
+            if (owner == null) db.FavoriteOwners.Add(new FavoriteOwner { GalleryId = g.Id, VisitorId = vid, Name = name });
+            else { owner.Name = name; owner.UpdatedAt = DateTime.UtcNow; }
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        }).RequireRateLimiting("viewed");
+
         app.MapPost("/api/g/{slug}/unlock", async (string slug, UnlockRequest req, HttpContext ctx, AppDb db, AccessService access, ActivityLog activity) =>
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
@@ -107,14 +150,14 @@ public static class PublicApi
 
         app.MapGet("/img/{id:int}/{kind}", async (int id, string kind, HttpContext ctx, AppDb db, AccessService access, ImageService images) =>
         {
-            if (kind is not ("thumb" or "view")) return Results.NotFound();
+            if (kind is not ("thumb" or "mid" or "view")) return Results.NotFound();
             var p = await db.Photos.Include(x => x.Gallery).FirstOrDefaultAsync(x => x.Id == id);
             if (p?.Gallery == null) return Results.NotFound();
             var a = await access.CheckAsync(ctx, p.Gallery);
             if (!a.Allowed || (!p.Approved && !a.Admin)) return Results.NotFound();
 
-            var wm = kind == "view" && p.Gallery.WatermarkView && images.WatermarkAvailable;
-            var v = await images.GetVariantAsync(p, kind, kind == "thumb" ? 480 : 2048, "webp", wm);
+            var wm = kind != "thumb" && p.Gallery.WatermarkView && images.WatermarkAvailable;
+            var v = await images.GetVariantAsync(p, kind, kind == "thumb" ? 480 : kind == "mid" ? 1280 : 2048, "webp", wm);
             if (v == null) return Results.NotFound();
             ctx.Response.Headers.CacheControl = p.Gallery.Visibility == Visibility.Public ? "public, max-age=86400" : "private, max-age=3600";
             return Results.File(v.Value.path, "image/webp", lastModified: File.GetLastWriteTimeUtc(v.Value.path));
@@ -168,7 +211,7 @@ public static class PublicApi
             return Results.File(path, "application/octet-stream", Path.GetFileName(path));
         });
 
-        app.MapGet("/api/g/{slug}/zip", async (string slug, string? size, string? fmt, bool? raw, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity) =>
+        app.MapGet("/api/g/{slug}/zip", async (string slug, string? size, string? fmt, bool? raw, string? ids, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity) =>
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
             if (g == null) return Results.NotFound();
@@ -190,15 +233,21 @@ public static class PublicApi
 
             var photos = await db.Photos.Where(p => p.GalleryId == g.Id && (p.Approved || a.Admin))
                 .ToListAsync();
+            if (!string.IsNullOrEmpty(ids))
+            {
+                var wanted = ids.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(x => int.TryParse(x, out var n) ? n : 0).Where(n => n > 0).Take(500).ToHashSet();
+                photos = photos.Where(p => wanted.Contains(p.Id)).ToList();
+            }
             photos = GalleryRules.Sort(photos, g, x => x.TakenAt, x => x.Name, x => x.AddedAt);
             if (photos.Count == 0) return Results.NotFound();
             if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);
-            activity.Record(ctx, "zip", g.Id, null, (original ? "original" : $"{px}px {f}") + (includeRaw ? " +RAW" : ""));
+            activity.Record(ctx, "zip", g.Id, null, (original ? "original" : $"{px}px {f}") + (includeRaw ? " +RAW" : "") + (string.IsNullOrEmpty(ids) ? "" : $" ({photos.Count} selected)"));
 
             var body = ctx.Features.Get<IHttpBodyControlFeature>();
             if (body != null) body.AllowSynchronousIO = true;
             ctx.Response.ContentType = "application/zip";
-            ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{g.Slug}{(original ? "" : "_" + px)}.zip\"";
+            ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{g.Slug}{(string.IsNullOrEmpty(ids) ? "" : "-selected")}{(original ? "" : "_" + px)}.zip\"";
 
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             string Unique(string name)

@@ -27,6 +27,8 @@ public class Gallery
     public bool HideRawOnly { get; set; } = true;
     /// <summary>Position used when the home page order is "manual".</summary>
     public int SortOrder { get; set; }
+    /// <summary>JSON list of {label,url} links shown under the title (e.g. game footage on YouTube).</summary>
+    public string FootageLinks { get; set; } = "[]";
     public GallerySort SortMode { get; set; } = GallerySort.Taken;
     public bool SortDesc { get; set; }
     public DateTime? EventDate { get; set; }
@@ -71,6 +73,26 @@ public class Photo
     public bool RawOnly => RawRelPath != null && RawRelPath == RelPath;
 }
 
+/// <summary>A photo a visitor hearted. Visitors are identified by the anonymous id cookie.</summary>
+public class Favorite
+{
+    public int Id { get; set; }
+    public int GalleryId { get; set; }
+    public int PhotoId { get; set; }
+    public string VisitorId { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>Optional name a visitor gives their favorites list so the photographer knows whose it is.</summary>
+public class FavoriteOwner
+{
+    public int Id { get; set; }
+    public int GalleryId { get; set; }
+    public string VisitorId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+
 public class ShareLink
 {
     public int Id { get; set; }
@@ -95,12 +117,16 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<Photo> Photos => Set<Photo>();
     public DbSet<ShareLink> ShareLinks => Set<ShareLink>();
     public DbSet<Visit> Visits => Set<Visit>();
+    public DbSet<Favorite> Favorites => Set<Favorite>();
+    public DbSet<FavoriteOwner> FavoriteOwners => Set<FavoriteOwner>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<Gallery>().HasIndex(g => g.Slug).IsUnique();
         b.Entity<Photo>().HasIndex(p => new { p.GalleryId, p.RelPath }).IsUnique();
         b.Entity<ShareLink>().HasIndex(l => l.Token).IsUnique();
+        b.Entity<Favorite>().HasIndex(f => new { f.GalleryId, f.PhotoId, f.VisitorId }).IsUnique();
+        b.Entity<FavoriteOwner>().HasIndex(o => new { o.GalleryId, o.VisitorId }).IsUnique();
         b.Entity<Visit>().HasIndex(v => v.Time);
         b.Entity<Visit>().HasIndex(v => new { v.GalleryId, v.Time });
         b.Entity<Photo>().HasOne(p => p.Gallery).WithMany(g => g.Photos).HasForeignKey(p => p.GalleryId).OnDelete(DeleteBehavior.Cascade);

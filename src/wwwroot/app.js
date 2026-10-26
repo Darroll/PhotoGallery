@@ -41,6 +41,7 @@ let dirtyGuard = null; // set by pages with unsaved changes: returns true when i
 let galleryView = null; // slug of the gallery grid currently rendered, so photo URLs can open/close the viewer without re-rendering
 async function route(force = false) {
   dirtyGuard = null;
+  closeSheet();
   const parts = location.pathname.split('/').filter(Boolean);
   const app = $('#app');
   if (parts[0] === 'g' && parts[1]) {
@@ -108,7 +109,21 @@ async function viewHome(app) {
 }
 
 // ---------- gallery ----------
-let G = null; // current gallery payload
+let G = null;            // current gallery payload
+let sel = new Set();     // photo ids chosen for a download
+let favs = new Set();    // this visitor's favorite photo ids
+const viewKind = () => (innerWidth <= 700 ? 'mid' : 'view');   // phones get the lighter 1280px image
+const photoUrl = (p, kind) => `/img/${p.id}/${kind}`;
+
+async function toggleFav(p) {
+  const on = !favs.has(p.id);
+  on ? favs.add(p.id) : favs.delete(p.id);
+  G.refresh && G.refresh();
+  const r = await api(`/api/g/${encodeURIComponent(G.slug)}/favorite/${p.id}`, { method: 'POST', body: { on } });
+  if (!r.ok) { on ? favs.delete(p.id) : favs.add(p.id); G.refresh && G.refresh(); toast('Could not save that favorite'); return; }
+  if (on && favs.size === 1) toast('Saved to your favorites. The photographer can see them.');
+}
+function toggleSel(p) { sel.has(p.id) ? sel.delete(p.id) : sel.add(p.id); G.refresh && G.refresh(); }
 
 async function viewGallery(app, slug) {
   const r = await api('/api/g/' + encodeURIComponent(slug));
@@ -118,10 +133,14 @@ async function viewGallery(app, slug) {
   if (!r.ok) document.title = 'Not available - ' + site.title;
   if (!r.ok) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Not available' }), h('p', { class: 'sub', text: 'This gallery does not exist or you do not have access.' })));
   G = r.data;
+  sel = new Set();
+  favs = new Set(G.favorites || []);
   document.title = G.title;
-  app.append(h('h1', { text: G.title }));
+  app.append(h('h1', { class: 'g-title', text: G.title }));
   if (G.eventDate || G.location) app.append(h('p', { class: 'muted', text: eventLine(G) }));
   if (G.description) app.append(h('p', { class: 'sub', text: G.description }));
+  if ((G.links || []).length) app.append(h('div', { class: 'footage' }, G.links.map(l =>
+    h('a', { class: 'btn footage-link', href: l.url, target: '_blank', rel: 'noopener noreferrer', text: '▶ ' + l.label }))));
   if (G.link) {
     const bits = [];
     if (G.link.expires) bits.push('link expires ' + fmtDate(G.link.expires));
@@ -131,42 +150,90 @@ async function viewGallery(app, slug) {
 
   const approved = G.photos.filter(p => p.approved || G.admin);
   const rawOnlyCount = approved.filter(p => p.rawOnly).length;
-  const tb = h('div', { class: 'toolbar' });
+  let selectMode = false, favOnly = false;
+  const tiles = new Map();
+
   const countLabel = h('span', { class: 'muted' });
-  const slideBtn = h('button', { class: 'primary', text: '\u25B6 Slideshow', onclick: () => openLightbox(0, true) });
+  const slideBtn = h('button', { class: 'primary', text: '▶ Slideshow', onclick: () => openLightbox(0, true) });
+  const selectBtn = h('button', { text: 'Select', onclick: () => { selectMode = !selectMode; if (!selectMode) sel.clear(); fill(); } });
+  const favBtn = h('button', { onclick: () => { favOnly = !favOnly; fill(); } });
   const curated = h('input', { type: 'checkbox', checked: G.hideRawOnly !== false });
   const curatedText = h('span');
   const rawBtn = h('label', { class: 'switch', title: 'Curated photos are the edited ones. Turn this off to also see unedited RAW frames.' }, curated, curatedText);
+  const dlBtn = h('button', { text: 'Download…', onclick: () => openDownloadSheet() });
   const grid = h('div', { class: 'grid' });
-  const fill = () => {
+
+  // selection bar (bottom of the screen while choosing photos)
+  const selCount = h('b');
+  const selBar = h('div', { class: 'selbar hidden' }, selCount,
+    h('button', { text: 'Select all', onclick: () => { G.list.forEach(p => sel.add(p.id)); G.refresh(); } }),
+    h('button', { text: 'Clear', onclick: () => { sel.clear(); G.refresh(); } }),
+    h('span', { class: 'grow' }),
+    h('button', { class: 'primary', text: 'Download…', onclick: () => openDownloadSheet({ scope: 'selected' }) }),
+    h('button', { text: 'Done', onclick: () => { selectMode = false; sel.clear(); fill(); } }));
+
+  // favorites bar
+  const nameInput = h('input', { type: 'text', value: G.favoriteName || '', placeholder: 'Your name (optional)', maxlength: 60 });
+  nameInput.addEventListener('change', () => api(`/api/g/${encodeURIComponent(slug)}/favorite-name`, { method: 'PUT', body: { name: nameInput.value } }));
+  const favBar = h('div', { class: 'panel favbar hidden' },
+    h('p', { class: 'muted', text: 'Your favorites are saved in this browser and the photographer can see them. Add your name so they know whose list this is.' }),
+    h('div', { class: 'row' }, nameInput, h('button', { text: 'Download favorites…', onclick: () => openDownloadSheet({ scope: 'favorites' }) })));
+
+  const updateStates = () => {
+    for (const [id, t] of tiles) {
+      t.el.classList.toggle('sel', sel.has(id));
+      t.heart.classList.toggle('on', favs.has(id));
+      t.heart.textContent = favs.has(id) ? '♥' : '♡';
+      t.check.textContent = sel.has(id) ? '✓' : '';
+    }
+    selCount.textContent = `${sel.size} selected`;
+    favBtn.textContent = `♥ Favorites (${favs.size})`;
+    favBtn.classList.toggle('on', favOnly);
+    if (lb && lb.sync) lb.sync();
+  };
+
+  function fill() {
     const showRaw = !curated.checked;
-    const photos = showRaw ? approved : approved.filter(p => !p.rawOnly);
+    let photos = showRaw ? approved : approved.filter(p => !p.rawOnly);
+    if (favOnly) photos = approved.filter(p => favs.has(p.id));
     G.list = photos;
-    countLabel.textContent = `${photos.filter(p => p.approved).length} photos`;
+    countLabel.textContent = favOnly ? `${photos.length} favorites` : plural(photos.filter(p => p.approved).length, 'photo');
     curatedText.textContent = showRaw ? ' Curated only' : ` Curated only (${rawOnlyCount} unedited RAW hidden)`;
+    rawBtn.classList.toggle('hidden', favOnly);
     slideBtn.disabled = !photos.length;
+    selectBtn.textContent = selectMode ? 'Cancel selection' : 'Select';
+    selBar.classList.toggle('hidden', !selectMode);
+    favBar.classList.toggle('hidden', !favOnly);
+    document.body.classList.toggle('selecting', selectMode);
+    tiles.clear();
     grid.replaceChildren(...photos.map((p, i) => {
       const ratio = (p.w || 3) / (p.h || 2);
-      const item = h('div', { class: 'ph' + (p.approved ? '' : ' pending'), title: p.name, onclick: () => openLightbox(i, false) },
-        h('img', { loading: 'lazy', src: `/img/${p.id}/thumb`, alt: p.name }),
+      const heart = h('button', { class: 'tile-fav', 'aria-label': 'Favorite', onclick: (e) => { e.stopPropagation(); toggleFav(p); } });
+      const check = h('span', { class: 'tile-check' });
+      const item = h('div', { class: 'ph' + (p.approved ? '' : ' pending'), title: p.name, tabindex: 0,
+        onclick: () => { if (selectMode) toggleSel(p); else openLightbox(i, false); },
+        onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); if (selectMode) toggleSel(p); else openLightbox(i, false); } } },
+        h('img', { loading: 'lazy', src: photoUrl(p, 'thumb'), alt: p.name }),
         p.approved ? null : h('span', { class: 'badge', text: 'pending' }),
-        p.rawOnly ? h('span', { class: 'badge', text: 'RAW' }) : null);
-      item.style.width = (ratio * 220) + 'px';
-      item.style.flexGrow = String(ratio * 100);
-      item.style.aspectRatio = String(ratio);
-      item.style.minWidth = '120px';
+        p.rawOnly ? h('span', { class: 'badge', text: 'RAW' }) : null,
+        selectMode ? check : null, heart);
+      item.style.setProperty('--r', String(ratio));
+      tiles.set(p.id, { el: item, heart, check });
       return item;
     }));
-  };
+    updateStates();
+  }
+  G.refresh = () => { if (favOnly) fill(); else updateStates(); };
   curated.addEventListener('change', fill);
-  tb.append(countLabel, slideBtn);
+
+  const tb = h('div', { class: 'toolbar gallery-bar' }, countLabel, slideBtn, selectBtn, favBtn);
+  if (G.allowDownload) tb.append(dlBtn);
   if (rawOnlyCount > 0) tb.append(rawBtn);
   tb.append(h('span', { class: 'grow' }));
-  if (G.allowZip) tb.append(zipControls());
   if (G.allowUpload) tb.append(uploadControl(slug));
-  app.append(tb, grid);
+  app.append(tb, favBar, grid, selBar);
   fill();
-  G.revealAll = () => { curated.checked = false; fill(); };
+  G.revealAll = () => { curated.checked = false; favOnly = false; fill(); };
   galleryView = slug;
 }
 
@@ -184,43 +251,77 @@ function passwordPrompt(app, slug, title) {
   input.focus();
 }
 
-function sizeSelect(allowOriginal) {
-  const s = h('select');
-  if (allowOriginal) s.append(h('option', { value: 'original', text: 'Original file' }));
-  for (const px of (G ? G.sizes : site.sizes)) s.append(h('option', { value: px, text: `${px}px long edge` }));
-  return s;
-}
-function fmtSelect() {
-  const s = h('select');
-  for (const f of (G ? G.formats : site.formats)) s.append(h('option', { value: f, text: fmtLabels[f] || f }));
-  return s;
+// ---------- download sheet ----------
+function closeSheet() {
+  const s = $('#sheet');
+  if (!s) return;
+  document.removeEventListener('keydown', s._key, true);
+  s.remove();
 }
 
-function zipControls() {
-  const size = sizeSelect(G.allowOriginal), fmt = fmtSelect();
-  const rawBox = h('input', { type: 'checkbox' });
-  const sync = () => { fmt.disabled = size.value === 'original'; };
-  size.addEventListener('change', sync); sync();
-  const btn = h('button', { text: 'Download ZIP', onclick: () => {
+function openDownloadSheet(opts = {}) {
+  closeSheet();
+  if (!G.allowDownload) return;
+  const photo = opts.photo || null;
+  const scopes = [];
+  if (photo) scopes.push(['photo', `This photo – ${photo.name}`]);
+  if (G.allowZip && sel.size) scopes.push(['selected', `Selected photos (${sel.size})`]);
+  if (G.allowZip && favs.size) scopes.push(['favorites', `My favorites (${favs.size})`]);
+  if (G.allowZip) scopes.push(['all', 'Whole gallery (ZIP)']);
+  if (!scopes.length) { toast('Nothing to download'); return; }
+  let scope = scopes.some(s => s[0] === opts.scope) ? opts.scope : scopes[0][0];
+
+  const scopeBox = h('div', { class: 'sheet-scopes' });
+  const size = h('select'), fmt = h('select'), rawBox = h('input', { type: 'checkbox' });
+  const rawRow = h('label', { class: 'sheet-row' }, rawBox, ' Include the RAW files (where they exist)');
+  const note = h('p', { class: 'muted' });
+  const rawBtn = photo && photo.raw && G.allowRaw ? h('a', { class: 'btn', href: `/dl/${photo.id}/raw`, text: 'Download the RAW file' }) : null;
+
+  const fillSizes = () => {
+    const keep = size.value;
+    size.replaceChildren();
+    if (G.allowOriginal && !(scope === 'photo' && photo.rawOnly)) size.append(h('option', { value: 'original', text: 'Original file (untouched)' }));
+    for (const px of G.sizes) size.append(h('option', { value: px, text: `${px}px on the long edge` }));
+    if ([...size.options].some(o => o.value === keep)) size.value = keep;
+    fmt.disabled = size.value === 'original';
+  };
+  for (const f of G.formats) fmt.append(h('option', { value: f, text: fmtLabels[f] || f }));
+  const sync = () => {
+    fillSizes();
+    rawRow.classList.toggle('hidden', !(G.allowRaw && scope !== 'photo'));
+    note.textContent = (G.watermarkDownload ? 'Downloads carry a watermark, so the original file is not offered. ' : '') + 'Resized copies are lossless.';
+  };
+  scopeBox.replaceChildren(...scopes.map(([v, t]) => h('label', { class: 'sheet-row' },
+    h('input', { type: 'radio', name: 'scope', value: v, checked: v === scope, onchange: () => { scope = v; sync(); } }), ' ' + t)));
+  size.addEventListener('change', () => { fmt.disabled = size.value === 'original'; });
+  sync();
+
+  const go = () => {
     const q = new URLSearchParams({ size: size.value, fmt: fmt.value });
-    if (rawBox.checked) q.set('raw', 'true');
+    if (scope === 'photo') { location.href = `/dl/${photo.id}?${q}`; closeSheet(); return; }
+    if (rawBox.checked && G.allowRaw) q.set('raw', 'true');
+    if (scope !== 'all') {
+      const ids = scope === 'selected' ? [...sel] : [...favs];
+      if (ids.length > 500) { toast('Choose 500 photos or fewer at a time'); return; }
+      q.set('ids', ids.join(','));
+    }
     location.href = `/api/g/${encodeURIComponent(G.slug)}/zip?${q}`;
-  } });
-  return h('div', { class: 'dlbar' }, size, fmt, G.allowRaw ? h('label', {}, rawBox, ' + RAW') : null, btn);
-}
+    closeSheet();
+    toast('Your download is starting…');
+  };
 
-function photoDownloadControls(p) {
-  if (!G.allowDownload) return null;
-  const size = sizeSelect(G.allowOriginal && !p.rawOnly), fmt = fmtSelect();
-  const sync = () => { fmt.disabled = size.value === 'original'; };
-  size.addEventListener('change', sync); sync();
-  const go = h('button', { text: 'Download', onclick: () => {
-    const q = new URLSearchParams({ size: size.value, fmt: fmt.value });
-    location.href = `/dl/${p.id}?${q}`;
-  } });
-  const bar = h('div', { class: 'dlbar' }, size, fmt, go);
-  if (G.allowRaw && p.raw) bar.append(h('a', { class: 'btn', href: `/dl/${p.id}/raw`, text: 'RAW' }));
-  return bar;
+  const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } },
+    h('div', { class: 'sheet', role: 'dialog', 'aria-label': 'Download' },
+      h('div', { class: 'sheet-grab' }),
+      h('h3', { text: 'Download' }),
+      scopes.length > 1 ? scopeBox : h('p', { text: scopes[0][1] }),
+      h('div', { class: 'sheet-fields' }, h('label', {}, 'Size', size), h('label', {}, 'Format', fmt)),
+      rawRow, note,
+      G.link && G.link.remaining !== null && G.link.remaining !== undefined ? h('p', { class: 'muted', text: `${G.link.remaining} downloads remaining on your link` }) : null,
+      h('div', { class: 'row sheet-actions' }, h('button', { class: 'primary', text: 'Download', onclick: go }), rawBtn, h('button', { text: 'Close', onclick: closeSheet }))));
+  sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
+  document.addEventListener('keydown', sheet._key, true);
+  document.body.append(sheet);
 }
 
 function uploadControl(slug) {
@@ -263,67 +364,158 @@ let lb = null;
 function openLightbox(index, play, mode = 'push') {
   const list = G.list; if (!list.length) return;
   if (mode === 'push') history.pushState({ viewer: 1 }, '', photoPath(list[index]));
-  const root = $('#lightbox'); root.classList.remove('hidden', 'idle'); root.replaceChildren();
+  const root = $('#lightbox'); root.classList.remove('hidden', 'idle', 'chrome-hidden'); root.replaceChildren();
   document.body.style.overflow = 'hidden';
-  const img = h('img', { alt: '' });
-  const counter = h('span', { class: 'muted' });
-  const title = h('span', { text: '' });
-  const dl = h('div');
-  const playBtn = h('button', { text: '▶ Play' });
-  const speed = h('select', {}, [3, 5, 8, 12].map(s => h('option', { value: s, text: s + 's', selected: s === 5 })));
-  const fsBtn = h('button', { text: 'Fullscreen' });
-  const closeBtn = h('button', { text: 'Close ✕' });
+
+  const act = (icon, label) => { const i = h('span', { class: 'ic', text: icon }), l = h('span', { class: 'lbl', text: label }); return { el: h('button', { class: 'lb-act' }, i, l), i, l }; };
+  const img = h('img', { alt: '', draggable: 'false' });
+  const title = h('div', { class: 'lb-title' });
+  const counter = h('div', { class: 'lb-count' });
+  const closeBtn = h('button', { class: 'lb-close', 'aria-label': 'Close', text: '✕' });
   const prev = h('button', { class: 'nav prev', text: '‹', 'aria-label': 'Previous' });
   const next = h('button', { class: 'nav next', text: '›', 'aria-label': 'Next' });
+  const favA = act('♡', 'Favorite'), selA = act('☐', 'Select'), dlA = act('⬇', 'Download'), playA = act('▶', 'Play');
+  const speed = h('select', { 'aria-label': 'Slide time' }, [3, 5, 8, 12].map(s => h('option', { value: s, text: s + 's', selected: s === 5 })));
+  const fsBtn = h('button', { class: 'lb-small', text: 'Fullscreen' });
+  const adminRow = h('div', { class: 'lb-admin' });
+  const stage = h('div', { class: 'stage' }, prev, img, next);
+  const actions = h('div', { class: 'lb-actions' }, favA.el, selA.el);
+  if (G.allowDownload) actions.append(dlA.el);
+  actions.append(playA.el);
   root.append(
-    h('div', { class: 'bar top' }, h('div', { class: 'row' }, title, counter), h('div', { class: 'row' }, playBtn, speed, fsBtn, closeBtn)),
-    h('div', { class: 'stage' }, prev, img, next),
-    h('div', { class: 'bar' }, dl));
+    h('div', { class: 'lb-top' }, h('div', { class: 'lb-info' }, title, counter), closeBtn),
+    stage,
+    h('div', { class: 'lb-bottom' }, actions, h('div', { class: 'lb-extra' }, speed, fsBtn), adminRow));
   lb = { i: index, timer: null, idle: null, playing: false, lastSeen: null };
+
+  // zoom / pan state of the current photo
+  const z = { s: 1, x: 0, y: 0, hi: false };
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const apply = (animate) => { img.style.transition = animate ? 'transform .2s ease' : 'none'; img.style.transform = `translate(${z.x}px, ${z.y}px) scale(${z.s})`; };
+  const clampPan = () => {
+    const mx = Math.max(0, (img.clientWidth * z.s - stage.clientWidth) / 2), my = Math.max(0, (img.clientHeight * z.s - stage.clientHeight) / 2);
+    z.x = clamp(z.x, -mx, mx); z.y = clamp(z.y, -my, my);
+  };
+  const resetZoom = () => { z.s = 1; z.x = z.y = 0; z.hi = false; apply(false); };
+  const cur = () => list[lb.i];
+  const zoomAt = (ns, cx, cy, animate) => {
+    ns = clamp(ns, 1, 6);
+    const k = ns / z.s;
+    z.x = cx - (cx - z.x) * k; z.y = cy - (cy - z.y) * k; z.s = ns;
+    if (z.s <= 1.02) { z.s = 1; z.x = z.y = 0; }
+    clampPan(); apply(animate);
+    if (z.s > 1.6 && !z.hi && viewKind() === 'mid') { z.hi = true; img.src = photoUrl(cur(), 'view'); }   // sharper image once zoomed in
+  };
+  const centre = (e) => { const r = stage.getBoundingClientRect(); return [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2]; };
 
   const show = (i, updateUrl = true) => {
     lb.i = (i + list.length) % list.length;
-    const p = list[lb.i];
+    const p = cur();
     if (updateUrl) history.replaceState(history.state, '', photoPath(p));
-    img.src = `/img/${p.id}/view`;
+    resetZoom();
+    img.src = photoUrl(p, viewKind());
     if (p.id !== lb.lastSeen) { lb.lastSeen = p.id; fetch(`/api/g/${encodeURIComponent(G.slug)}/viewed/${p.id}`, { method: 'POST', headers: { 'X-Requested-With': 'pg' }, credentials: 'same-origin', keepalive: true }).catch(() => {}); }
     title.textContent = p.name; document.title = photoTitle(p); counter.textContent = `${lb.i + 1} / ${list.length}`;
+    lb.sync();
+    const n = list[(lb.i + 1) % list.length]; new Image().src = photoUrl(n, viewKind());   // preload
+  };
+  lb.sync = () => {
+    const p = cur(); if (!p) return;
+    const fav = favs.has(p.id), chosen = sel.has(p.id);
+    favA.i.textContent = fav ? '♥' : '♡'; favA.l.textContent = fav ? 'Favorited' : 'Favorite'; favA.el.classList.toggle('on', fav);
+    selA.i.textContent = chosen ? '☑' : '☐'; selA.l.textContent = chosen ? 'Selected' : 'Select'; selA.el.classList.toggle('on', chosen);
     const unlink = G.admin && p.raw && !p.rawOnly
       ? h('button', { class: 'danger', text: 'Unlink RAW', onclick: async () => { if (confirm('Unlink the RAW from this photo?')) { await api(`/api/admin/photos/${p.id}/link-raw`, { method: 'DELETE' }); route(true); } } })
       : null;
-    const isCover = G.cover === p.id;
     const coverBtn = G.admin && p.approved
-      ? h('button', { text: isCover ? '★ Gallery cover' : 'Set as gallery cover', disabled: isCover, onclick: async () => {
+      ? h('button', { text: G.cover === p.id ? '★ Gallery cover' : 'Set as gallery cover', disabled: G.cover === p.id, onclick: async () => {
           const r = await api(`/api/admin/galleries/${G.id}/cover`, { method: 'PUT', body: { photoId: p.id } });
-          if (r.ok) { G.cover = p.id; toast('Gallery cover updated'); show(lb.i); } else toast('Could not set cover');
+          if (r.ok) { G.cover = p.id; toast('Gallery cover updated'); lb.sync(); } else toast('Could not set cover');
         } })
       : null;
-    dl.replaceChildren(photoDownloadControls(p) || '', coverBtn || '', unlink || '');
-    const n = list[(lb.i + 1) % list.length]; new Image().src = `/img/${n.id}/view`; // preload
+    adminRow.replaceChildren(coverBtn || '', unlink || '');
   };
-  const stop = () => { lb.playing = false; clearInterval(lb.timer); playBtn.textContent = '▶ Play'; };
-  const start = () => { lb.playing = true; playBtn.textContent = '❚❚ Pause'; clearInterval(lb.timer); lb.timer = setInterval(() => show(lb.i + 1), Number(speed.value) * 1000); };
-  playBtn.onclick = () => lb.playing ? stop() : start();
+  favA.el.onclick = () => toggleFav(cur());
+  selA.el.onclick = () => toggleSel(cur());
+  dlA.el.onclick = () => openDownloadSheet({ photo: cur() });
+
+  const stop = () => { lb.playing = false; clearInterval(lb.timer); playA.i.textContent = '▶'; playA.l.textContent = 'Play'; };
+  const start = () => { lb.playing = true; playA.i.textContent = '❚❚'; playA.l.textContent = 'Pause'; clearInterval(lb.timer); lb.timer = setInterval(() => show(lb.i + 1), Number(speed.value) * 1000); };
+  playA.el.onclick = () => lb.playing ? stop() : start();
   speed.onchange = () => { if (lb.playing) start(); };
   prev.onclick = () => show(lb.i - 1); next.onclick = () => show(lb.i + 1);
   lb.show = show;
   closeBtn.onclick = requestClose;
   fsBtn.onclick = () => document.fullscreenElement ? document.exitFullscreen() : root.requestFullscreen?.();
   const wake = () => { root.classList.remove('idle'); clearTimeout(lb.idle); lb.idle = setTimeout(() => lb.playing && root.classList.add('idle'), 3000); };
-  root.onmousemove = wake; root.ontouchstart = wake;
+  root.onmousemove = wake;
   lb.key = (e) => {
-    if (e.target.tagName === 'SELECT') return;
+    if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
     if (e.key === 'Escape') requestClose();
     else if (e.key === 'ArrowRight') show(lb.i + 1);
     else if (e.key === 'ArrowLeft') show(lb.i - 1);
     else if (e.key === ' ') { e.preventDefault(); lb.playing ? stop() : start(); }
     else if (e.key === 'f') fsBtn.click();
+    else if (e.key === 'h') toggleFav(cur());
+    else if (e.key === '+' || e.key === '=') zoomAt(z.s * 1.3, 0, 0, true);
+    else if (e.key === '-') zoomAt(z.s / 1.3, 0, 0, true);
+    else if (e.key === '0') resetZoom();
     wake();
   };
   document.addEventListener('keydown', lb.key);
-  let tx = null;
-  root.addEventListener('touchstart', e => { tx = e.touches[0].clientX; }, { passive: true });
-  root.addEventListener('touchend', e => { if (tx === null) return; const dx = e.changedTouches[0].clientX - tx; if (Math.abs(dx) > 50) show(lb.i + (dx < 0 ? 1 : -1)); tx = null; });
+
+  // --- touch, pen and mouse gestures: swipe, pinch, double-tap, drag-to-pan, wheel zoom ---
+  const ptrs = new Map();
+  let g = null, lastTap = 0, tapTimer = null;
+  const dist = () => { const [a, b] = [...ptrs.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  stage.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.nav')) return;
+    try { stage.setPointerCapture(e.pointerId); } catch { /* synthetic or already released */ }
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, type: e.pointerType });
+    if (ptrs.size === 2) g = { kind: 'pinch', d: dist(), moved: true };
+    else if (ptrs.size === 1) g = { kind: 'drag', ox: z.x, oy: z.y, moved: false, t: Date.now() };
+  });
+  stage.addEventListener('pointermove', (e) => {
+    const p = ptrs.get(e.pointerId); if (!p || !g) return;
+    p.x = e.clientX; p.y = e.clientY;
+    if (g.kind === 'pinch' && ptrs.size === 2) {
+      const d = dist(), [a, b] = [...ptrs.values()], r = stage.getBoundingClientRect();
+      zoomAt(z.s * d / g.d, (a.x + b.x) / 2 - r.left - r.width / 2, (a.y + b.y) / 2 - r.top - r.height / 2, false);
+      g.d = d;
+    } else if (g.kind === 'drag' && ptrs.size === 1) {
+      const dx = p.x - p.sx, dy = p.y - p.sy;
+      if (Math.abs(dx) + Math.abs(dy) > 8) g.moved = true;
+      if (z.s > 1) { z.x = g.ox + dx; z.y = g.oy + dy; clampPan(); apply(false); }
+      else if (g.moved && p.type !== 'mouse') { img.style.transition = 'none'; img.style.transform = `translate(${dx}px, ${Math.max(0, dy) * 0.6}px)`; g.dx = dx; g.dy = dy; }
+    }
+  });
+  const end = (e) => {
+    const p = ptrs.get(e.pointerId); if (!p) return;
+    ptrs.delete(e.pointerId);
+    if (!g) return;
+    if (g.kind === 'pinch') { if (ptrs.size < 2) g = ptrs.size === 1 ? { kind: 'drag', ox: z.x, oy: z.y, moved: true } : null; if (g && ptrs.size === 1) { const q = [...ptrs.values()][0]; q.sx = q.x; q.sy = q.y; } return; }
+    if (g.kind === 'drag') {
+      const moved = g.moved, dx = g.dx || 0, dy = g.dy || 0; g = null;
+      if (!moved) {                                    // a tap
+        if (p.type === 'mouse') return;
+        const now = Date.now();
+        if (now - lastTap < 300) { clearTimeout(tapTimer); lastTap = 0; const [cx, cy] = centre(e); zoomAt(z.s > 1 ? 1 : 2.5, cx, cy, true); }
+        else { lastTap = now; tapTimer = setTimeout(() => root.classList.toggle('chrome-hidden'), 280); }
+        return;
+      }
+      if (p.type === 'mouse') { apply(true); return; }
+      if (z.s === 1) {
+        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.3) show(lb.i + (dx < 0 ? 1 : -1));
+        else if (dy > 110 && dy > Math.abs(dx) * 1.3) requestClose();
+        else apply(true);
+      }
+    }
+  };
+  stage.addEventListener('pointerup', end);
+  stage.addEventListener('pointercancel', (e) => { ptrs.delete(e.pointerId); g = null; apply(true); });
+  stage.addEventListener('dblclick', (e) => { if (e.pointerType === 'touch') return; const [cx, cy] = centre(e); zoomAt(z.s > 1 ? 1 : 2.5, cx, cy, true); });
+  stage.addEventListener('wheel', (e) => { e.preventDefault(); const [cx, cy] = centre(e); zoomAt(z.s * (e.deltaY < 0 ? 1.18 : 1 / 1.18), cx, cy, false); }, { passive: false });
+
   show(index, false); if (play) { start(); } wake();
 }
 function closeLightbox() {
@@ -332,6 +524,7 @@ function closeLightbox() {
   clearInterval(lb.timer); clearTimeout(lb.idle);
   document.removeEventListener('keydown', lb.key);
   if (document.fullscreenElement) document.exitFullscreen();
+  closeSheet();
   root.classList.add('hidden'); root.replaceChildren(); document.body.style.overflow = ''; lb = null;
   if (galleryView && G) document.title = G.title;
 }
@@ -635,10 +828,21 @@ async function viewGallerySettings(app, id) {
     const free = (fr.data || []).filter(f => !f.galleryId && f.path !== g.folder).map(f => f.path);
     folderSelect.append(...free.map(p => h('option', { value: p, text: p })));
   });
+  const linkRows = h('div', { class: 'link-rows' });
+  const addLinkRow = (l = { label: '', url: '' }) => {
+    const label = track(h('input', { type: 'text', placeholder: 'Label, e.g. Game footage', value: l.label || '', maxlength: 60 }));
+    const url = track(h('input', { type: 'text', placeholder: 'https://www.youtube.com/watch?v=...', value: l.url || '' }));
+    const row = h('div', { class: 'link-row' }, label, url, h('button', { class: 'danger', text: 'Remove', onclick: () => { row.remove(); touch(); } }));
+    linkRows.append(row);
+  };
+  (g.footageLinks || []).forEach(addLinkRow);
+  const footage = h('div', {}, linkRows, h('button', { text: '+ Add link', onclick: () => { addLinkRow(); touch(); } }));
+  const collectLinks = () => [...linkRows.children].map(r => ({ label: r.children[0].value.trim(), url: r.children[1].value.trim() })).filter(l => l.url);
   const general = section('General', 'Name, date, order, cover', true,
     h('div', { class: 'form1' },
       field('Title', title), field('URL name', slug, `Gallery address: /g/${g.slug}`), field('Description', desc),
       field('Event date', eventDate), field('Location', location_),
+      field('Footage links', footage, 'Buttons shown under the gallery title, for example a YouTube link to the game footage. Only http and https links are kept.'),
       field('Photo order', h('div', { class: 'row' }, sortMode, h('label', {}, sortDesc, ' Reverse (newest / Z-A first)'))),
       field('Cover image', h('div', {}, h('div', { class: 'row' }, coverImg, coverBtn), pickerBox)),
       field('Library folder', folderSelect, 'Which library folder this gallery shows. Changing it rescans the gallery and resets the cover.'),
@@ -689,6 +893,8 @@ async function viewGallerySettings(app, id) {
       field('Guest uploads', h('label', {}, guestUp, ' Let visitors upload photos'), 'Uploads stay hidden until you approve them.')),
     h('p', {}, h('a', { href: '/admin/settings', text: 'Open site settings (watermark style)' })), pendingManager(g));
 
+  const favSection = section('Favorites', 'Photos visitors hearted', false, favoritesManager(g));
+
   // --- RAW files (collapsed) ---
   const rawMode = track(h('select', {}, [[0, 'Same folder, same file name'], [1, 'Same file name, any folder'], [2, 'Name starts with the RAW name (IMG_1234-Edit.png)']].map(([v, t]) => h('option', { value: v, text: t, selected: v === g.rawMatchMode }))));
   const allowRaw = track(h('input', { type: 'checkbox', checked: g.allowRaw }));
@@ -710,7 +916,7 @@ async function viewGallerySettings(app, id) {
       allowedSizes: sizeBoxes.every(x => x.box.checked) ? '' : sizeBoxes.filter(x => x.box.checked).map(x => x.px).join(','),
       allowedFormats: fmtBoxes.every(x => x.box.checked) ? '' : fmtBoxes.filter(x => x.box.checked).map(x => x.f).join(','),
       watermarkView: wmView.checked, watermarkDownload: wmDl.checked, allowGuestUpload: guestUp.checked,
-      rawMatchMode: Number(rawMode.value), allowRaw: allowRaw.checked, hideRawOnly: hideRaw.checked
+      rawMatchMode: Number(rawMode.value), allowRaw: allowRaw.checked, hideRawOnly: hideRaw.checked, footageLinks: collectLinks()
     };
     if (pw.value) body.password = pw.value === '-' ? '' : pw.value;
     const r = await api('/api/admin/galleries/' + g.id, { method: 'PUT', body });
@@ -723,7 +929,7 @@ async function viewGallerySettings(app, id) {
       h('a', { class: 'btn', href: '/admin/stats?gallery=' + g.id, text: 'Statistics' }),
       h('a', { class: 'btn', href: '/g/' + encodeURIComponent(g.slug), text: 'View gallery' })),
     h('p', { class: 'muted counts', text: countsLine(g) }),
-    general, access, downloads, wmUp, raw,
+    general, access, downloads, wmUp, favSection, raw,
     h('div', { class: 'savebar' }, saveBtn, status));
 }
 
@@ -753,6 +959,37 @@ function thumbControl(g) {
   };
   setTimeout(poll, 200);
   return h('div', { class: 'row' }, genBtn, btn, label);
+}
+
+function favoritesManager(g) {
+  const box = h('div', {}, h('p', { class: 'muted', text: 'Loading...' }));
+  const copy = async (text, what) => { try { await navigator.clipboard.writeText(text); toast(`Copied ${what}`); } catch { prompt('Copy', text); } };
+  (async () => {
+    const r = await api(`/api/admin/galleries/${g.id}/favorites`);
+    if (!r.ok) { box.replaceChildren(h('p', { class: 'err', text: 'Could not load favorites.' })); return; }
+    const { lists, top } = r.data;
+    if (!lists.length) { box.replaceChildren(h('p', { class: 'muted', text: 'Nobody has hearted a photo in this gallery yet.' })); return; }
+    const all = new Map();
+    lists.forEach(l => l.photos.forEach(p => all.set(p.id, p)));
+    const allPhotos = [...all.values()];
+    const zipHref = (ids) => `/api/g/${encodeURIComponent(g.slug)}/zip?size=original&raw=true&ids=${ids.join(',')}`;
+    const actions = (photos) => h('div', { class: 'row' },
+      h('button', { text: 'Copy file names', onclick: () => copy(photos.map(p => p.name).join('\n'), `${photos.length} file names`) }),
+      h('button', { text: 'Copy RAW names', onclick: () => copy(photos.filter(p => p.raw).map(p => p.raw).join('\n'), 'RAW file names') }),
+      h('a', { class: 'btn', href: zipHref(photos.slice(0, 500).map(p => p.id)), text: 'Download ZIP (originals + RAW)' }));
+    box.replaceChildren(
+      h('p', { class: 'muted', text: `${lists.length} visitor${lists.length === 1 ? '' : 's'} chose ${allPhotos.length} different photos.` }),
+      h('div', { class: 'panel inner' }, h('b', { text: 'All favorites combined' }), actions(allPhotos)),
+      top.length ? h('details', {}, h('summary', { text: 'Most favorited photos' }), h('table', {}, h('tr', {}, ['Photo', 'Hearts'].map(x => h('th', { text: x }))), top.map(t => h('tr', {}, h('td', { text: t.name }), h('td', { text: t.count }))))) : null,
+      lists.map(l => {
+        const grid = h('div', { class: 'photo-cards hidden' }, l.photos.map(p => h('div', { class: 'photo-card' }, h('img', { src: `/img/${p.id}/thumb`, alt: p.name, loading: 'lazy' }), h('div', { class: 'pc-name', text: p.name, title: p.name }))));
+        const who = l.name || 'Anonymous visitor';
+        return h('div', { class: 'panel inner' },
+          h('div', { class: 'row' }, h('b', { text: who }), h('span', { class: 'muted', text: `${l.count} photos \u00B7 updated ${new Date(l.updated).toLocaleString()}${l.ip ? ' \u00B7 ' + l.ip : ''}${l.country ? ' (' + l.country + ')' : ''}` })),
+          actions(l.photos), h('button', { text: 'Show photos', onclick: (e) => { grid.classList.toggle('hidden'); e.target.textContent = grid.classList.contains('hidden') ? 'Show photos' : 'Hide photos'; } }), grid);
+      }));
+  })();
+  return box;
 }
 
 function linksManager(g) {
@@ -831,7 +1068,7 @@ function rawLinker(g) {
 }
 
 // ---------- statistics ----------
-const kindLabels = { view_gallery: 'Viewed gallery', view_photo: 'Viewed photo', download: 'Downloaded', zip: 'Downloaded ZIP', unlock_ok: 'Unlocked (password)', unlock_fail: 'Wrong password', share_open: 'Opened share link', share_invalid: 'Bad/expired link', upload: 'Uploaded' };
+const kindLabels = { view_gallery: 'Viewed gallery', view_photo: 'Viewed photo', download: 'Downloaded', zip: 'Downloaded ZIP', favorite: 'Favorited a photo', unlock_ok: 'Unlocked (password)', unlock_fail: 'Wrong password', share_open: 'Opened share link', share_invalid: 'Bad/expired link', upload: 'Uploaded' };
 
 async function viewStats(app) {
   document.title = 'Statistics - ' + site.title;

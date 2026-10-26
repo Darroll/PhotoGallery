@@ -37,6 +37,13 @@ The visitor IP comes from `CF-Connecting-IP` when Cloudflare proxies the site, o
 
 Every page has its own browser tab title: the site name (Admin -> Site settings) on the home page, the gallery name on a gallery (gallery names must be unique), `<photo name> - <gallery name>` on a photo page, and descriptive titles for the password, closed, expired-link, not-found and admin pages.
 
+### Choosing photos, favorites and the mobile view
+
+- **Select** on a gallery lets viewers tick photos and download just those as a ZIP (size, format and RAW chosen in a download sheet). The same sheet downloads a single photo, favorites, or the whole gallery.
+- **Favorites**: a heart on every photo. Favorites are stored per anonymous browser id; viewers can add their name, and the photographer reviews every list in the gallery settings (Favorites section: per-visitor lists, most favorited photos, copy file names or RAW names for Lightroom, download originals + RAW as a ZIP).
+- **Footage links**: each gallery can show buttons under its title (for example a YouTube link to game footage). Only http/https links are kept.
+- **Mobile**: responsive layout on every page, a bottom-sheet download dialog, and a full-screen viewer with swipe, double-tap and pinch zoom, swipe-down to close and a lighter 1280px image (a sharper one loads when zoomed).
+
 ### Thumbnails
 
 Grid thumbnails and viewing images are built in the background after every scan (and shortly after start-up), then cached in `/data/cache`. A gallery's settings page has **Generate missing** (builds only what is absent) and **Rebuild all**; Site settings shows the cache size, can **clean up stale files** (deleted or replaced photos, old watermark variants) and **generate missing** / **rebuild all** for every gallery.

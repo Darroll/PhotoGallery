@@ -141,3 +141,118 @@ main { flex: 1; width: 100%; }
 .pc-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px; }
 .photo-card .muted { font-size: 12px; }
 td.ua2 { word-break: break-all; font-size: 12px; color: var(--muted); }
+
+/* ================= gallery grid (rows scale with the screen) ================= */
+:root { --rh: 220px; }
+.grid .ph { width: calc(var(--rh) * var(--r, 1.5)); flex-grow: calc(var(--r, 1.5) * 100); aspect-ratio: var(--r, 1.5); min-width: 110px; }
+.grid .ph:focus-visible { outline: 3px solid var(--accent); }
+.tile-fav { position: absolute; right: 6px; bottom: 6px; width: 34px; height: 34px; border-radius: 50%; border: 0; padding: 0;
+  background: rgba(0,0,0,.45); color: #fff; font-size: 18px; line-height: 34px; cursor: pointer; opacity: 0; transition: opacity .15s; }
+.ph:hover .tile-fav, .ph:focus-within .tile-fav, .tile-fav.on { opacity: 1; }
+.tile-fav.on { color: #ff5a6e; }
+@media (hover: none) { .tile-fav { opacity: .85; } }
+.tile-check { position: absolute; left: 6px; top: 6px; width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; background: rgba(0,0,0,.4); color: #fff; text-align: center; line-height: 22px; font-weight: 700; }
+.ph.sel { outline: 4px solid var(--accent); outline-offset: -4px; }
+.ph.sel .tile-check { background: var(--accent); }
+.selbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--line); box-shadow: 0 -4px 16px rgba(0,0,0,.25); }
+body.selecting main { padding-bottom: 90px; }
+.favbar p { margin: 0 0 8px; }
+.favbar input { flex: 1; min-width: 160px; }
+button.on { border-color: #ff5a6e; color: #ff5a6e; }
+.footage { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.footage-link { font-weight: 600; }
+.g-title { word-break: break-word; }
+
+/* ================= download sheet ================= */
+.sheet-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,.55); display: flex; align-items: flex-end; justify-content: center; }
+.sheet { width: 100%; max-width: 520px; background: var(--card); color: var(--fg); border-radius: 18px 18px 0 0; padding: 10px 18px calc(18px + env(safe-area-inset-bottom));
+  max-height: 92vh; overflow-y: auto; animation: sheet-up .22s ease; }
+.sheet-grab { width: 44px; height: 5px; border-radius: 3px; background: var(--line); margin: 2px auto 12px; }
+.sheet h3 { margin: 0 0 10px; }
+.sheet-row { display: flex; gap: 8px; align-items: center; padding: 8px 0; }
+.sheet-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
+.sheet-fields label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 13px; }
+.sheet-fields select { width: 100%; }
+.sheet-actions { margin-top: 10px; }
+@keyframes sheet-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (min-width: 700px) { .sheet-backdrop { align-items: center; } .sheet { border-radius: 16px; } }
+
+/* ================= photo viewer ================= */
+#lightbox { overscroll-behavior: contain; touch-action: none; }
+#lightbox .lb-top { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: max(10px, env(safe-area-inset-top)) 14px 8px; background: linear-gradient(rgba(0,0,0,.75), rgba(0,0,0,0)); transition: opacity .25s; position: absolute; top: 0; left: 0; right: 0; z-index: 3; }
+#lightbox .lb-info { min-width: 0; }
+#lightbox .lb-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#lightbox .lb-count { font-size: 12px; color: #aaa; }
+#lightbox .lb-close { width: 44px; height: 44px; border-radius: 50%; border: 0; background: rgba(40,40,40,.8); color: #fff; font-size: 18px; flex: none; }
+#lightbox .stage { flex: 1; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 0; touch-action: none; }
+#lightbox .stage img { max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center center; will-change: transform; user-select: none; -webkit-user-drag: none; }
+#lightbox .lb-bottom { position: absolute; bottom: 0; left: 0; right: 0; z-index: 3; padding: 28px 10px max(10px, env(safe-area-inset-bottom));
+  background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.8)); transition: opacity .25s; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+#lightbox .lb-actions { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+#lightbox .lb-act { background: rgba(40,40,40,.85); color: #eee; border: 1px solid #444; border-radius: 12px; min-width: 72px; padding: 6px 10px; display: flex; flex-direction: column; align-items: center; gap: 0; }
+#lightbox .lb-act .ic { font-size: 22px; line-height: 1.2; }
+#lightbox .lb-act .lbl { font-size: 11px; }
+#lightbox .lb-act.on { color: #ff5a6e; border-color: #ff5a6e; }
+#lightbox .lb-extra, #lightbox .lb-admin { display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; }
+#lightbox .lb-small, #lightbox select, #lightbox .lb-admin button { background: rgba(40,40,40,.85); color: #eee; border: 1px solid #444; }
+#lightbox .nav { z-index: 2; }
+#lightbox.idle .lb-top, #lightbox.idle .lb-bottom, #lightbox.chrome-hidden .lb-top, #lightbox.chrome-hidden .lb-bottom { opacity: 0; pointer-events: none; }
+#lightbox.chrome-hidden .nav { opacity: 0; pointer-events: none; }
+@media (pointer: coarse) { #lightbox .nav { display: none; } #lightbox .lb-extra { display: none; } }
+
+/* ================= phones and tablets ================= */
+@media (pointer: coarse) {
+  button, .btn, select, input[type=text], input[type=password], input[type=number], input[type=date], input[type=datetime-local] { min-height: 44px; }
+  input[type=checkbox], input[type=radio] { width: 20px; height: 20px; }
+  .switch, .row label { min-height: 36px; }
+}
+@media (max-width: 700px) {
+  :root { --rh: 150px; }
+  html, body { font-size: 16px; }
+  input[type=text], input[type=password], input[type=number], input[type=date], input[type=datetime-local], select, textarea { font-size: 16px; }
+  header#top { padding: 10px 14px; }
+  main { padding: 12px; }
+  h1 { font-size: 21px; }
+  .gallery-bar { gap: 8px; }
+  .gallery-bar .grow { display: none; }
+  .gallery-bar > * { flex: 1 1 auto; }
+  .gallery-bar .switch { flex-basis: 100%; }
+  .grid { gap: 4px; }
+  .cards { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .panel { overflow-x: auto; padding: 12px; }
+  .section-body { overflow-x: auto; padding: 4px 12px 14px; }
+  .toolbar { gap: 8px; }
+  .toolbar h1 { flex: 1 1 100%; margin: 4px 0; }
+  .gal-row { align-items: flex-start; }
+  .gal-thumb { width: 96px; height: 64px; }
+  .gal-actions { width: 100%; }
+  .gal-actions .btn { flex: 1; text-align: center; }
+  .savebar { margin: 16px -12px -12px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+  .tiles { grid-template-columns: repeat(2, 1fr); }
+  .two { grid-template-columns: 1fr; }
+  .link-row { flex-direction: column; align-items: stretch; }
+  #foot { padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); }
+  body.selecting #foot { display: none; }
+}
+@media (max-width: 420px) { :root { --rh: 128px; } .tiles { grid-template-columns: repeat(2, 1fr); } .tile-n { font-size: 22px; } }
+
+.link-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.link-row { display: flex; gap: 8px; align-items: center; }
+.link-row input:first-child { flex: 0 1 220px; }
+.link-row input:nth-child(2) { flex: 1; min-width: 0; }
+.panel.inner { margin: 10px 0; background: var(--bg); }
+
+/* phone toolbar: tidy two-column grid, denser photo rows */
+@media (max-width: 700px) {
+  :root { --rh: 118px; }
+  .grid .ph { min-width: 72px; }
+  .gallery-bar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: stretch; }
+  .gallery-bar > * { flex: none; }
+  .gallery-bar > .muted, .gallery-bar > .switch, .gallery-bar > .dlbar { grid-column: 1 / -1; }
+  .gallery-bar > .muted { margin: 0; }
+  .gallery-bar .switch { padding: 8px 10px; font-size: 14px; }
+  .gallery-bar .dlbar { justify-content: space-between; }
+}
+@media (max-width: 420px) { :root { --rh: 104px; } }

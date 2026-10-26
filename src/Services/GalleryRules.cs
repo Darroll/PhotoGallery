@@ -29,6 +29,30 @@ public static class GalleryRules
         _ => list.OrderByDescending(g => g.CreatedAt).ToList()
     };
 
+    public record FootageLink(string Label, string Url);
+
+    public static List<FootageLink> Links(Gallery g)
+    {
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<FootageLink>>(g.FootageLinks ?? "[]", new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new(); }
+        catch { return new(); }
+    }
+
+    /// <summary>Keeps only http(s) links (never javascript: and friends), trimmed, at most 10.</summary>
+    public static string CleanLinks(IEnumerable<FootageLink>? links)
+    {
+        var clean = new List<FootageLink>();
+        foreach (var l in links ?? [])
+        {
+            var url = (l.Url ?? "").Trim();
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps)) continue;
+            var label = (l.Label ?? "").Trim();
+            if (label.Length == 0) label = u.Host;
+            clean.Add(new FootageLink(label.Length > 60 ? label[..60] : label, u.ToString()));
+            if (clean.Count == 10) break;
+        }
+        return System.Text.Json.JsonSerializer.Serialize(clean);
+    }
+
     public static bool IsExpired(Gallery g) => g.ExpiresAt != null && g.ExpiresAt <= DateTime.UtcNow;
 
     public static List<T> Sort<T>(IEnumerable<T> items, Gallery g, Func<T, DateTime> taken, Func<T, string> name, Func<T, DateTime> added)
