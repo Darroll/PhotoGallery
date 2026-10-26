@@ -1,0 +1,6 @@
+bin/
+obj/
+testdata/
+*.user
+.vs/
+wmcrop.png
