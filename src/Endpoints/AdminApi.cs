@@ -127,7 +127,7 @@ public static class AdminApi
             return Results.Ok(new { gallery = Dto(g, scan.Total, 0), scan });
         });
 
-        secured.MapPut("/galleries/{id:int}", async (int id, GalleryInput input, AppDb db, AppConfig cfg, Scanner scanner) =>
+        secured.MapPut("/galleries/{id:int}", async (int id, GalleryInput input, AppDb db, AppConfig cfg, Scanner scanner, ThumbnailService thumbs) =>
         {
             var g = await db.Galleries.FindAsync(id);
             if (g == null) return Results.NotFound();
@@ -175,6 +175,7 @@ public static class AdminApi
             if (input.AllowedSizes != null) g.AllowedSizes = string.Join(',', input.AllowedSizes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(s => int.TryParse(s, out _)));
             if (input.AllowedFormats != null) g.AllowedFormats = string.Join(',', input.AllowedFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => s.ToLowerInvariant()).Where(s => ImageService.LosslessFormats.Contains(s)));
             await db.SaveChangesAsync();
+            if (input.WatermarkView == true) thumbs.Enqueue(g.Id);
             if (folderChanged)
             {
                 g.CoverPhotoId = null; // old cover belonged to the previous folder
@@ -300,8 +301,37 @@ public static class AdminApi
         secured.MapGet("/settings", (SettingsService settings, ImageService images) =>
             Results.Ok(new { watermark = settings.Watermark, hasPng = images.HasWatermarkPng }));
 
-        secured.MapPut("/settings/watermark", (WatermarkSettings input, SettingsService settings) =>
-            Results.Ok(settings.SetWatermark(input)));
+        secured.MapPut("/settings/watermark", async (WatermarkSettings input, SettingsService settings, AppDb db, ThumbnailService thumbs) =>
+        {
+            var saved = settings.SetWatermark(input);
+            foreach (var gid in await db.Galleries.Where(g => g.WatermarkView).Select(g => g.Id).ToListAsync()) thumbs.Enqueue(gid);
+            return Results.Ok(saved);
+        });
+
+        // --- thumbnail cache ---
+        secured.MapGet("/cache", async (CacheService cache, ThumbnailService thumbs) =>
+        {
+            var s = await cache.StatsAsync();
+            return Results.Ok(new { bytes = s.Bytes, files = s.Files, staleFiles = s.StaleFiles, staleBytes = s.StaleBytes, busyGalleries = thumbs.BusyGalleries });
+        });
+
+        secured.MapPost("/cache/clean", async (CacheService cache) => Results.Ok(await cache.CleanAsync()));
+
+        secured.MapPost("/cache/rebuild-all", async (AppDb db, ThumbnailService thumbs) =>
+        {
+            var ids = await db.Galleries.Select(g => g.Id).ToListAsync();
+            foreach (var gid in ids) thumbs.Enqueue(gid, force: true);
+            return Results.Ok(new { galleries = ids.Count });
+        });
+
+        secured.MapGet("/galleries/{id:int}/thumbnails", (int id, ThumbnailService thumbs) => Results.Ok(thumbs.Status(id)));
+
+        secured.MapPost("/galleries/{id:int}/thumbnails/rebuild", async (int id, AppDb db, ThumbnailService thumbs) =>
+        {
+            if (!await db.Galleries.AnyAsync(g => g.Id == id)) return Results.NotFound();
+            thumbs.Enqueue(id, force: true);
+            return Results.Accepted();
+        });
 
         // renders a sample photo with unsaved settings so the admin can tune them
         secured.MapPost("/settings/watermark/preview", async (WatermarkSettings input, AppDb db, ImageService images) =>

@@ -147,6 +147,13 @@ public class ImageService(AppConfig cfg, SettingsService settings, ILogger<Image
         return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(s)))[..8];
     }
 
+    /// <summary>The cache file name tag for watermarked variants made with the current watermark settings.</summary>
+    public string CurrentWatermarkTag => "w" + WatermarkStamp();
+
+    /// <summary>Path of the file derivatives are built from, without creating anything (null when unknown).</summary>
+    public string? PeekSource(Photo p) =>
+        p.RawOnly ? Path.Combine(cfg.CacheDir, "rawprev", $"{p.Id}.jpg") : cfg.ResolvePhoto(p, p.RelPath);
+
     public bool HasWatermarkPng => File.Exists(cfg.WatermarkImagePath);
 
     public bool Available(WatermarkSettings w) =>

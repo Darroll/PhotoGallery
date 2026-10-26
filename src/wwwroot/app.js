@@ -30,6 +30,7 @@ function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), 3500);
 }
+const fmtBytes = (n) => n <= 0 ? '0 KB' : n >= 1073741824 ? (n / 1073741824).toFixed(2) + ' GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 const fmtLabels = { png: 'PNG (lossless)', webp: 'WebP (lossless)', tif: 'TIFF (lossless)' };
 let site = { title: 'Photos', sizes: [], formats: [] };
 const fmtDate = (s) => s ? new Date(/Z$|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z').toLocaleString() : '';
@@ -416,6 +417,35 @@ async function viewSettings(app) {
     } }), msg),
     h('p', { class: 'muted', text: 'Preview (not saved until you click Save):' }), preview));
   refresh();
+  app.append(cachePanel());
+}
+
+function cachePanel() {
+  const info = h('p', { class: 'muted', text: 'Loading...' });
+  const msg = h('span', { class: 'muted' });
+  let timer;
+  const load = async () => {
+    clearTimeout(timer);
+    const r = await api('/api/admin/cache');
+    if (!r.ok) { info.textContent = 'Could not read the cache.'; return; }
+    const c = r.data;
+    info.textContent = `${fmtBytes(c.bytes)} in ${c.files} files. Stale: ${c.staleFiles} files (${fmtBytes(c.staleBytes)}). ` +
+      (c.busyGalleries ? `${c.busyGalleries} galleries are building thumbnails now.` : 'No thumbnail jobs running.');
+    if (c.busyGalleries) timer = setTimeout(() => { if (info.isConnected) load(); }, 3000);
+  };
+  load();
+  return h('div', { class: 'panel' }, h('h3', { text: 'Thumbnail cache' }),
+    h('p', { class: 'muted', text: 'Thumbnails and download sizes are built once and stored. Stale files come from replaced photos, deleted photos and old watermark settings.' }), info,
+    h('div', { class: 'row' },
+      h('button', { text: 'Clean up stale files', onclick: async () => {
+        const r = await api('/api/admin/cache/clean', { method: 'POST' });
+        msg.textContent = r.ok ? `Removed ${r.data.files} files, freed ${fmtBytes(r.data.bytes)}` : 'Failed'; load();
+      } }),
+      h('button', { text: 'Rebuild all thumbnails', onclick: async () => {
+        if (!confirm('Delete and rebuild thumbnails for every gallery? This can take a while on big galleries.')) return;
+        const r = await api('/api/admin/cache/rebuild-all', { method: 'POST' });
+        msg.textContent = r.ok ? `Rebuilding ${r.data.galleries} galleries in the background` : 'Failed'; setTimeout(load, 800);
+      } }), msg));
 }
 
 function expiredNote(g, text) {
@@ -492,6 +522,7 @@ async function viewGallerySettings(app, id) {
         const r = await api(`/api/admin/galleries/${g.id}/scan`, { method: 'POST' });
         scanMsg.textContent = r.ok ? `Added ${r.data.added}, removed ${r.data.removed}; ${r.data.paired} paired with RAW, ${r.data.rawOnly} RAW-only` : (typeof r.data === 'string' ? r.data : 'Failed');
       } }), scanMsg), 'Folders are also rescanned automatically.'),
+      field('Thumbnails', thumbControl(g), 'Built automatically in the background after each scan. Rebuild after fixing or replacing photos.'),
       field('Delete', h('button', { class: 'danger', text: 'Delete gallery...', onclick: async () => {
         if (!confirm('Remove this gallery from the site? Your original photo files are NOT deleted.')) return;
         dirty = false; await api('/api/admin/galleries/' + g.id, { method: 'DELETE' }); go('/admin');
@@ -567,6 +598,29 @@ async function viewGallerySettings(app, id) {
       h('a', { class: 'btn', href: '/g/' + encodeURIComponent(g.slug), text: 'View gallery' })),
     general, access, downloads, wmUp, raw,
     h('div', { class: 'savebar' }, saveBtn, status));
+}
+
+function thumbControl(g) {
+  const label = h('span', { class: 'muted' });
+  const btn = h('button', { text: 'Rebuild thumbnails', onclick: async () => {
+    if (!confirm('Delete and rebuild all thumbnails for this gallery? Photos stay slow to open until they are rebuilt.')) return;
+    await api(`/api/admin/galleries/${g.id}/thumbnails/rebuild`, { method: 'POST' });
+    poll();
+  } });
+  let timer, started = false;
+  const poll = async () => {
+    clearTimeout(timer);
+    if (started && !label.isConnected) return;
+    started = true;
+    const r = await api(`/api/admin/galleries/${g.id}/thumbnails`);
+    const t = r.data || {};
+    if (t.running) label.textContent = `Building ${t.done} / ${t.total}...`;
+    else if (t.queued) label.textContent = 'Queued...';
+    else label.textContent = t.total ? `Up to date (${t.total} photos)` : '';
+    if (t.running || t.queued) timer = setTimeout(poll, 2000);
+  };
+  setTimeout(poll, 200);
+  return h('div', { class: 'row' }, btn, label);
 }
 
 function linksManager(g) {

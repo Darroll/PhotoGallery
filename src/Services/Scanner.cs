@@ -4,7 +4,7 @@ namespace PhotoGallery;
 
 public record ScanResult(int Added, int Removed, int Total, int SkippedRaw, int Paired, int RawOnly);
 
-public class Scanner(AppConfig cfg, ImageService images, ILogger<Scanner> log)
+public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs, ILogger<Scanner> log)
 {
     static readonly SemaphoreSlim ScanGate = new(1, 1);
     static readonly char[] Separators = ['-', '_', ' ', '(', '.'];
@@ -156,6 +156,7 @@ public class Scanner(AppConfig cfg, ImageService images, ILogger<Scanner> log)
                 .OrderBy(p => p.TakenAt).Select(p => (int?)p.Id).FirstOrDefaultAsync();
             await db.SaveChangesAsync();
         }
+        if (added > 0) thumbs.Enqueue(g.Id);
         var total = await db.Photos.CountAsync(p => p.GalleryId == g.Id);
         var paired = await db.Photos.CountAsync(p => p.GalleryId == g.Id && p.RawRelPath != null && p.RawRelPath != p.RelPath);
         var rawOnly = await db.Photos.CountAsync(p => p.GalleryId == g.Id && p.RawRelPath != null && p.RawRelPath == p.RelPath);
