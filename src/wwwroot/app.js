@@ -37,20 +37,29 @@ const fmtDate = (s) => s ? new Date(/Z$|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z').t
 
 // ---------- routing ----------
 let dirtyGuard = null; // set by pages with unsaved changes: returns true when it is OK to leave
-async function route() {
-  closeLightbox();
+let galleryView = null; // slug of the gallery grid currently rendered, so photo URLs can open/close the viewer without re-rendering
+async function route(force = false) {
   dirtyGuard = null;
   const parts = location.pathname.split('/').filter(Boolean);
-  const app = $('#app'); app.replaceChildren();
+  const app = $('#app');
+  if (parts[0] === 'g' && parts[1]) {
+    const slug = decodeURIComponent(parts[1]);
+    const pid = parts[2] === 'p' && parts[3] ? Number(parts[3]) : null;
+    if (!force && galleryView === slug && G && G.slug === slug) { syncViewer(pid); return; }
+    closeLightbox(); galleryView = null; app.replaceChildren(); document.title = site.title;
+    await viewGallery(app, slug);
+    if (galleryView === slug && pid) syncViewer(pid, 'direct');
+    return;
+  }
+  galleryView = null; closeLightbox(); app.replaceChildren();
   document.title = site.title;
-  if (parts[0] === 'g' && parts[1]) return viewGallery(app, decodeURIComponent(parts[1]));
   if (parts[0] === 'admin' && parts[1] === 'settings') return viewSettings(app);
   if (parts[0] === 'admin' && parts[1] === 'galleries' && parts[2]) return viewGallerySettings(app, Number(parts[2]));
   if (parts[0] === 'admin') return viewAdmin(app);
   if (parts[0] === 'expired') return app.append(h('div', { class: 'center' }, h('h1', { text: 'Link unavailable' }), h('p', { class: 'sub', text: 'This share link has expired or was revoked.' })));
   return viewHome(app);
 }
-window.addEventListener('popstate', route);
+window.addEventListener('popstate', () => route());
 window.addEventListener('beforeunload', (e) => { if (dirtyGuard && !dirtyGuard(true)) { e.preventDefault(); e.returnValue = ''; } });
 // old bookmarks like /#/g/slug -> /g/slug
 if (location.hash.startsWith('#/')) history.replaceState(null, '', location.hash.slice(1));
@@ -146,6 +155,8 @@ async function viewGallery(app, slug) {
   if (G.allowUpload) tb.append(uploadControl(slug));
   app.append(tb, grid);
   fill();
+  G.revealAll = () => { curated.checked = false; fill(); };
+  galleryView = slug;
 }
 
 function passwordPrompt(app, slug, title) {
@@ -213,15 +224,32 @@ function uploadControl(slug) {
     }
     label.textContent = `${ok} uploaded${fail ? ', ' + fail + ' failed' : ''}${G.uploadsModerated && ok ? ' (awaiting approval)' : ''}`;
     file.value = '';
-    if (ok && !G.uploadsModerated) route();
+    if (ok && !G.uploadsModerated) route(true);
   });
   return h('div', { class: 'dlbar' }, h('button', { text: 'Upload photos', onclick: () => file.click() }), file, label);
 }
 
 // ---------- lightbox / slideshow ----------
+// Every photo has its own address (/g/<slug>/p/<id>). Opening the viewer adds one history entry, moving between
+// photos only replaces the address, so Back (or the mouse Back button) returns straight to the grid.
+const gridPath = () => '/g/' + encodeURIComponent(G.slug);
+const photoPath = (p) => gridPath() + '/p/' + p.id;
+function syncViewer(pid, mode = 'sync') {
+  if (!pid) { closeLightbox(); return; }
+  let i = G.list.findIndex(p => p.id === pid);
+  if (i < 0 && G.revealAll) { G.revealAll(); i = G.list.findIndex(p => p.id === pid); }
+  if (i < 0) { history.replaceState(null, '', gridPath()); closeLightbox(); return; }
+  if (lb) lb.show(i, false); else openLightbox(i, false, mode);
+}
+function requestClose() {
+  if (!lb) return;
+  if (history.state && history.state.viewer) history.back();      // popstate closes the viewer
+  else { history.replaceState(null, '', gridPath()); closeLightbox(); }
+}
 let lb = null;
-function openLightbox(index, play) {
+function openLightbox(index, play, mode = 'push') {
   const list = G.list; if (!list.length) return;
+  if (mode === 'push') history.pushState({ viewer: 1 }, '', photoPath(list[index]));
   const root = $('#lightbox'); root.classList.remove('hidden', 'idle'); root.replaceChildren();
   document.body.style.overflow = 'hidden';
   const img = h('img', { alt: '' });
@@ -240,13 +268,14 @@ function openLightbox(index, play) {
     h('div', { class: 'bar' }, dl));
   lb = { i: index, timer: null, idle: null, playing: false };
 
-  const show = (i) => {
+  const show = (i, updateUrl = true) => {
     lb.i = (i + list.length) % list.length;
     const p = list[lb.i];
+    if (updateUrl) history.replaceState(history.state, '', photoPath(p));
     img.src = `/img/${p.id}/view`;
     title.textContent = p.name; counter.textContent = `${lb.i + 1} / ${list.length}`;
     const unlink = G.admin && p.raw && !p.rawOnly
-      ? h('button', { class: 'danger', text: 'Unlink RAW', onclick: async () => { if (confirm('Unlink the RAW from this photo?')) { await api(`/api/admin/photos/${p.id}/link-raw`, { method: 'DELETE' }); route(); } } })
+      ? h('button', { class: 'danger', text: 'Unlink RAW', onclick: async () => { if (confirm('Unlink the RAW from this photo?')) { await api(`/api/admin/photos/${p.id}/link-raw`, { method: 'DELETE' }); route(true); } } })
       : null;
     const isCover = G.cover === p.id;
     const coverBtn = G.admin && p.approved
@@ -263,13 +292,14 @@ function openLightbox(index, play) {
   playBtn.onclick = () => lb.playing ? stop() : start();
   speed.onchange = () => { if (lb.playing) start(); };
   prev.onclick = () => show(lb.i - 1); next.onclick = () => show(lb.i + 1);
-  closeBtn.onclick = closeLightbox;
+  lb.show = show;
+  closeBtn.onclick = requestClose;
   fsBtn.onclick = () => document.fullscreenElement ? document.exitFullscreen() : root.requestFullscreen?.();
   const wake = () => { root.classList.remove('idle'); clearTimeout(lb.idle); lb.idle = setTimeout(() => lb.playing && root.classList.add('idle'), 3000); };
   root.onmousemove = wake; root.ontouchstart = wake;
   lb.key = (e) => {
     if (e.target.tagName === 'SELECT') return;
-    if (e.key === 'Escape') closeLightbox();
+    if (e.key === 'Escape') requestClose();
     else if (e.key === 'ArrowRight') show(lb.i + 1);
     else if (e.key === 'ArrowLeft') show(lb.i - 1);
     else if (e.key === ' ') { e.preventDefault(); lb.playing ? stop() : start(); }
@@ -280,7 +310,7 @@ function openLightbox(index, play) {
   let tx = null;
   root.addEventListener('touchstart', e => { tx = e.touches[0].clientX; }, { passive: true });
   root.addEventListener('touchend', e => { if (tx === null) return; const dx = e.changedTouches[0].clientX - tx; if (Math.abs(dx) > 50) show(lb.i + (dx < 0 ? 1 : -1)); tx = null; });
-  show(index); if (play) { start(); } wake();
+  show(index, false); if (play) { start(); } wake();
 }
 function closeLightbox() {
   const root = $('#lightbox');
