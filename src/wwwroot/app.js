@@ -78,6 +78,12 @@ document.addEventListener('click', (e) => {
 });
 function go(path) { if (path !== location.pathname) history.pushState(null, '', path); route(); window.scrollTo(0, 0); }
 
+function renderFooter() {
+  const f = $('#foot'); if (!f) return;
+  f.textContent = `v${site.version || '?'}${site.commit && site.commit !== 'dev' ? ' \u00B7 ' + site.commit : ''}`;
+  f.title = site.built ? `Built ${site.built}` : 'Development build';
+}
+
 function renderHeader() {
   const top = $('#top'); top.replaceChildren(
     h('a', { class: 'brand', href: '/', text: site.title }),
@@ -888,5 +894,6 @@ async function viewStats(app) {
 (async function boot() {
   try { const r = await api('/api/site'); if (r.ok) site = r.data; } catch { }
   renderHeader();
+  renderFooter();
   route();
 })();

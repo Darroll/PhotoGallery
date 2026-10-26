@@ -12,7 +12,11 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /out .
-ENV ASPNETCORE_URLS=http://+:8080 \
+ARG GIT_SHA=dev
+ARG BUILD_DATE=
+ENV APP_COMMIT=$GIT_SHA \
+    APP_BUILD_DATE=$BUILD_DATE \
+    ASPNETCORE_URLS=http://+:8080 \
     PHOTO_LIBRARY=/photos \
     DATA_DIR=/data \
     DOTNET_gcServer=0

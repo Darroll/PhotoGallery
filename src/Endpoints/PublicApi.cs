@@ -13,6 +13,7 @@ public static class PublicApi
         app.MapGet("/api/site", (AppConfig cfg, ImageService img) => new
         {
             title = cfg.SiteTitle,
+            version = cfg.Version, commit = cfg.Commit, built = cfg.BuildDate,
             sizes = cfg.Sizes,
             formats = ImageService.LosslessFormats,
             watermark = img.WatermarkAvailable

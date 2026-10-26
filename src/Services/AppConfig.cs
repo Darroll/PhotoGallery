@@ -15,6 +15,9 @@ public class AppConfig
     public string WatermarkImagePath => Path.Combine(DataDir, "watermark.png");
     public string SiteTitle { get; }
     public bool TrustProxy { get; }
+    public string Version { get; }
+    public string Commit { get; }
+    public string BuildDate { get; }
     public string? ExifTool { get; }
 
     public static readonly string[] ImageExts = [".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".heic", ".avif"];
@@ -40,6 +43,11 @@ public class AppConfig
         RescanMinutes = int.TryParse(c["RESCAN_MINUTES"], out var rm) ? rm : 15;
         SiteTitle = c["SITE_TITLE"] ?? "Photos";
         TrustProxy = !string.Equals(c["TRUST_PROXY"], "false", StringComparison.OrdinalIgnoreCase);
+        Version = (System.Reflection.Assembly.GetExecutingAssembly()
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .Cast<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "0.0.0").Split('+')[0];
+        Commit = c["APP_COMMIT"] ?? "dev";
+        BuildDate = c["APP_BUILD_DATE"] ?? "";
         ExifTool = FindExifTool();
     }
 

@@ -4,3 +4,4 @@ testdata/
 *.user
 .vs/
 wmcrop.png
+.gitsha

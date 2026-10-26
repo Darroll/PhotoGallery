@@ -78,6 +78,10 @@ Grid thumbnails and viewing images are built in the background after every scan 
 | `MAX_PENDING_PER_GALLERY` | `200` | Pending upload cap |
 | `TRUST_PROXY` | `true` | Honour `X-Forwarded-*` |
 
+## Versioning
+
+The version shown at the bottom right of every page is `<Version>` in `src/PhotoGallery.csproj` plus the git commit it was built from (hover for the build time). Bump `<Version>` for a release; `release.sh` passes the commit and build time into the image.
+
 ## Development
 
 ```bash
