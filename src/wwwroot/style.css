@@ -73,3 +73,5 @@ td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line
 .wm-preview { max-width: 100%; width: 720px; border-radius: 6px; display: block; background: var(--line); min-height: 60px; }
 img.tiny { width: 56px; height: 40px; object-fit: cover; border-radius: 3px; display: block; }
 input[type=range] { width: 200px; }
+
+.switch { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }

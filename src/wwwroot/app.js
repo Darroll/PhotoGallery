@@ -86,17 +86,19 @@ async function viewGallery(app, slug) {
 
   const approved = G.photos.filter(p => p.approved || G.admin);
   const rawOnlyCount = approved.filter(p => p.rawOnly).length;
-  let showRaw = false;
   const tb = h('div', { class: 'toolbar' });
   const countLabel = h('span', { class: 'muted' });
   const slideBtn = h('button', { class: 'primary', text: '\u25B6 Slideshow', onclick: () => openLightbox(0, true) });
-  const rawBtn = h('button', { title: 'RAW frames without an edited version are hidden by default' });
+  const curated = h('input', { type: 'checkbox', checked: true });
+  const curatedText = h('span');
+  const rawBtn = h('label', { class: 'switch', title: 'Curated photos are the edited ones. Turn this off to also see unedited RAW frames.' }, curated, curatedText);
   const grid = h('div', { class: 'grid' });
   const fill = () => {
+    const showRaw = !curated.checked;
     const photos = showRaw ? approved : approved.filter(p => !p.rawOnly);
     G.list = photos;
     countLabel.textContent = `${photos.filter(p => p.approved).length} photos`;
-    rawBtn.textContent = showRaw ? 'Hide RAW-only photos' : `Show RAW-only photos (${rawOnlyCount})`;
+    curatedText.textContent = showRaw ? ' Curated only' : ` Curated only (${rawOnlyCount} unedited RAW hidden)`;
     slideBtn.disabled = !photos.length;
     grid.replaceChildren(...photos.map((p, i) => {
       const ratio = (p.w || 3) / (p.h || 2);
@@ -111,7 +113,7 @@ async function viewGallery(app, slug) {
       return item;
     }));
   };
-  rawBtn.onclick = () => { showRaw = !showRaw; fill(); };
+  curated.addEventListener('change', fill);
   tb.append(countLabel, slideBtn);
   if (rawOnlyCount > 0) tb.append(rawBtn);
   tb.append(h('span', { class: 'grow' }));
