@@ -836,24 +836,37 @@ async function viewStats(app) {
   const me = await api('/api/admin/me');
   if (!me.data || !me.data.admin) return adminLogin(app);
   const qs = new URLSearchParams(location.search);
-  const state = { days: Number(qs.get('days') ?? 30), gallery: qs.get('gallery') || '', who: qs.get('who') || 'visitors', kind: '', skip: 0 };
+  const state = { days: Number(qs.get('days') ?? 30), gallery: qs.get('gallery') || '', who: qs.get('who') || 'visitors', kind: '', skip: 0, view: qs.get('view') || 'overview', ip: qs.get('ip') || '', sort: qs.get('sort') || 'recent' };
   const galleries = (await api('/api/admin/galleries')).data || [];
 
   const body = h('div');
   const rangeSel = h('select', {}, [[7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days'], [365, 'Last year'], [0, 'All time']].map(([v, t]) => h('option', { value: v, text: t, selected: v === state.days })));
   const galSel = h('select', {}, [h('option', { value: '', text: 'All galleries' }), ...galleries.map(g => h('option', { value: g.id, text: g.title, selected: String(g.id) === state.gallery }))]);
   const tabs = h('div', { class: 'tabs' });
-  const sync = () => { const q = new URLSearchParams(); if (state.days !== 30) q.set('days', state.days); if (state.gallery) q.set('gallery', state.gallery); if (state.who !== 'visitors') q.set('who', state.who); history.replaceState(history.state, '', '/admin/stats' + (q.toString() ? '?' + q : '')); };
+  const sync = () => { const q = new URLSearchParams(); if (state.days !== 30) q.set('days', state.days); if (state.gallery) q.set('gallery', state.gallery); if (state.who !== 'visitors') q.set('who', state.who); if (state.ip) q.set('ip', state.ip); else if (state.view === 'visitors') q.set('view', 'visitors'); if (state.view === 'visitors' && state.sort !== 'recent') q.set('sort', state.sort); history.replaceState(history.state, '', '/admin/stats' + (q.toString() ? '?' + q : '')); };
   const q = () => { const p = new URLSearchParams({ days: state.days, who: state.who }); if (state.gallery) p.set('gallery', state.gallery); return p; };
 
   const load = async () => {
     sync();
+    syncViewTabs();
+    if (state.ip) return loadVisitor();
+    if (state.view === 'visitors') return loadVisitors();
+    return loadOverview();
+  };
+
+  const whoTabs = (d) => tabs.replaceChildren(...[['visitors', `Visitors (${d.visitorEvents})`], ['bots', `Bots & crawlers (${d.botEvents})`], ['all', 'All']].map(([v, t]) =>
+    h('button', { class: 'tab' + (state.who === v ? ' on' : ''), text: t, onclick: () => { state.who = v; state.skip = 0; load(); } })));
+
+  const viewTabs = h('div', { class: 'tabs' });
+  const syncViewTabs = () => viewTabs.replaceChildren(...[['overview', 'Overview'], ['visitors', 'By visitor (IP)']].map(([v, t]) =>
+    h('button', { class: 'tab' + (!state.ip && state.view === v ? ' on' : ''), text: t, onclick: () => { state.view = v; state.ip = ''; load(); } })));
+
+  const loadOverview = async () => {
     { const gn = (galleries.find(x => String(x.id) === state.gallery) || {}).title; document.title = (gn ? 'Statistics: ' + gn : 'Statistics') + ' - ' + site.title; }
     const r = await api('/api/admin/stats?' + q());
     if (!r.ok) { body.replaceChildren(h('p', { class: 'err', text: 'Could not load statistics.' })); return; }
     const d = r.data;
-    tabs.replaceChildren(...[['visitors', `Visitors (${d.visitorEvents})`], ['bots', `Bots & crawlers (${d.botEvents})`], ['all', 'All']].map(([v, t]) =>
-      h('button', { class: 'tab' + (state.who === v ? ' on' : ''), text: t, onclick: () => { state.who = v; state.skip = 0; load(); } })));
+    whoTabs(d);
     const t = d.totals;
     const tile = (n, label) => h('div', { class: 'tile' }, h('div', { class: 'tile-n', text: String(n) }), h('div', { class: 'muted', text: label }));
     const max = Math.max(1, ...d.byDay.map(x => x.views + x.downloads));
@@ -882,6 +895,65 @@ async function viewStats(app) {
       activityPanel());
   };
 
+  const ago = (iso) => { const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 2880 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+  const visitorLink = (ip) => h('a', { href: '/admin/stats?ip=' + encodeURIComponent(ip) + '&days=' + state.days + (state.gallery ? '&gallery=' + state.gallery : ''), text: ip });
+
+  const loadVisitors = async () => {
+    document.title = 'Statistics by visitor - ' + site.title;
+    const p = q(); p.set('sort', state.sort); p.set('take', 100);
+    const r = await api('/api/admin/stats/visitors?' + p);
+    if (!r.ok) { body.replaceChildren(h('p', { class: 'err', text: 'Could not load visitors.' })); return; }
+    whoTabs(r.data);
+    const sortSel = h('select', {}, [['recent', 'Most recent'], ['events', 'Most active'], ['photos', 'Most photo views'], ['downloads', 'Most downloads']].map(([v, t]) => h('option', { value: v, text: t, selected: v === state.sort })));
+    sortSel.onchange = () => { state.sort = sortSel.value; load(); };
+    const rows = r.data.items;
+    body.replaceChildren(h('div', { class: 'panel' },
+      h('div', { class: 'row' }, h('h3', { text: `${r.data.total} IP addresses` }), h('span', { class: 'grow' }), sortSel),
+      h('p', { class: 'muted', text: 'Click an IP address to see everything that visitor looked at.' }),
+      rows.length ? h('div', { class: 'scroll' }, h('table', {},
+        h('tr', {}, ['IP address', 'Country', 'Last seen', 'First seen', 'Events', 'Photo views', 'Downloads', 'Galleries', 'Browser'].map(x => h('th', { text: x }))),
+        rows.map(v => h('tr', {}, h('td', {}, visitorLink(v.ip)), h('td', { text: v.country || '-' }),
+          h('td', { text: ago(v.last), title: new Date(v.last).toLocaleString() }), h('td', { text: new Date(v.first).toLocaleDateString() }),
+          h('td', { text: v.events }), h('td', { text: v.photoViews }), h('td', { text: v.downloads }),
+          h('td', { text: v.galleries.join(', ') }),
+          h('td', { class: 'ua', title: v.userAgent, text: (v.isBot ? '[bot] ' : '') + v.userAgent }))))) : h('p', { class: 'muted', text: 'No visitors in this period.' })));
+  };
+
+  const loadVisitor = async () => {
+    tabs.replaceChildren();
+    document.title = 'Visitor ' + state.ip + ' - ' + site.title;
+    const p = new URLSearchParams({ ip: state.ip, days: state.days }); if (state.gallery) p.set('gallery', state.gallery);
+    const r = await api('/api/admin/stats/visitor?' + p);
+    const back = h('button', { text: '\u2190 All visitors', onclick: () => { state.ip = ''; state.view = 'visitors'; load(); } });
+    if (!r.ok) { body.replaceChildren(back, h('p', { class: 'muted', text: 'No activity from this IP address in the selected period.' })); return; }
+    const d = r.data, s = d.summary;
+    const tile = (n, label) => h('div', { class: 'tile' }, h('div', { class: 'tile-n', text: String(n) }), h('div', { class: 'muted', text: label }));
+    const when = (a, b) => { const x = new Date(a), y = new Date(b); const day = x.toLocaleDateString() === y.toLocaleDateString(); return `${x.toLocaleString()} \u2013 ${day ? y.toLocaleTimeString() : y.toLocaleString()}`; };
+    body.replaceChildren(
+      h('div', { class: 'toolbar' }, back, h('h2', { text: s.ip }), s.isBot ? h('span', { class: 'chip warn', text: 'bot / crawler' }) : null, s.country ? h('span', { class: 'chip', text: s.country }) : null, h('span', { class: 'muted', text: `First seen ${new Date(s.first).toLocaleString()} \u00B7 last seen ${new Date(s.last).toLocaleString()}` })),
+      h('div', { class: 'tiles' }, tile(s.events, 'Events'), tile(s.galleryViews, 'Gallery views'), tile(s.photoViews, 'Photo views'), tile(s.downloads, 'Photo downloads'), tile(s.zips, 'ZIP downloads'), tile(s.unlockFails, 'Wrong passwords'), tile(s.uploads, 'Uploads')),
+      h('div', { class: 'panel' }, h('h3', { text: `Visits (${d.sessions.length}${d.sessions.length === 30 ? '+' : ''})` }),
+        h('p', { class: 'muted', text: 'A new visit starts after 30 minutes without activity.' }),
+        d.sessions.map(v => h('div', { class: 'session' },
+          h('div', { class: 'session-head' }, h('b', { text: when(v.start, v.end) }), h('span', { class: 'muted', text: ` \u00B7 ${v.events} events \u00B7 ${v.photoViews} photo views \u00B7 ${v.downloads} downloads` })),
+          h('div', { class: 'muted', text: v.galleries.length ? 'Galleries: ' + v.galleries.join(', ') : '' }),
+          v.photoIds.length ? h('div', { class: 'thumbs' }, v.photoIds.map(id => h('img', { src: `/img/${id}/thumb`, alt: '', class: 'tiny', loading: 'lazy' }))) : null))),
+      h('div', { class: 'two' },
+        h('div', { class: 'panel' }, h('h3', { text: 'Galleries visited' }), d.galleries.length ? h('table', {},
+          h('tr', {}, ['Gallery', 'Views', 'Photo views', 'Downloads', 'Last'].map(x => h('th', { text: x }))),
+          d.galleries.map(g => h('tr', {}, h('td', { text: g.title }), h('td', { text: g.views }), h('td', { text: g.photoViews }), h('td', { text: g.downloads }), h('td', { text: new Date(g.last).toLocaleString() })))) : h('p', { class: 'muted', text: 'None.' })),
+        h('div', { class: 'panel' }, h('h3', { text: 'Browsers' }), h('table', {}, h('tr', {}, ['Browser', 'Events'].map(x => h('th', { text: x }))),
+          d.browsers.map(b => h('tr', {}, h('td', { class: 'ua2', text: b.userAgent || '(none)' }), h('td', { text: b.events })))))),
+      h('div', { class: 'panel' }, h('h3', { text: `Photos looked at (${d.photos.length})` }), d.photos.length ? h('div', { class: 'photo-cards' }, d.photos.map(ph =>
+        h('div', { class: 'photo-card' }, h('img', { src: `/img/${ph.id}/thumb`, alt: ph.name, loading: 'lazy' }),
+          h('div', { class: 'pc-name', text: ph.name, title: ph.name }),
+          h('div', { class: 'muted', text: ph.gallery }),
+          h('div', { class: 'muted', text: `${ph.views} view${ph.views === 1 ? '' : 's'}${ph.downloads ? ` \u00B7 ${ph.downloads} download${ph.downloads === 1 ? '' : 's'} (${ph.downloaded.join(', ')})` : ''}` })))) : h('p', { class: 'muted', text: 'No photo views.' })),
+      h('details', { class: 'section' }, h('summary', {}, h('span', { class: 'section-title', text: 'Full timeline' }), h('span', { class: 'muted', text: `latest ${d.timeline.length} events` })),
+        h('div', { class: 'section-body scroll' }, h('table', {}, h('tr', {}, ['Time', 'Action', 'Gallery', 'Photo / detail'].map(x => h('th', { text: x }))),
+          d.timeline.map(e => h('tr', {}, h('td', { text: new Date(e.time).toLocaleString() }), h('td', { text: kindLabels[e.kind] || e.kind }), h('td', { text: e.gallery }), h('td', { text: [e.photo, e.detail].filter(Boolean).join(' - ') })))))));
+  };
+
   const activityPanel = () => {
     const box = h('div', { class: 'panel' }, h('h3', { text: 'Recent activity' }));
     const kindSel = h('select', {}, [h('option', { value: '', text: 'All actions' }), ...Object.entries(kindLabels).map(([v, t]) => h('option', { value: v, text: t, selected: v === state.kind }))]);
@@ -895,7 +967,7 @@ async function viewStats(app) {
       const r = await api('/api/admin/stats/activity?' + p);
       if (!r.ok) return;
       for (const it of r.data.items) {
-        table.append(h('tr', {}, h('td', { text: new Date(it.time).toLocaleString() }), h('td', { text: it.ip || '-' }), h('td', { text: it.country || '-' }),
+        table.append(h('tr', {}, h('td', { text: new Date(it.time).toLocaleString() }), h('td', {}, it.ip ? h('a', { href: '/admin/stats?ip=' + encodeURIComponent(it.ip) + '&days=' + state.days, text: it.ip }) : '-'), h('td', { text: it.country || '-' }),
           h('td', { text: kindLabels[it.kind] || it.kind }), h('td', { text: it.gallery }), h('td', { text: [it.photo, it.detail].filter(Boolean).join(' - ') }),
           h('td', { class: 'ua', title: it.userAgent, text: (it.isBot ? '[bot] ' : '') + it.userAgent })));
       }
@@ -913,7 +985,7 @@ async function viewStats(app) {
   rangeSel.onchange = () => { state.days = Number(rangeSel.value); load(); };
   galSel.onchange = () => { state.gallery = galSel.value; load(); };
   app.append(h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/admin', text: '\u2190 Admin' }), h('h1', { text: 'Statistics' }), h('span', { class: 'grow' }), rangeSel, galSel, h('a', { class: 'btn', href: '/admin/settings', text: 'Settings' })),
-    tabs, body);
+    viewTabs, tabs, body);
   load();
 }
 

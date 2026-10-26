@@ -89,6 +89,119 @@ public static class StatsApi
             return Results.Ok(new { totals, visitorEvents, botEvents, topGalleries, topPhotos, countries, downloadsBy, byDay });
         });
 
+        // one row per IP address: what each visitor did
+        g.MapGet("/visitors", async (int? days, int? gallery, string? who, string? sort, int? skip, int? take, AppDb db) =>
+        {
+            var rows = await Filter(db, days, gallery, who)
+                .Select(v => new { v.Time, v.Kind, v.GalleryId, v.PhotoId, v.Ip, v.Country, v.UserAgent, v.IsBot }).ToListAsync();
+            var tabBase = Filter(db, days, gallery, "all");
+            var visitorEvents = await tabBase.CountAsync(v => !v.IsBot);
+            var botEvents = await tabBase.CountAsync(v => v.IsBot);
+            var galleries = await db.Galleries.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x.Title);
+
+            var list = rows.GroupBy(r => r.Ip).Select(grp =>
+            {
+                var items = grp.ToList();
+                return new
+                {
+                    ip = grp.Key,
+                    country = items.Where(r => r.Country != "").GroupBy(r => r.Country).OrderByDescending(x => x.Count()).Select(x => x.Key).FirstOrDefault() ?? "",
+                    first = DateTime.SpecifyKind(items.Min(r => r.Time), DateTimeKind.Utc),
+                    last = DateTime.SpecifyKind(items.Max(r => r.Time), DateTimeKind.Utc),
+                    events = items.Count,
+                    galleryViews = items.Count(r => r.Kind == "view_gallery"),
+                    photoViews = items.Count(r => r.Kind == "view_photo"),
+                    downloads = items.Count(r => r.Kind is "download" or "zip"),
+                    unlockFails = items.Count(r => r.Kind == "unlock_fail"),
+                    galleries = items.Where(r => r.GalleryId != null).Select(r => r.GalleryId!.Value).Distinct()
+                        .Select(id => galleries.TryGetValue(id, out var t) ? t : "(deleted)").OrderBy(t => t).ToList(),
+                    isBot = items.Any(r => r.IsBot),
+                    userAgent = items.OrderByDescending(r => r.Time).First().UserAgent
+                };
+            });
+            list = sort switch
+            {
+                "events" => list.OrderByDescending(x => x.events),
+                "downloads" => list.OrderByDescending(x => x.downloads).ThenByDescending(x => x.last),
+                "photos" => list.OrderByDescending(x => x.photoViews).ThenByDescending(x => x.last),
+                _ => list.OrderByDescending(x => x.last)
+            };
+            var all = list.ToList();
+            var page = all.Skip(Math.Max(0, skip ?? 0)).Take(Math.Clamp(take ?? 50, 1, 200)).ToList();
+            return Results.Ok(new { total = all.Count, visitorEvents, botEvents, items = page });
+        });
+
+        // everything one IP address did
+        g.MapGet("/visitor", async (string ip, int? days, int? gallery, AppDb db) =>
+        {
+            var rows = await Filter(db, days, gallery, "all").Where(v => v.Ip == ip).OrderBy(v => v.Time).ToListAsync();
+            if (rows.Count == 0) return Results.NotFound();
+            var galleries = await db.Galleries.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x.Title);
+            var pids = rows.Where(r => r.PhotoId != null).Select(r => r.PhotoId!.Value).Distinct().ToList();
+            var photoInfo = await db.Photos.AsNoTracking().Where(p => pids.Contains(p.Id)).Select(p => new { p.Id, p.Name, p.GalleryId }).ToDictionaryAsync(p => p.Id);
+            string GalleryName(int? id) => id != null && galleries.TryGetValue(id.Value, out var t) ? t : "";
+            DateTime Utc(DateTime d) => DateTime.SpecifyKind(d, DateTimeKind.Utc);
+
+            var summary = new
+            {
+                ip,
+                country = rows.Where(r => r.Country != "").GroupBy(r => r.Country).OrderByDescending(x => x.Count()).Select(x => x.Key).FirstOrDefault() ?? "",
+                first = Utc(rows.First().Time), last = Utc(rows.Last().Time), events = rows.Count,
+                isBot = rows.Any(r => r.IsBot),
+                galleryViews = rows.Count(r => r.Kind == "view_gallery"), photoViews = rows.Count(r => r.Kind == "view_photo"),
+                downloads = rows.Count(r => r.Kind == "download"), zips = rows.Count(r => r.Kind == "zip"),
+                unlockFails = rows.Count(r => r.Kind == "unlock_fail"), uploads = rows.Count(r => r.Kind == "upload")
+            };
+
+            var browsers = rows.GroupBy(r => r.UserAgent).Select(grp => new { userAgent = grp.Key, events = grp.Count(), last = Utc(grp.Max(r => r.Time)) })
+                .OrderByDescending(x => x.events).Take(5).ToList();
+
+            var perGallery = rows.Where(r => r.GalleryId != null).GroupBy(r => r.GalleryId!.Value).Select(grp => new
+            {
+                id = grp.Key, title = GalleryName(grp.Key),
+                views = grp.Count(r => r.Kind == "view_gallery"), photoViews = grp.Count(r => r.Kind == "view_photo"),
+                downloads = grp.Count(r => r.Kind is "download" or "zip"),
+                first = Utc(grp.Min(r => r.Time)), last = Utc(grp.Max(r => r.Time))
+            }).OrderByDescending(x => x.last).ToList();
+
+            var photos = rows.Where(r => r.PhotoId != null && r.Kind is "view_photo" or "download").GroupBy(r => r.PhotoId!.Value).Select(grp =>
+            {
+                photoInfo.TryGetValue(grp.Key, out var pi);
+                return new
+                {
+                    id = grp.Key, name = pi?.Name ?? "(deleted)", gallery = GalleryName(pi?.GalleryId),
+                    views = grp.Count(r => r.Kind == "view_photo"), downloads = grp.Count(r => r.Kind == "download"),
+                    downloaded = grp.Where(r => r.Kind == "download").Select(r => r.Detail).Distinct().ToList(),
+                    last = Utc(grp.Max(r => r.Time))
+                };
+            }).OrderByDescending(x => x.last).Take(120).ToList();
+
+            // sessions: a new one starts after 30 minutes of silence
+            var sessions = new List<List<Visit>>();
+            foreach (var r in rows)
+            {
+                if (sessions.Count == 0 || r.Time - sessions[^1][^1].Time > TimeSpan.FromMinutes(30)) sessions.Add(new List<Visit>());
+                sessions[^1].Add(r);
+            }
+            var sessionDtos = sessions.AsEnumerable().Reverse().Take(30).Select(s => new
+            {
+                start = Utc(s.First().Time), end = Utc(s.Last().Time), events = s.Count,
+                galleries = s.Where(r => r.GalleryId != null).Select(r => GalleryName(r.GalleryId)).Distinct().ToList(),
+                photoViews = s.Count(r => r.Kind == "view_photo"), downloads = s.Count(r => r.Kind is "download" or "zip"),
+                photoIds = s.Where(r => r.Kind == "view_photo" && r.PhotoId != null).Select(r => r.PhotoId!.Value).Distinct().Take(12).ToList()
+            }).ToList();
+
+            var timeline = rows.AsEnumerable().Reverse().Take(300).Select(r => new
+            {
+                time = Utc(r.Time), r.Kind, r.Detail,
+                gallery = GalleryName(r.GalleryId),
+                photoId = r.PhotoId,
+                photo = r.PhotoId != null && photoInfo.TryGetValue(r.PhotoId.Value, out var pi) ? pi.Name : ""
+            }).ToList();
+
+            return Results.Ok(new { summary, browsers, galleries = perGallery, photos, sessions = sessionDtos, timeline });
+        });
+
         g.MapGet("/activity", async (int? days, int? gallery, string? who, string? kind, int? skip, int? take, AppDb db) =>
         {
             var q = Filter(db, days, gallery, who, kind);

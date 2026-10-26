@@ -29,7 +29,7 @@ Each photo has its own address, `/g/<gallery>/p/<id>`, which can be shared (prot
 
 ### Visitor statistics
 
-`/admin/stats` (and a Statistics button on every gallery's settings page) shows unique IPs, gallery and photo views, downloads by size/format, ZIPs, share-link opens, wrong passwords, guest uploads, top galleries and photos, countries and a recent-activity table with each visitor's full IP address and browser. Bots and crawlers (detected from the user agent) are kept on a separate tab. Your own admin visits are not recorded. Retention (default 180 days) and a delete-all button are in Site settings.
+`/admin/stats` (and a Statistics button on every gallery's settings page) shows unique IPs, gallery and photo views, downloads by size/format, ZIPs, share-link opens, wrong passwords, guest uploads, top galleries and photos, countries and a recent-activity table with each visitor's full IP address and browser. Bots and crawlers (detected from the user agent) are kept on a separate tab. **By visitor (IP)** groups the log per IP address; click an IP to see that visitor's visits (new visit after 30 minutes idle), galleries, the photos they looked at or downloaded (with thumbnails and sizes), their browsers and a full timeline. Your own admin visits are not recorded. Retention (default 180 days) and a delete-all button are in Site settings.
 
 The visitor IP comes from `CF-Connecting-IP` when Cloudflare proxies the site, otherwise from the address SWAG forwards. Country is only known while Cloudflare proxies the site. IP addresses are personal data: keep only what you need and tell visitors if your local rules require it.
 
