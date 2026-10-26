@@ -418,6 +418,10 @@ async function viewSettings(app) {
   refresh();
 }
 
+function expiredNote(g, text) {
+  const past = g.expiresAt && new Date(/Z$/.test(g.expiresAt) ? g.expiresAt : g.expiresAt + 'Z') <= new Date();
+  return past ? 'This gallery has EXPIRED, so visitors cannot see it or find it on the home page. Clear the date and save to reopen it.' : text;
+}
 function section(title, hint, open, ...body) {
   const d = h('details', { class: 'section', open });
   d.append(h('summary', {}, h('span', { class: 'section-title', text: title }), hint ? h('span', { class: 'muted', text: hint }) : null),
@@ -501,7 +505,7 @@ async function viewGallerySettings(app, id) {
     h('div', { class: 'form1' },
       field('Visibility', vis, 'Public shows on the home page. Unlisted needs the link. Protected needs a password or a share link.'),
       field('Password', pw),
-      field('Auto-expire', expires, 'After this time the gallery closes for everyone but you. Nothing is deleted. Clear to keep it open.')),
+      field('Auto-expire', h('div', { class: 'row' }, expires, h('button', { text: 'Clear', title: 'Keep the gallery open indefinitely', onclick: () => { expires.value = ''; touch(); } })), expiredNote(g, 'After this time the gallery closes for everyone but you. Nothing is deleted. Clear it to keep the gallery open.'))),
     h('h3', { text: 'Share links' }), linksManager(g));
 
   // --- Downloads ---
