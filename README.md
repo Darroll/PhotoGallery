@@ -72,6 +72,18 @@ Grid thumbnails and viewing images are built in the background after every scan 
 - Upload: extension allow-list, size limit, content verified by libvips before acceptance, per-IP rate limit, pending cap.
 - Strict CSP, `nosniff`, no framing. Run it only behind SWAG/HTTPS and do not publish the container port to the internet.
 
+## Hardening checklist
+
+Built in: PBKDF2 gallery passwords, constant-time admin check, rate limits (login, unlock, upload), slow-down after wrong admin passwords plus an email alert, per-visitor limit of one ZIP at a time, strict CSP, HSTS over HTTPS, 150 MP image cap, 60 s exiftool limit, and proxy headers (`X-Forwarded-*`, `CF-Connecting-IP`) believed only from `TRUSTED_PROXIES` (default: Docker's 172.16.0.0/12 and loopback).
+
+Do on your side:
+1. Remove the WebUI port mapping from the container (SWAG reaches it by name on `proxynet`) so nothing on the LAN can talk to it directly.
+2. Protect `/admin` and `/api/admin` with Cloudflare Access (free) or a SWAG allow-list.
+3. Keep the Cloudflare proxy on (not paused); restrict SWAG to Cloudflare's IP ranges; add a Cloudflare rate-limit rule for `/api/admin/login` and `/api/g/*/unlock`.
+4. Use a long random `ADMIN_PASSWORD`.
+5. Template extra parameters: `--security-opt no-new-privileges --cap-drop ALL --read-only --tmpfs /tmp`.
+6. Rebuild the image regularly (runtime, libvips and exiftool fixes); Dependabot is configured for NuGet and Docker.
+
 ## Deploy on Unraid
 
 1. Get this folder onto the server and build the image (the template uses a local image):

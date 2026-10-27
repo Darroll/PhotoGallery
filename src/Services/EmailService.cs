@@ -19,6 +19,7 @@ public class EmailSettings
     public bool GalleryExpiring { get; set; } = true;
     public int ExpiryDays { get; set; } = 3;
     public bool WeeklySummary { get; set; }
+    public bool LoginAlerts { get; set; } = true;
 
     public EmailSettings Sanitized()
     {
@@ -27,7 +28,7 @@ public class EmailSettings
         {
             Enabled = Enabled, Host = T(Host, 200), Port = Math.Clamp(Port, 1, 65535), From = T(From, 200), To = T(To, 200),
             SiteUrl = T(SiteUrl, 200).TrimEnd('/'), GuestUploads = GuestUploads, LinkAlerts = LinkAlerts,
-            GalleryExpiring = GalleryExpiring, ExpiryDays = Math.Clamp(ExpiryDays, 1, 30), WeeklySummary = WeeklySummary
+            GalleryExpiring = GalleryExpiring, ExpiryDays = Math.Clamp(ExpiryDays, 1, 30), WeeklySummary = WeeklySummary, LoginAlerts = LoginAlerts
         };
     }
 

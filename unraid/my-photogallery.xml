@@ -14,7 +14,7 @@
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <TemplateURL/>
   <Icon/>
-  <ExtraParams>--user 99:100 --memory=3g --restart=unless-stopped</ExtraParams>
+  <ExtraParams>--user 99:100 --memory=3g --restart=unless-stopped --security-opt no-new-privileges --cap-drop ALL --read-only --tmpfs /tmp</ExtraParams>
   <PostArgs/>
   <CPUset/>
   <DateInstalled/>
@@ -30,5 +30,6 @@
   <Config Name="SIZES" Target="SIZES" Default="1080,1920,2560,4096" Mode="" Description="Long-edge pixel sizes offered as lossless downloads" Type="Variable" Display="advanced" Required="false" Mask="false">1080,1920,2560,4096</Config>
   <Config Name="MAX_UPLOAD_MB" Target="MAX_UPLOAD_MB" Default="90" Mode="" Description="Largest single guest upload (keep under 100: Cloudflare proxy limit)" Type="Variable" Display="advanced" Required="false" Mask="false">90</Config>
   <Config Name="MAX_PENDING_PER_GALLERY" Target="MAX_PENDING_PER_GALLERY" Default="200" Mode="" Description="Cap on unapproved guest uploads per gallery" Type="Variable" Display="advanced" Required="false" Mask="false">200</Config>
+  <Config Name="TRUSTED_PROXIES" Target="TRUSTED_PROXIES" Default="172.16.0.0/12,127.0.0.0/8,::1/128" Mode="" Description="Networks allowed to send X-Forwarded-For / CF-Connecting-IP (SWAG on the proxy network). Headers from any other address are ignored, so LAN devices cannot fake an IP." Type="Variable" Display="advanced" Required="false" Mask="false">172.16.0.0/12,127.0.0.0/8,::1/128</Config>
   <Config Name="TRUST_PROXY" Target="TRUST_PROXY" Default="true" Mode="" Description="Trust X-Forwarded-* headers from SWAG (needed for HTTPS cookies and per-IP rate limits). Do NOT publish the container's port directly to the internet." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
 </Container>

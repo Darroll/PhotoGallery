@@ -62,9 +62,19 @@ public static class AdminApi
             return await next(ctx);
         });
 
-        admin.MapPost("/login", async (LoginRequest req, HttpContext ctx, AppConfig cfg) =>
+        admin.MapPost("/login", async (LoginRequest req, HttpContext ctx, AppConfig cfg, AppDb db, SettingsService settings) =>
         {
-            if (!Passwords.FixedEquals(req.Password ?? "", cfg.AdminPassword)) return Results.StatusCode(401);
+            var ip = ActivityLog.ClientIp(ctx);
+            if (!Passwords.FixedEquals(req.Password ?? "", cfg.AdminPassword))
+            {
+                var recent = await LoginGuard.FailedAsync(ip);
+                var mail = settings.Email;
+                if (mail.Enabled && mail.LoginAlerts && LoginGuard.ShouldAlert(recent))
+                    await EmailService.QueueAsync(db, mail, "Admin login: repeated wrong passwords",
+                        $"{recent} wrong admin passwords were tried in the last 15 minutes. Latest attempt from {ip} ({ctx.Request.Headers["CF-IPCountry"]}). If this was not you, consider limiting /admin to your own network.");
+                return Results.StatusCode(401);
+            }
+            LoginGuard.Succeeded(ip);
             var id = new ClaimsIdentity([new Claim(ClaimTypes.Name, "admin")], CookieAuthenticationDefaults.AuthenticationScheme);
             await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(id));
             return Results.NoContent();

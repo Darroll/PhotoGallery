@@ -45,9 +45,14 @@ public class ImageService(AppConfig cfg, SettingsService settings, ILogger<Image
                 psi.ArgumentList.Add(tag);
                 psi.ArgumentList.Add(raw);
                 using var proc = Process.Start(psi)!;
-                await using (var fs = File.Create(tmp))
-                    await proc.StandardOutput.BaseStream.CopyToAsync(fs);
-                await proc.WaitForExitAsync();
+                using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                try
+                {
+                    await using (var fs = File.Create(tmp))
+                        await proc.StandardOutput.BaseStream.CopyToAsync(fs, limit.Token);
+                    await proc.WaitForExitAsync(limit.Token);
+                }
+                catch (OperationCanceledException) { try { proc.Kill(true); } catch { } throw; }
                 if (File.Exists(tmp) && new FileInfo(tmp).Length > 2000)
                 {
                     File.Move(tmp, dest, true);
@@ -60,10 +65,14 @@ public class ImageService(AppConfig cfg, SettingsService settings, ILogger<Image
         return false;
     }
 
+    /// <summary>Largest image accepted (about 150 megapixels); stops tiny files that expand into huge pictures.</summary>
+    public const long MaxPixels = 150_000_000;
+
     public (int w, int h, DateTime? taken) ReadMeta(string path)
     {
         using var img = Image.NewFromFile(path);
         int w = img.Width, h = img.Height;
+        if ((long)w * h > MaxPixels) throw new InvalidDataException("image dimensions too large");
         if (img.GetTypeOf("orientation") != 0 && Convert.ToInt32(img.Get("orientation")) >= 5) (w, h) = (h, w);
         DateTime? taken = null;
         try

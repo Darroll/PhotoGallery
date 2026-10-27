@@ -15,6 +15,8 @@ public class AppConfig
     public string WatermarkImagePath => Path.Combine(DataDir, "watermark.png");
     public string SiteTitle { get; }
     public bool TrustProxy { get; }
+    /// <summary>Networks whose X-Forwarded-* and CF-Connecting-IP headers are believed (SWAG's docker network by default).</summary>
+    public (System.Net.IPAddress Net, int Prefix)[] TrustedNetworks { get; }
     public string Version { get; }
     public string Commit { get; }
     public string BuildDate { get; }
@@ -43,6 +45,14 @@ public class AppConfig
         RescanMinutes = int.TryParse(c["RESCAN_MINUTES"], out var rm) ? rm : 15;
         SiteTitle = c["SITE_TITLE"] ?? "Photos";
         TrustProxy = !string.Equals(c["TRUST_PROXY"], "false", StringComparison.OrdinalIgnoreCase);
+        var nets = new List<(System.Net.IPAddress, int)>();
+        foreach (var part in (c["TRUSTED_PROXIES"] ?? "172.16.0.0/12,127.0.0.0/8,::1/128").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var bits = part.Split('/');
+            if (System.Net.IPAddress.TryParse(bits[0], out var ip) && (bits.Length == 1 || int.TryParse(bits[1], out _)))
+                nets.Add((ip, bits.Length == 1 ? (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? 32 : 128) : int.Parse(bits[1])));
+        }
+        TrustedNetworks = nets.ToArray();
         Version = (System.Reflection.Assembly.GetExecutingAssembly()
             .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
             .Cast<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "0.0.0").Split('+')[0];
@@ -68,6 +78,23 @@ public class AppConfig
     public string? Resolve(string rel) => ResolveUnder(LibraryRoot, rel);
 
     /// <summary>Guest uploads live in the data dir so the photo library can stay read-only.</summary>
+    public bool IsTrustedProxy(System.Net.IPAddress? addr)
+    {
+        if (addr == null) return false;
+        if (addr.IsIPv4MappedToIPv6) addr = addr.MapToIPv4();
+        foreach (var (net, prefix) in TrustedNetworks)
+        {
+            var n = net.IsIPv4MappedToIPv6 ? net.MapToIPv4() : net;
+            if (n.AddressFamily != addr.AddressFamily) continue;
+            var a = addr.GetAddressBytes(); var b = n.GetAddressBytes();
+            int full = prefix / 8, rem = prefix % 8; var ok = true;
+            for (int i = 0; i < full && ok; i++) ok = a[i] == b[i];
+            if (ok && rem > 0) ok = (a[full] >> (8 - rem)) == (b[full] >> (8 - rem));
+            if (ok) return true;
+        }
+        return false;
+    }
+
     public string? ResolvePhoto(Photo p, string rel) => ResolveUnder(p.IsGuest ? GuestRoot : LibraryRoot, rel);
 
     static string? ResolveUnder(string rootDir, string rel)

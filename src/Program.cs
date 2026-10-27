@@ -53,6 +53,11 @@ builder.Services.AddRateLimiter(o =>
     o.AddPolicy("unlock", c => Per(c, 10));
     o.AddPolicy("upload", c => Per(c, 30));
     o.AddPolicy("viewed", c => Per(c, 240));
+    // one ZIP at a time per visitor, and a few concurrent single downloads
+    o.AddPolicy("zip", c => RateLimitPartition.GetConcurrencyLimiter(c.Connection.RemoteIpAddress?.ToString() ?? "?",
+        _ => new ConcurrencyLimiterOptions { PermitLimit = 1, QueueLimit = 0 }));
+    o.AddPolicy("download", c => RateLimitPartition.GetConcurrencyLimiter(c.Connection.RemoteIpAddress?.ToString() ?? "?",
+        _ => new ConcurrencyLimiterOptions { PermitLimit = 6, QueueLimit = 0 }));
 });
 
 if (cfg.TrustProxy)
@@ -62,6 +67,7 @@ if (cfg.TrustProxy)
         o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
         o.KnownNetworks.Clear();
         o.KnownProxies.Clear();
+        foreach (var (net, prefix) in cfg.TrustedNetworks) o.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(net, prefix));
     });
 }
 
@@ -73,6 +79,8 @@ using (var scope = app.Services.CreateScope())
     startDb.Database.EnsureCreated();
     Schema.Upgrade(startDb);
 }
+if (cfg.TrustProxy)
+    app.Logger.LogInformation("Trusting proxy headers only from: {Nets}", string.Join(", ", cfg.TrustedNetworks.Select(n => n.Net + "/" + n.Prefix)));
 if (cfg.AdminPasswordGenerated)
     app.Logger.LogWarning("ADMIN_PASSWORD not set. Generated admin password for this run: {Password}", cfg.AdminPassword);
 if (!Directory.Exists(cfg.LibraryRoot))
@@ -80,6 +88,12 @@ if (!Directory.Exists(cfg.LibraryRoot))
 if (cfg.ExifTool == null)
     app.Logger.LogInformation("exiftool not found: RAW-only files will be skipped (RAW files paired with a JPEG still work)");
 
+// remember who actually connected (before forwarded headers are applied) so spoofed proxy headers can be ignored
+app.Use(async (ctx, next) =>
+{
+    ctx.Items[ActivityLog.TrustedPeerKey] = cfg.TrustProxy && cfg.IsTrustedProxy(ctx.Connection.RemoteIpAddress);
+    await next();
+});
 if (cfg.TrustProxy) app.UseForwardedHeaders();
 
 app.Use(async (ctx, next) =>
@@ -88,6 +102,9 @@ app.Use(async (ctx, next) =>
     h["X-Content-Type-Options"] = "nosniff";
     h["X-Frame-Options"] = "DENY";
     h["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    h["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()";
+    h["Cross-Origin-Opener-Policy"] = "same-origin";
+    if (ctx.Request.IsHttps) h["Strict-Transport-Security"] = "max-age=31536000";
     h["Content-Security-Policy"] =
         "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
     await next();

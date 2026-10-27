@@ -214,7 +214,7 @@ public static class PublicApi
             if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);
             activity.Record(ctx, "download", g.Id, p.Id, $"{px}px {f}");
             return Results.File(v.Value.path, ImageService.ContentType(f), $"{baseName}_{px}.{f}");
-        });
+        }).RequireRateLimiting("download");
 
         app.MapGet("/dl/{id:int}/raw", async (int id, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ActivityLog activity) =>
         {
@@ -229,7 +229,7 @@ public static class PublicApi
             if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);
             activity.Record(ctx, "download", g.Id, p.Id, "raw");
             return Results.File(path, "application/octet-stream", Path.GetFileName(path));
-        });
+        }).RequireRateLimiting("download");
 
         app.MapGet("/api/g/{slug}/zip", async (string slug, string? size, string? fmt, bool? raw, string? ids, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity) =>
         {
@@ -311,7 +311,7 @@ public static class PublicApi
                 }
             }
             return Results.Empty;
-        });
+        }).RequireRateLimiting("zip");
 
         app.MapPost("/api/g/{slug}/upload", async (string slug, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity) =>
         {

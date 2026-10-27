@@ -50,7 +50,7 @@ public class ActivityLog(IServiceScopeFactory scopes, SettingsService settings, 
     /// <summary>The visitor's address. A Cloudflare header wins when present (proxy enabled); otherwise the forwarded/remote address.</summary>
     public static string ClientIp(HttpContext ctx)
     {
-        var cf = ctx.Request.Headers["CF-Connecting-IP"].ToString();
+        var cf = ctx.Items[TrustedPeerKey] is true ? ctx.Request.Headers["CF-Connecting-IP"].ToString() : "";
         if (!string.IsNullOrEmpty(cf) && IPAddress.TryParse(cf.Trim(), out var cfIp)) return Normalize(cfIp);
         var ip = ctx.Connection.RemoteIpAddress;
         return ip == null ? "" : Normalize(ip);
@@ -59,6 +59,7 @@ public class ActivityLog(IServiceScopeFactory scopes, SettingsService settings, 
     static string Normalize(IPAddress ip) => (ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip).ToString();
 
     public const string CookieName = "pgv";
+    public const string TrustedPeerKey = "pg.trustedPeer";
     static readonly Regex VidRx = new("^[A-Za-z0-9_-]{16,32}$", RegexOptions.Compiled);
 
     /// <summary>Reads the anonymous visitor id, issuing a new one (2 years) when the browser has none.</summary>
