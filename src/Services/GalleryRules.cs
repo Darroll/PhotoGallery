@@ -31,13 +31,33 @@ public static class GalleryRules
 
     public record FootageLink(string Label, string Url);
 
+    static readonly System.Text.RegularExpressions.Regex YtId = new("^[A-Za-z0-9_-]{11}$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>The 11-character YouTube video id in a watch, youtu.be, embed, shorts or live link; null for anything else.</summary>
+    public static string? YouTubeId(string? url)
+    {
+        if (!Uri.TryCreate((url ?? "").Trim(), UriKind.Absolute, out var u)) return null;
+        var host = u.Host.ToLowerInvariant();
+        if (host.StartsWith("www.")) host = host[4..];
+        string? id = null;
+        if (host == "youtu.be") id = u.AbsolutePath.Trim('/').Split('/')[0];
+        else if (host is "youtube.com" or "m.youtube.com" or "music.youtube.com" or "youtube-nocookie.com")
+        {
+            var parts = u.AbsolutePath.Trim('/').Split('/');
+            if (parts.Length >= 2 && (parts[0] is "embed" or "shorts" or "live" or "v")) id = parts[1];
+            else if (parts.Length >= 1 && parts[0] == "watch")
+                id = System.Web.HttpUtility.ParseQueryString(u.Query)["v"];
+        }
+        return id != null && YtId.IsMatch(id) ? id : null;
+    }
+
     public static List<FootageLink> Links(Gallery g)
     {
         try { return System.Text.Json.JsonSerializer.Deserialize<List<FootageLink>>(g.FootageLinks ?? "[]", new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new(); }
         catch { return new(); }
     }
 
-    /// <summary>Keeps only http(s) links (never javascript: and friends), trimmed, at most 10.</summary>
+    /// <summary>Keeps only http(s) links (never javascript: and friends), trimmed, at most 30.</summary>
     public static string CleanLinks(IEnumerable<FootageLink>? links)
     {
         var clean = new List<FootageLink>();
@@ -48,7 +68,7 @@ public static class GalleryRules
             var label = (l.Label ?? "").Trim();
             if (label.Length == 0) label = u.Host;
             clean.Add(new FootageLink(label.Length > 60 ? label[..60] : label, u.ToString()));
-            if (clean.Count == 10) break;
+            if (clean.Count == 30) break;
         }
         return System.Text.Json.JsonSerializer.Serialize(clean);
     }

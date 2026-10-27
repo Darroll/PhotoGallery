@@ -48,6 +48,10 @@ Every page has its own browser tab title: the site name (Admin -> Site settings)
 
 Site settings has an **Email alerts** panel (relay host/port, sender, your address, which alerts). No extra services: messages are saved in an outbox table and a built-in background loop sends them through your SMTP relay, retrying with a growing pause (1 min up to 6 h) if the relay is down. Alerts: guest photos waiting for approval, a share link nearly (20% left) or fully used up, a gallery expiring within N days, and an optional Monday weekly summary. Each alert goes out once. **Send test email** checks the relay settings.
 
+### Videos
+
+In a gallery's settings, **Videos and links** takes YouTube links (watch, youtu.be, shorts, live). They show as a **Videos** grid above the photos so all recordings of an event sit in one place. Leave the title empty and the video's own title is used. Preview images are fetched once by the server and cached, so visitors do not contact YouTube until they press play; playback uses the privacy-enhanced youtube-nocookie player in a pop-up. Other links stay as buttons.
+
 ### Thumbnails
 
 Grid thumbnails and viewing images are built in the background after every scan (and shortly after start-up), then cached in `/data/cache`. A gallery's settings page has **Generate missing** (builds only what is absent) and **Rebuild all**; Site settings shows the cache size, can **clean up stale files** (deleted or replaced photos, old watermark variants) and **generate missing** / **rebuild all** for every gallery.

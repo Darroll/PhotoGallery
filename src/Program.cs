@@ -87,9 +87,9 @@ app.Use(async (ctx, next) =>
     var h = ctx.Response.Headers;
     h["X-Content-Type-Options"] = "nosniff";
     h["X-Frame-Options"] = "DENY";
-    h["Referrer-Policy"] = "same-origin";
+    h["Referrer-Policy"] = "strict-origin-when-cross-origin";
     h["Content-Security-Policy"] =
-        "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+        "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; frame-src https://www.youtube-nocookie.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
     await next();
 });
 

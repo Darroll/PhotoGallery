@@ -59,7 +59,7 @@ public static class PublicApi
             return Results.Ok(new
             {
                 g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId,
-                g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, links = GalleryRules.Links(g), favorites = favoriteIds, favoriteName, sizes = GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
+                g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url) }), favorites = favoriteIds, favoriteName, sizes = GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
                 allowDownload = g.AllowDownload,
                 allowOriginal = g.AllowDownload && !locked,
                 allowRaw = g.AllowDownload && g.AllowRaw && !locked,
@@ -164,6 +164,26 @@ public static class PublicApi
         });
 
         // single-photo download: ?size=original | <px>  &fmt=png|webp|tif
+        // YouTube preview images are fetched once by the server and cached, so visitors never contact YouTube until they press play
+        app.MapGet("/vthumb/{vid}", async (string vid, AppDb db, AppConfig cfg) =>
+        {
+            if (!System.Text.RegularExpressions.Regex.IsMatch(vid, "^[A-Za-z0-9_-]{11}$")) return Results.NotFound();
+            var file = Path.Combine(cfg.DataDir, "cache", "vthumb", vid + ".jpg");
+            if (!File.Exists(file))
+            {
+                if (!await db.Galleries.AnyAsync(x => x.FootageLinks.Contains(vid))) return Results.NotFound();
+                try
+                {
+                    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+                    var bytes = await http.GetByteArrayAsync($"https://i.ytimg.com/vi/{vid}/hqdefault.jpg");
+                    Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+                    await File.WriteAllBytesAsync(file, bytes);
+                }
+                catch { return Results.NotFound(); }
+            }
+            return Results.File(file, "image/jpeg");
+        });
+
         app.MapGet("/dl/{id:int}", async (int id, string? size, string? fmt, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity) =>
         {
             var p = await db.Photos.Include(x => x.Gallery).FirstOrDefaultAsync(x => x.Id == id);

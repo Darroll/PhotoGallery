@@ -123,6 +123,19 @@ async function toggleFav(p) {
   if (!r.ok) { on ? favs.delete(p.id) : favs.add(p.id); G.refresh && G.refresh(); toast('Could not save that favorite'); return; }
   if (on && favs.size === 1) toast('Saved to your favorites. The photographer can see them.');
 }
+function playVideo(l) {
+  const close = () => { box.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  const frame = h('iframe', {
+    src: `https://www.youtube-nocookie.com/embed/${l.videoId}?autoplay=1&rel=0`, title: l.label, allowfullscreen: true,
+    allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen', referrerpolicy: 'strict-origin-when-cross-origin'
+  });
+  const box = h('div', { class: 'vid-modal', onclick: (e) => { if (e.target === box) close(); } },
+    h('div', { class: 'vid-box' }, frame,
+      h('div', { class: 'vid-bar' }, h('span', { text: l.label }), h('a', { href: l.url, target: '_blank', rel: 'noopener noreferrer', text: 'Open on YouTube' }), h('button', { text: 'Close', onclick: close }))));
+  document.addEventListener('keydown', onKey, true);
+  document.body.append(box);
+}
 function toggleSel(p) { sel.has(p.id) ? sel.delete(p.id) : sel.add(p.id); G.refresh && G.refresh(); }
 
 async function viewGallery(app, slug) {
@@ -139,7 +152,12 @@ async function viewGallery(app, slug) {
   app.append(h('h1', { class: 'g-title', text: G.title }));
   if (G.eventDate || G.location) app.append(h('p', { class: 'muted', text: eventLine(G) }));
   if (G.description) app.append(h('p', { class: 'sub', text: G.description }));
-  if ((G.links || []).length) app.append(h('div', { class: 'footage' }, G.links.map(l =>
+  const vids = (G.links || []).filter(l => l.videoId), others = (G.links || []).filter(l => !l.videoId);
+  if (vids.length) app.append(h('h2', { class: 'vid-head', text: vids.length === 1 ? 'Video' : 'Videos' }), h('div', { class: 'videos' }, vids.map(l =>
+    h('button', { class: 'vid', title: l.label, onclick: () => playVideo(l) },
+      h('span', { class: 'vid-thumb' }, h('img', { src: `/vthumb/${l.videoId}`, alt: '', loading: 'lazy' }), h('span', { class: 'vid-play', text: '\u25B6' })),
+      h('span', { class: 'vid-title', text: l.label })))));
+  if (others.length) app.append(h('div', { class: 'footage' }, others.map(l =>
     h('a', { class: 'btn footage-link', href: l.url, target: '_blank', rel: 'noopener noreferrer', text: '▶ ' + l.label }))));
   if (G.link) {
     const bits = [];
@@ -450,6 +468,7 @@ function openLightbox(index, play, mode = 'push') {
   const wake = () => { root.classList.remove('idle'); clearTimeout(lb.idle); lb.idle = setTimeout(() => lb.playing && root.classList.add('idle'), 3000); };
   root.onmousemove = wake;
   lb.key = (e) => {
+    if (!lb) return;
     if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
     if (e.key === 'Escape') requestClose();
     else if (e.key === 'ArrowRight') show(lb.i + 1);
@@ -900,7 +919,7 @@ async function viewGallerySettings(app, id) {
   });
   const linkRows = h('div', { class: 'link-rows' });
   const addLinkRow = (l = { label: '', url: '' }) => {
-    const label = track(h('input', { type: 'text', placeholder: 'Label, e.g. Game footage', value: l.label || '', maxlength: 60 }));
+    const label = track(h('input', { type: 'text', placeholder: 'Title (optional for YouTube)', value: l.label || '', maxlength: 60 }));
     const url = track(h('input', { type: 'text', placeholder: 'https://www.youtube.com/watch?v=...', value: l.url || '' }));
     const row = h('div', { class: 'link-row' }, label, url, h('button', { class: 'danger', text: 'Remove', onclick: () => { row.remove(); touch(); } }));
     linkRows.append(row);
@@ -912,7 +931,7 @@ async function viewGallerySettings(app, id) {
     h('div', { class: 'form1' },
       field('Title', title), field('URL name', slug, `Gallery address: /g/${g.slug}`), field('Description', desc),
       field('Event date', eventDate), field('Location', location_),
-      field('Footage links', footage, 'Buttons shown under the gallery title, for example a YouTube link to the game footage. Only http and https links are kept.'),
+      field('Videos and links', footage, 'Paste YouTube links to show the recordings together on the gallery page (leave the title empty to use the video\'s own title). Other links appear as buttons. Only http and https links are kept, up to 30.'),
       field('Photo order', h('div', { class: 'row' }, sortMode, h('label', {}, sortDesc, ' Reverse (newest / Z-A first)'))),
       field('Cover image', h('div', {}, h('div', { class: 'row' }, coverImg, coverBtn), pickerBox)),
       field('Library folder', folderSelect, 'Which library folder this gallery shows. Changing it rescans the gallery and resets the cover.'),

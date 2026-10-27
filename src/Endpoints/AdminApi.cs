@@ -27,6 +27,18 @@ public static class AdminApi
         return slug.Length == 0 ? "gallery" : slug;
     }
 
+    static async Task<string?> YouTubeTitle(string vid)
+    {
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            var json = await http.GetStringAsync($"https://www.youtube.com/oembed?format=json&url={Uri.EscapeDataString("https://www.youtube.com/watch?v=" + vid)}");
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty("title", out var t) ? t.GetString() : null;
+        }
+        catch { return null; }
+    }
+
     static object Dto(Gallery g, int count, int pending, int rawOnly = 0) => new
     {
         g.Id, g.Slug, g.Title, g.Description, g.Folder, g.Visibility,
@@ -235,7 +247,18 @@ public static class AdminApi
             if (input.SortMode != null) g.SortMode = input.SortMode.Value;
             if (input.SortDesc != null) g.SortDesc = input.SortDesc.Value;
             if (input.Location != null) g.Location = input.Location.Trim();
-            if (input.FootageLinks != null) g.FootageLinks = GalleryRules.CleanLinks(input.FootageLinks.Select(l => new GalleryRules.FootageLink(l.Label ?? "", l.Url ?? "")));
+            if (input.FootageLinks != null)
+            {
+                var items = new List<GalleryRules.FootageLink>();
+                foreach (var l in input.FootageLinks)
+                {
+                    var label = l.Label ?? "";
+                    // an empty label on a YouTube link is filled with the video's own title
+                    if (label.Trim().Length == 0 && GalleryRules.YouTubeId(l.Url) is { } vid) label = await YouTubeTitle(vid) ?? "";
+                    items.Add(new GalleryRules.FootageLink(label, l.Url ?? ""));
+                }
+                g.FootageLinks = GalleryRules.CleanLinks(items);
+            }
             if (input.EventDate != null) g.EventDate = DateTime.TryParse(input.EventDate, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ed) ? ed : null;
             if (input.ExpiresAt != null) g.ExpiresAt = DateTime.TryParse(input.ExpiresAt, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ex) ? ex : null;
             if (input.AllowedSizes != null) g.AllowedSizes = string.Join(',', input.AllowedSizes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(s => int.TryParse(s, out _)));
