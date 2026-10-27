@@ -785,10 +785,16 @@ function emailPanel() {
     h('h4', { text: 'Recent alerts' }), outbox);
 }
 
-// photo name linking to the full-size image, plus its gallery
-function photoLink(p) {
-  return h('span', {}, h('a', { href: `/api/admin/photos/${p.id}/full`, target: '_blank', rel: 'noopener', text: p.name, title: 'Open the full-size photo' }),
-    p.gallery ? h('span', { class: 'muted' }, ' (', p.slug ? h('a', { href: `/g/${encodeURIComponent(p.slug)}/p/${p.id}`, text: p.gallery, title: 'Open in the gallery viewer' }) : p.gallery, ')') : null);
+// photo name linking to the full-size image (or, with viewer=true, to the photo page), plus its gallery
+function photoLink(p, viewer = false) {
+  const page = p.slug ? `/g/${encodeURIComponent(p.slug)}/p/${p.id}` : null;
+  const main = viewer && page
+    ? h('a', { href: page, text: p.name, title: 'Open in the gallery viewer' })
+    : h('a', { href: `/api/admin/photos/${p.id}/full`, target: '_blank', rel: 'noopener', text: p.name, title: 'Open the full-size photo' });
+  const gal = !p.gallery ? null : p.slug
+    ? h('a', { href: viewer ? `/g/${encodeURIComponent(p.slug)}` : page, text: p.gallery, title: viewer ? 'Open the gallery' : 'Open in the gallery viewer' })
+    : p.gallery;
+  return h('span', {}, main, gal ? h('span', { class: 'muted' }, ' (', gal, ')') : null);
 }
 
 function cachePanel() {
@@ -1192,7 +1198,7 @@ async function viewStats(app) {
           d.topPhotos.map(p => h('tr', {}, h('td', {}, h('img', { src: `/img/${p.id}/thumb`, alt: '', class: 'tiny' })), h('td', {}, photoLink(p)), h('td', { text: p.views }), h('td', { text: p.downloads })))) : h('p', { class: 'muted', text: 'Nothing yet.' }))),
       h('div', { class: 'panel' }, h('h3', { text: 'Top downloads' }), d.topDownloads.length ? h('table', {},
         h('tr', {}, ['', 'Photo', 'Downloads', 'IPs'].map(x => h('th', { text: x }))),
-        d.topDownloads.map(p => h('tr', {}, h('td', {}, h('img', { src: `/img/${p.id}/thumb`, alt: '', class: 'tiny' })), h('td', {}, photoLink(p)), h('td', { text: p.downloads }), h('td', { text: p.visitors })))) : h('p', { class: 'muted', text: 'No downloads yet.' })),
+        d.topDownloads.map(p => h('tr', {}, h('td', {}, h('img', { src: `/img/${p.id}/thumb`, alt: '', class: 'tiny' })), h('td', {}, photoLink(p, true)), h('td', { text: p.downloads }), h('td', { text: p.visitors })))) : h('p', { class: 'muted', text: 'No downloads yet.' })),
       h('div', { class: 'two' },
         h('div', { class: 'panel' }, h('h3', { text: 'Countries' }), d.countries.length ? h('table', {}, h('tr', {}, ['Country', 'IPs', 'Events'].map(x => h('th', { text: x }))),
           d.countries.map(c => h('tr', {}, h('td', { text: c.country }), h('td', { text: c.visitors }), h('td', { text: c.events })))) : h('p', { class: 'muted', text: 'Country is only known while Cloudflare proxies the site.' })),
