@@ -61,7 +61,7 @@ public static class StatsApi
 
             var photoGroups = rows.Where(r => r.PhotoId != null && r.Kind is "view_photo" or "download").GroupBy(r => r.PhotoId!.Value)
                 .Select(grp => new { id = grp.Key, views = grp.Count(r => r.Kind == "view_photo"), downloads = grp.Count(r => r.Kind == "download") })
-                .OrderByDescending(x => x.views + x.downloads * 2).Take(12).ToList();
+                .Where(x => x.views > 0).OrderByDescending(x => x.views).ThenByDescending(x => x.downloads).Take(12).ToList();
             var dlGroups = rows.Where(r => r.PhotoId != null && r.Kind == "download").GroupBy(r => r.PhotoId!.Value)
                 .Select(grp => new { id = grp.Key, downloads = grp.Count(), visitors = grp.Select(r => r.Ip).Distinct().Count() })
                 .OrderByDescending(x => x.downloads).Take(12).ToList();

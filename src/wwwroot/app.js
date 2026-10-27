@@ -1187,7 +1187,7 @@ async function viewStats(app) {
         h('div', { class: 'panel' }, h('h3', { text: 'Galleries' }), d.topGalleries.length ? h('table', {},
           h('tr', {}, ['Gallery', 'Views', 'Photo views', 'Downloads', 'IPs'].map(x => h('th', { text: x }))),
           d.topGalleries.map(g => h('tr', {}, h('td', {}, h('a', { href: '/admin/stats?gallery=' + g.id, text: g.title })), h('td', { text: g.views }), h('td', { text: g.photoViews }), h('td', { text: g.downloads }), h('td', { text: g.visitors })))) : h('p', { class: 'muted', text: 'Nothing yet.' })),
-        h('div', { class: 'panel' }, h('h3', { text: 'Top photos' }), d.topPhotos.length ? h('table', {},
+        h('div', { class: 'panel' }, h('h3', { text: 'Top viewed photos' }), d.topPhotos.length ? h('table', {},
           h('tr', {}, ['', 'Photo', 'Views', 'Downloads'].map(x => h('th', { text: x }))),
           d.topPhotos.map(p => h('tr', {}, h('td', {}, h('img', { src: `/img/${p.id}/thumb`, alt: '', class: 'tiny' })), h('td', {}, photoLink(p)), h('td', { text: p.views }), h('td', { text: p.downloads })))) : h('p', { class: 'muted', text: 'Nothing yet.' }))),
       h('div', { class: 'panel' }, h('h3', { text: 'Top downloads' }), d.topDownloads.length ? h('table', {},
