@@ -117,6 +117,15 @@ public static class AdminApi
             return Results.NoContent();
         });
 
+        // full-size photo shown in the browser (not counted as a download); RAW-only photos show their embedded preview
+        secured.MapGet("/photos/{id:int}/full", async (int id, AppDb db, ImageService images) =>
+        {
+            var p = await db.Photos.FirstOrDefaultAsync(x => x.Id == id);
+            if (p == null) return Results.NotFound();
+            var path = await images.GetSourceAsync(p);
+            if (path == null || !File.Exists(path)) return Results.NotFound();
+            return Results.File(path, ImageService.ContentType(Path.GetExtension(path).TrimStart('.')));
+        });
         secured.MapGet("/settings/site", (SettingsService settings) => Results.Ok(new { name = settings.SiteName }));
         secured.MapPut("/settings/site", (SiteInput input, SettingsService settings) => Results.Ok(new { name = settings.SetSiteName(input.Name) }));
         secured.MapGet("/settings/email", (SettingsService settings) => Results.Ok(settings.Email));

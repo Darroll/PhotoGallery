@@ -62,13 +62,25 @@ public static class StatsApi
             var photoGroups = rows.Where(r => r.PhotoId != null && r.Kind is "view_photo" or "download").GroupBy(r => r.PhotoId!.Value)
                 .Select(grp => new { id = grp.Key, views = grp.Count(r => r.Kind == "view_photo"), downloads = grp.Count(r => r.Kind == "download") })
                 .OrderByDescending(x => x.views + x.downloads * 2).Take(12).ToList();
-            var photoIds = photoGroups.Select(x => x.id).ToList();
+            var dlGroups = rows.Where(r => r.PhotoId != null && r.Kind == "download").GroupBy(r => r.PhotoId!.Value)
+                .Select(grp => new { id = grp.Key, downloads = grp.Count(), visitors = grp.Select(r => r.Ip).Distinct().Count() })
+                .OrderByDescending(x => x.downloads).Take(12).ToList();
+            var photoIds = photoGroups.Select(x => x.id).Concat(dlGroups.Select(x => x.id)).Distinct().ToList();
             var photoInfo = await db.Photos.AsNoTracking().Where(p => photoIds.Contains(p.Id)).Select(p => new { p.Id, p.Name, p.GalleryId }).ToDictionaryAsync(p => p.Id);
+            var slugs = await db.Galleries.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x.Slug);
             var topPhotos = photoGroups.Select(x => new
             {
                 x.id, x.views, x.downloads,
                 name = photoInfo.TryGetValue(x.id, out var pi) ? pi.Name : "(deleted)",
-                gallery = photoInfo.TryGetValue(x.id, out var pi2) && galleries.TryGetValue(pi2.GalleryId, out var gt) ? gt : ""
+                gallery = photoInfo.TryGetValue(x.id, out var pi2) && galleries.TryGetValue(pi2.GalleryId, out var gt) ? gt : "",
+                slug = photoInfo.TryGetValue(x.id, out var pi3) && slugs.TryGetValue(pi3.GalleryId, out var sg) ? sg : ""
+            }).ToList();
+            var topDownloads = dlGroups.Select(x => new
+            {
+                x.id, x.downloads, x.visitors,
+                name = photoInfo.TryGetValue(x.id, out var pi) ? pi.Name : "(deleted)",
+                gallery = photoInfo.TryGetValue(x.id, out var pi2) && galleries.TryGetValue(pi2.GalleryId, out var gt) ? gt : "",
+                slug = photoInfo.TryGetValue(x.id, out var pi3) && slugs.TryGetValue(pi3.GalleryId, out var sg) ? sg : ""
             }).ToList();
 
             var countries = rows.Where(r => r.Country != "").GroupBy(r => r.Country)
@@ -86,7 +98,7 @@ public static class StatsApi
                     downloads = grp.Count(r => r.Kind is "download" or "zip")
                 }).ToList();
 
-            return Results.Ok(new { totals, visitorEvents, botEvents, topGalleries, topPhotos, countries, downloadsBy, byDay });
+            return Results.Ok(new { totals, visitorEvents, botEvents, topGalleries, topPhotos, topDownloads, countries, downloadsBy, byDay });
         });
 
         // grouping: "ip" = one visitor per IP, "browser" = per IP + browser string, anything else = per cookie id
