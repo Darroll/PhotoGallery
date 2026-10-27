@@ -7,6 +7,8 @@ public class AppConfig
     public string CacheDir => Path.Combine(DataDir, "cache");
     public string AdminPassword { get; }
     public bool AdminPasswordGenerated { get; }
+    /// <summary>Admin user name from ADMIN_USERNAME; null (no user name asked for) when the variable is empty.</summary>
+    public string? AdminUsername { get; }
     public int[] Sizes { get; }
     public int MaxUploadMb { get; }
     public int MaxPendingPerGallery { get; }
@@ -36,6 +38,7 @@ public class AppConfig
             AdminPasswordGenerated = true;
         }
         AdminPassword = pw;
+        AdminUsername = string.IsNullOrWhiteSpace(c["ADMIN_USERNAME"]) ? null : c["ADMIN_USERNAME"]!.Trim();
         Sizes = (c["SIZES"] ?? "1080,1920,2560,4096")
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(int.Parse).Where(s => s > 0).Distinct().OrderBy(s => s).ToArray();

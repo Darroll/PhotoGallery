@@ -99,6 +99,7 @@ Do on your side:
 
 | Variable | Default | Meaning |
 |---|---|---|
+| `ADMIN_USERNAME` | empty (password only) | Admin user name; when set, the sign-in form asks for it. Only settable here, not in the app |
 | `ADMIN_PASSWORD` | random (logged) | Admin login |
 | `PHOTO_LIBRARY` | `/photos` | Library root |
 | `DATA_DIR` | `/data` | DB, cache, keys, guest uploads |

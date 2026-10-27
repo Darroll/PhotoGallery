@@ -2,13 +2,12 @@ using System.Collections.Concurrent;
 
 namespace PhotoGallery;
 
-/// <summary>Slows down repeated wrong admin passwords and tells the admin by email when guessing is going on.</summary>
+/// <summary>Slows down repeated wrong admin passwords (the email for each failure is queued by the login endpoint).</summary>
 public static class LoginGuard
 {
     static readonly ConcurrentDictionary<string, (int count, DateTime last)> perIp = new();
     static readonly object gate = new();
     static readonly List<DateTime> recent = new();
-    static DateTime lastAlert = DateTime.MinValue;
 
     /// <summary>Waits longer after each wrong password from the same address (1 s, 2 s ... up to 8 s) and returns the recent failure count.</summary>
     public static async Task<int> FailedAsync(string ip)
@@ -23,15 +22,4 @@ public static class LoginGuard
     }
 
     public static void Succeeded(string ip) => perIp.TryRemove(ip, out _);
-
-    /// <summary>True at most once an hour once five wrong passwords were seen in 15 minutes.</summary>
-    public static bool ShouldAlert(int recentFailures)
-    {
-        lock (gate)
-        {
-            if (recentFailures < 5 || DateTime.UtcNow - lastAlert < TimeSpan.FromHours(1)) return false;
-            lastAlert = DateTime.UtcNow;
-            return true;
-        }
-    }
 }

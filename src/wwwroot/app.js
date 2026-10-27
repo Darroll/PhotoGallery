@@ -591,17 +591,21 @@ function galleryRow(g, move) {
       h('a', { class: 'btn primary', href: settingsHref, text: 'Settings' })));
 }
 
-function adminLogin(app) {
+async function adminLogin(app) {
   document.title = 'Admin sign in - ' + site.title;
+  const me = await api('/api/admin/me');
+  const needUser = !!(me.data && me.data.userRequired);
+  const user = needUser ? h('input', { type: 'text', placeholder: 'Username', autocomplete: 'username' }) : null;
   const input = h('input', { type: 'password', placeholder: 'Admin password', autocomplete: 'current-password' });
   const err = h('div', { class: 'err' });
   const go = async () => {
-    const r = await api('/api/admin/login', { method: 'POST', body: { password: input.value } });
-    if (r.ok) route(); else err.textContent = r.status === 429 ? 'Too many attempts, wait a minute.' : 'Incorrect password.';
+    const r = await api('/api/admin/login', { method: 'POST', body: { username: user ? user.value : '', password: input.value } });
+    if (r.ok) route(); else err.textContent = r.status === 429 ? 'Too many attempts, wait a minute.' : needUser ? 'Incorrect username or password.' : 'Incorrect password.';
   };
+  if (user) user.addEventListener('keydown', e => { if (e.key === 'Enter') input.focus(); });
   input.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
-  app.append(h('div', { class: 'center' }, h('h1', { text: 'Admin' }), input, h('button', { class: 'primary', text: 'Sign in', onclick: go }), err));
-  input.focus();
+  app.append(h('div', { class: 'center' }, h('h1', { text: 'Admin' }), user, input, h('button', { class: 'primary', text: 'Sign in', onclick: go }), err));
+  (user || input).focus();
 }
 
 const visLabels = { 0: 'Public (listed on home page)', 1: 'Unlisted (anyone with the link)', 2: 'Protected (password or share link)' };
@@ -789,7 +793,7 @@ function emailPanel() {
     h('div', { class: 'row' }, h('label', {}, uploads, ' A guest uploads photos that need approval')),
     h('div', { class: 'row' }, h('label', {}, linkAlerts, ' A share link is nearly or fully used up')),
     h('div', { class: 'row' }, h('label', {}, expiring, ' A gallery expires within ', days, ' days')),
-    h('div', { class: 'row' }, h('label', {}, loginAlerts, ' Someone keeps entering a wrong admin password')),
+    h('div', { class: 'row' }, h('label', {}, loginAlerts, ' Every wrong admin sign-in attempt')),
     h('div', { class: 'row' }, h('label', {}, weekly, ' Weekly visitor summary (Mondays, after 08:00 server time)')),
     h('div', { class: 'row' },
       h('button', { class: 'primary', text: 'Save', onclick: async () => {

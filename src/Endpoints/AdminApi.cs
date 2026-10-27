@@ -8,7 +8,9 @@ namespace PhotoGallery;
 
 public static class AdminApi
 {
-    record LoginRequest(string? Password);
+    record LoginRequest(string? Password, string? Username = null);
+
+    static string Clip(string? s) => new string((s ?? "").Where(c => !char.IsControl(c)).Take(40).ToArray());
     record GalleryInput(string? Title, string? Description, string? Folder, string? Slug, Visibility? Visibility,
         string? Password, bool? AllowDownload, bool? AllowRaw, bool? AllowZip, bool? AllowGuestUpload,
         bool? WatermarkView, bool? WatermarkDownload, RawMatch? RawMatchMode,
@@ -65,13 +67,20 @@ public static class AdminApi
         admin.MapPost("/login", async (LoginRequest req, HttpContext ctx, AppConfig cfg, AppDb db, SettingsService settings) =>
         {
             var ip = ActivityLog.ClientIp(ctx);
-            if (!Passwords.FixedEquals(req.Password ?? "", cfg.AdminPassword))
+            // both checks always run so the response time does not reveal which one was wrong
+            var userOk = cfg.AdminUsername == null || Passwords.FixedEquals(req.Username?.Trim() ?? "", cfg.AdminUsername);
+            var passOk = Passwords.FixedEquals(req.Password ?? "", cfg.AdminPassword);
+            if (!(userOk && passOk))
             {
                 var recent = await LoginGuard.FailedAsync(ip);
                 var mail = settings.Email;
-                if (mail.Enabled && mail.LoginAlerts && LoginGuard.ShouldAlert(recent))
-                    await EmailService.QueueAsync(db, mail, "Admin login: repeated wrong passwords",
-                        $"{recent} wrong admin passwords were tried in the last 15 minutes. Latest attempt from {ip} ({ctx.Request.Headers["CF-IPCountry"]}). If this was not you, consider limiting /admin to your own network.");
+                if (mail.Enabled && mail.LoginAlerts)
+                {
+                    var who = cfg.AdminUsername == null ? "" : $" Username tried: \"{Clip(req.Username)}\".";
+                    var country = ctx.Request.Headers["CF-IPCountry"].ToString();
+                    await EmailService.QueueAsync(db, mail, "Admin login: wrong " + (cfg.AdminUsername != null && !userOk ? "username or password" : "password"),
+                        $"A failed admin sign-in from {ip}{(country.Length > 0 ? " (" + country + ")" : "")} at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC.{who} {recent} failed attempt(s) in the last 15 minutes. If this was not you, consider limiting /admin to your own network.");
+                }
                 return Results.StatusCode(401);
             }
             LoginGuard.Succeeded(ip);
@@ -86,7 +95,7 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        admin.MapGet("/me", (HttpContext ctx) => new { admin = AccessService.IsAdmin(ctx) });
+        admin.MapGet("/me", (HttpContext ctx, AppConfig cfg) => new { admin = AccessService.IsAdmin(ctx), userRequired = cfg.AdminUsername != null });
 
         var secured = admin.MapGroup("").RequireAuthorization();
 
