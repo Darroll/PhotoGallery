@@ -18,6 +18,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<ThumbnailService>(
 builder.Services.AddSingleton<CacheService>();
 builder.Services.AddSingleton<ActivityLog>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ActivityLog>());
+builder.Services.AddHostedService<EmailService>();
 builder.Services.AddScoped<AccessService>();
 builder.Services.AddScoped<Scanner>();
 builder.Services.AddHostedService<RescanService>();

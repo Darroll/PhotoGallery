@@ -44,6 +44,7 @@ class AppSettings
     public WatermarkSettings Watermark { get; set; } = new();
     public HomeSettings Home { get; set; } = new();
     public StatsSettings Stats { get; set; } = new();
+    public EmailSettings Email { get; set; } = new();
 }
 
 /// <summary>App-level settings kept in DATA_DIR/settings.json (editable from the admin Settings page).</summary>
@@ -69,6 +70,7 @@ public class SettingsService
                 data.Watermark = data.Watermark.Sanitized();
                 data.Home = data.Home.Sanitized();
                 data.Stats = (data.Stats ?? new()).Sanitized();
+                data.Email = (data.Email ?? new()).Sanitized();
                 if (string.IsNullOrWhiteSpace(data.SiteName)) { data.SiteName = SanitizeName(cfg.SiteTitle); Save(); }
             }
             else
@@ -107,6 +109,21 @@ public class SettingsService
             data.Stats = s.Sanitized();
             Save();
             return new StatsSettings { Enabled = data.Stats.Enabled, RetentionDays = data.Stats.RetentionDays, IncludeAdmin = data.Stats.IncludeAdmin, UseCookie = data.Stats.UseCookie };
+        }
+    }
+
+    public EmailSettings Email
+    {
+        get { lock (gate) return data.Email.Clone(); }
+    }
+
+    public EmailSettings SetEmail(EmailSettings s)
+    {
+        lock (gate)
+        {
+            data.Email = s.Sanitized();
+            Save();
+            return data.Email.Clone();
         }
     }
 

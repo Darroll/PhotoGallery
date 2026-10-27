@@ -668,6 +668,7 @@ async function viewSettings(app) {
   refresh();
   app.append(homePanel());
   app.append(statsSettingsPanel());
+  app.append(emailPanel());
   app.append(cachePanel());
 }
 
@@ -725,6 +726,63 @@ function statsSettingsPanel() {
         const r = await api('/api/admin/stats', { method: 'DELETE' });
         msg.textContent = r.ok ? `Deleted ${r.data.removed} records` : 'Failed';
       } }), msg));
+}
+
+function emailPanel() {
+  const cb = (checked) => h('input', { type: 'checkbox', checked });
+  const enabled = cb(false), uploads = cb(true), linkAlerts = cb(true), expiring = cb(true), weekly = cb(false);
+  const host = h('input', { type: 'text', placeholder: '192.168.2.3' });
+  const port = h('input', { type: 'number', min: 1, max: 65535, value: 25 });
+  port.style.width = '90px';
+  const from = h('input', { type: 'text', placeholder: 'gallery@example.com' });
+  const to = h('input', { type: 'text', placeholder: 'you@example.com' });
+  const url = h('input', { type: 'text', placeholder: location.origin });
+  const days = h('input', { type: 'number', min: 1, max: 30, value: 3 });
+  days.style.width = '70px';
+  const msg = h('span', { class: 'muted' });
+  const outbox = h('div', { class: 'muted' });
+  const current = () => ({
+    enabled: enabled.checked, host: host.value, port: Number(port.value) || 25, from: from.value, to: to.value,
+    siteUrl: url.value || location.origin, guestUploads: uploads.checked, linkAlerts: linkAlerts.checked,
+    galleryExpiring: expiring.checked, expiryDays: Number(days.value) || 3, weeklySummary: weekly.checked
+  });
+  const loadOutbox = async () => {
+    const r = await api('/api/admin/settings/email/outbox');
+    if (!r.ok) return;
+    outbox.replaceChildren(r.data.length ? h('table', {}, h('tr', {}, ['When', 'Subject', 'Status'].map(x => h('th', { text: x }))),
+      r.data.map(m => h('tr', {}, h('td', { text: new Date(m.createdAt + (/Z$/.test(m.createdAt) ? '' : 'Z')).toLocaleString() }), h('td', { text: m.subject }),
+        h('td', { text: m.sentAt ? 'Sent' : m.failed ? 'Gave up: ' + m.error : m.attempts ? `Retrying (${m.error})` : 'Waiting to send' })))) : 'No alerts sent yet.');
+  };
+  api('/api/admin/settings/email').then(r => {
+    if (!r.ok) return;
+    const d = r.data;
+    enabled.checked = d.enabled; host.value = d.host; port.value = d.port; from.value = d.from; to.value = d.to; url.value = d.siteUrl || '';
+    uploads.checked = d.guestUploads; linkAlerts.checked = d.linkAlerts; expiring.checked = d.galleryExpiring; days.value = d.expiryDays; weekly.checked = d.weeklySummary;
+  });
+  loadOutbox();
+  return h('div', { class: 'panel' }, h('h3', { text: 'Email alerts' }),
+    h('p', { class: 'muted', text: 'Sends you a short email through your mail relay. Mail is queued and retried if the relay is unavailable.' }),
+    h('div', { class: 'row' }, h('label', {}, enabled, ' Send email alerts')),
+    h('div', { class: 'row' }, h('label', {}, 'Relay ', host, ' port ', port)),
+    h('div', { class: 'row' }, h('label', {}, 'Send from ', from)),
+    h('div', { class: 'row' }, h('label', {}, 'Send alerts to ', to)),
+    h('div', { class: 'row' }, h('label', {}, 'Site address for links ', url)),
+    h('div', { class: 'row' }, h('label', {}, uploads, ' A guest uploads photos that need approval')),
+    h('div', { class: 'row' }, h('label', {}, linkAlerts, ' A share link is nearly or fully used up')),
+    h('div', { class: 'row' }, h('label', {}, expiring, ' A gallery expires within ', days, ' days')),
+    h('div', { class: 'row' }, h('label', {}, weekly, ' Weekly visitor summary (Mondays, after 08:00 server time)')),
+    h('div', { class: 'row' },
+      h('button', { class: 'primary', text: 'Save', onclick: async () => {
+        const r = await api('/api/admin/settings/email', { method: 'PUT', body: current() });
+        msg.textContent = r.ok ? 'Saved' : (r.data || 'Save failed');
+      } }),
+      h('button', { text: 'Send test email', onclick: async () => {
+        msg.textContent = 'Sending...';
+        const r = await api('/api/admin/settings/email/test', { method: 'POST', body: current() });
+        msg.textContent = r.ok ? 'Test email sent. Check your inbox.' : (r.data || 'Failed');
+        loadOutbox();
+      } }), msg),
+    h('h4', { text: 'Recent alerts' }), outbox);
 }
 
 function cachePanel() {

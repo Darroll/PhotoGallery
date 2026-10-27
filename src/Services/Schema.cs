@@ -35,6 +35,12 @@ public static class Schema
         AddColumn(db, "Galleries", "AllowedSizes", "TEXT NOT NULL DEFAULT ''");
         AddColumn(db, "Galleries", "AllowedFormats", "TEXT NOT NULL DEFAULT ''");
         AddColumn(db, "Galleries", "ExpiresAt", "TEXT NULL");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""EmailOutbox"" (
+            ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_EmailOutbox"" PRIMARY KEY AUTOINCREMENT,
+            ""CreatedAt"" TEXT NOT NULL, ""ToAddr"" TEXT NOT NULL, ""Subject"" TEXT NOT NULL, ""Body"" TEXT NOT NULL,
+            ""Attempts"" INTEGER NOT NULL, ""NextTry"" TEXT NOT NULL, ""SentAt"" TEXT NULL, ""Error"" TEXT NOT NULL, ""Failed"" INTEGER NOT NULL)");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""AlertStates"" (
+            ""Key"" TEXT NOT NULL CONSTRAINT ""PK_AlertStates"" PRIMARY KEY, ""Value"" TEXT NOT NULL, ""At"" TEXT NOT NULL)");
     }
 
     static void AddColumn(AppDb db, string table, string column, string definition)

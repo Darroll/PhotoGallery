@@ -119,6 +119,8 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<Visit> Visits => Set<Visit>();
     public DbSet<Favorite> Favorites => Set<Favorite>();
     public DbSet<FavoriteOwner> FavoriteOwners => Set<FavoriteOwner>();
+    public DbSet<EmailOutbox> EmailOutbox => Set<EmailOutbox>();
+    public DbSet<AlertState> AlertStates => Set<AlertState>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -127,6 +129,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<ShareLink>().HasIndex(l => l.Token).IsUnique();
         b.Entity<Favorite>().HasIndex(f => new { f.GalleryId, f.PhotoId, f.VisitorId }).IsUnique();
         b.Entity<FavoriteOwner>().HasIndex(o => new { o.GalleryId, o.VisitorId }).IsUnique();
+        b.Entity<AlertState>().HasKey(a => a.Key);
         b.Entity<Visit>().HasIndex(v => v.Time);
         b.Entity<Visit>().HasIndex(v => new { v.GalleryId, v.Time });
         b.Entity<Photo>().HasOne(p => p.Gallery).WithMany(g => g.Photos).HasForeignKey(p => p.GalleryId).OnDelete(DeleteBehavior.Cascade);

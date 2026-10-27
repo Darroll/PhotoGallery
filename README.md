@@ -44,6 +44,10 @@ Every page has its own browser tab title: the site name (Admin -> Site settings)
 - **Footage links**: each gallery can show buttons under its title (for example a YouTube link to game footage). Only http/https links are kept.
 - **Mobile**: responsive layout on every page, a bottom-sheet download dialog, and a full-screen viewer with swipe, double-tap and pinch zoom, swipe-down to close and a lighter 1280px image (a sharper one loads when zoomed).
 
+### Email alerts
+
+Site settings has an **Email alerts** panel (relay host/port, sender, your address, which alerts). No extra services: messages are saved in an outbox table and a built-in background loop sends them through your SMTP relay, retrying with a growing pause (1 min up to 6 h) if the relay is down. Alerts: guest photos waiting for approval, a share link nearly (20% left) or fully used up, a gallery expiring within N days, and an optional Monday weekly summary. Each alert goes out once. **Send test email** checks the relay settings.
+
 ### Thumbnails
 
 Grid thumbnails and viewing images are built in the background after every scan (and shortly after start-up), then cached in `/data/cache`. A gallery's settings page has **Generate missing** (builds only what is absent) and **Rebuild all**; Site settings shows the cache size, can **clean up stale files** (deleted or replaced photos, old watermark variants) and **generate missing** / **rebuild all** for every gallery.

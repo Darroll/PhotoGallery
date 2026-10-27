@@ -119,7 +119,27 @@ public static class AdminApi
 
         secured.MapGet("/settings/site", (SettingsService settings) => Results.Ok(new { name = settings.SiteName }));
         secured.MapPut("/settings/site", (SiteInput input, SettingsService settings) => Results.Ok(new { name = settings.SetSiteName(input.Name) }));
-        secured.MapGet("/settings/home", (SettingsService settings) => Results.Ok(settings.Home));
+        secured.MapGet("/settings/email", (SettingsService settings) => Results.Ok(settings.Email));
+        secured.MapPut("/settings/email", (EmailSettings input, SettingsService settings) =>
+        {
+            var s = input.Sanitized();
+            if (s.To.Length > 0 && !System.Net.Mail.MailAddress.TryCreate(s.To, out _)) return Results.BadRequest("That recipient address does not look right.");
+            if (!System.Net.Mail.MailAddress.TryCreate(s.From, out _)) return Results.BadRequest("That sender address does not look right.");
+            return Results.Ok(settings.SetEmail(s));
+        });
+        secured.MapPost("/settings/email/test", async (EmailSettings input, SettingsService settings) =>
+        {
+            var s = input.Sanitized();
+            if (!System.Net.Mail.MailAddress.TryCreate(s.To, out _)) return Results.BadRequest("Enter the address that should receive alerts first.");
+            var err = await EmailService.SendAsync(s, s.To, "Test email from your photo gallery", "If you can read this, the mail relay settings work.");
+            return err == null ? Results.Ok(new { sent = true }) : Results.BadRequest("Could not send: " + err);
+        });
+        secured.MapGet("/settings/email/outbox", async (AppDb db) =>
+        {
+            var rows = await db.EmailOutbox.OrderByDescending(m => m.Id).Take(15).ToListAsync();
+            return Results.Ok(rows.Select(m => new { m.Id, m.CreatedAt, m.Subject, m.Attempts, m.SentAt, m.Failed, m.Error }));
+        });
+        secured.MapGet("/settings/home",(SettingsService settings) => Results.Ok(settings.Home));
         secured.MapPut("/settings/home", (HomeSettings input, SettingsService settings) => Results.Ok(settings.SetHome(input)));
 
         secured.MapPost("/galleries", async (GalleryInput input, AppDb db, AppConfig cfg, Scanner scanner) =>
