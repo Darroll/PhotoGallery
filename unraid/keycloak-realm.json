@@ -1,0 +1,60 @@
+{
+  "realm": "gallery",
+  "displayName": "Photo Gallery",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "verifyEmail": true,
+  "resetPasswordAllowed": true,
+  "rememberMe": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "maxFailureWaitSeconds": 900,
+  "waitIncrementSeconds": 60,
+  "maxDeltaTimeSeconds": 43200,
+  "permanentLockout": false,
+  "ssoSessionIdleTimeout": 1209600,
+  "ssoSessionMaxLifespan": 2592000,
+  "accessTokenLifespan": 300,
+  "smtpServer": {
+    "host": "192.168.2.3",
+    "port": "25",
+    "from": "gallery@darrollwalsh.com",
+    "fromDisplayName": "Photo Gallery",
+    "auth": "false",
+    "ssl": "false",
+    "starttls": "false"
+  },
+  "roles": {
+    "realm": [
+      { "name": "gallery-admin", "description": "Administrators of the photo gallery" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "photogallery",
+      "name": "Photo Gallery",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "rootUrl": "https://gallery.darrollwalsh.com",
+      "baseUrl": "/",
+      "redirectUris": [ "https://gallery.darrollwalsh.com/signin-oidc" ],
+      "webOrigins": [ "https://gallery.darrollwalsh.com" ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://gallery.darrollwalsh.com/*"
+      },
+      "defaultClientScopes": [ "web-origins", "profile", "roles", "email" ]
+    }
+  ]
+}
