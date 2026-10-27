@@ -30,7 +30,7 @@ builder.Services.AddDataProtection()
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(o =>
     {
-        o.Cookie.Name = "pg_admin";
+        o.Cookie.Name = "pg_session";
         o.Cookie.HttpOnly = true;
         o.Cookie.SameSite = SameSiteMode.Strict;
         o.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
@@ -38,8 +38,9 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         o.SlidingExpiration = true;
         o.Events.OnRedirectToLogin = c => { c.Response.StatusCode = 401; return Task.CompletedTask; };
         o.Events.OnRedirectToAccessDenied = c => { c.Response.StatusCode = 403; return Task.CompletedTask; };
-    });
-builder.Services.AddAuthorization();
+    })
+    .AddSso(cfg);
+builder.Services.AddAuthorization(o => o.AddPolicy("Admin", p => p.RequireRole(AccessService.AdminRole)));
 
 builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = (cfg.MaxUploadMb + 1L) * 1024 * 1024);
 
@@ -147,5 +148,6 @@ app.MapGet("/healthz", () => Results.Ok("ok"));
 PublicApi.Map(app);
 AdminApi.Map(app);
 StatsApi.Map(app);
+AuthApi.Map(app);
 
 app.Run();

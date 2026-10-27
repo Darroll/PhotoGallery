@@ -34,6 +34,7 @@ const fmtBytes = (n) => n <= 0 ? '0 KB' : n >= 1073741824 ? (n / 1073741824).toF
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const fmtLabels = { png: 'PNG (lossless)', webp: 'WebP (lossless)', tif: 'TIFF (lossless)' };
 let site = { title: 'Photos', sizes: [], formats: [] };
+let me = null, signinFailed = false;
 const fmtDate = (s) => s ? new Date(/Z$|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z').toLocaleString() : '';
 
 // ---------- routing ----------
@@ -87,9 +88,15 @@ function renderFooter() {
 }
 
 function renderHeader() {
-  const top = $('#top'); top.replaceChildren(
+  const top = $('#top'), m = me || {};
+  const next = encodeURIComponent(location.pathname + location.search);
+  top.replaceChildren(
     h('a', { class: 'brand', href: '/', text: site.title }),
-    h('nav', {}, h('a', { href: '/admin', text: 'Admin' })));
+    h('nav', {},
+      signinFailed ? h('span', { class: 'chip warn', text: 'Sign-in failed' }) : null,
+      m.admin || !m.sso ? h('a', { href: '/admin', text: 'Admin' }) : null,
+      m.sso && m.signedIn ? h('span', { class: 'who', text: m.name || 'Signed in' }) : null,
+      m.sso ? (m.signedIn ? h('a', { href: '/auth/logout', text: 'Sign out' }) : h('a', { href: '/auth/login?next=' + next, text: 'Sign in' })) : null));
 }
 
 function eventLine(g) {
@@ -594,7 +601,14 @@ function galleryRow(g, move) {
 async function adminLogin(app) {
   document.title = 'Admin sign in - ' + site.title;
   const me = await api('/api/admin/me');
-  const needUser = !!(me.data && me.data.userRequired);
+  const info = me.data || {};
+  const sso = h('a', { class: 'btn primary', href: '/auth/login?next=' + encodeURIComponent('/admin'), text: 'Sign in with SSO' });
+  const note = info.signedInAs ? h('p', { class: 'muted', text: `You are signed in as ${info.signedInAs}, but this account is not an admin.` }) : null;
+  if (info.passwordLogin === false) {
+    app.append(h('div', { class: 'center' }, h('h1', { text: 'Admin' }), note, info.sso ? sso : h('p', { class: 'muted', text: 'Admin sign-in is not available.' })));
+    return;
+  }
+  const needUser = !!info.userRequired;
   const user = needUser ? h('input', { type: 'text', placeholder: 'Username', autocomplete: 'username' }) : null;
   const input = h('input', { type: 'password', placeholder: 'Admin password', autocomplete: 'current-password' });
   const err = h('div', { class: 'err' });
@@ -604,7 +618,7 @@ async function adminLogin(app) {
   };
   if (user) user.addEventListener('keydown', e => { if (e.key === 'Enter') input.focus(); });
   input.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
-  app.append(h('div', { class: 'center' }, h('h1', { text: 'Admin' }), user, input, h('button', { class: 'primary', text: 'Sign in', onclick: go }), err));
+  app.append(h('div', { class: 'center' }, h('h1', { text: 'Admin' }), note, user, input, h('button', { class: 'primary', text: 'Sign in', onclick: go }), err, info.sso ? sso : null));
   (user || input).focus();
 }
 
@@ -1339,6 +1353,8 @@ async function viewStats(app) {
 // ---------- boot ----------
 (async function boot() {
   try { const r = await api('/api/site'); if (r.ok) site = r.data; } catch { }
+  try { const r = await api('/api/me'); if (r.ok) me = r.data; } catch { }
+  if (new URLSearchParams(location.search).get('signin') === 'failed') { signinFailed = true; history.replaceState(null, '', location.pathname); }
   renderHeader();
   renderFooter();
   route();

@@ -67,6 +67,7 @@ public static class AdminApi
         admin.MapPost("/login", async (LoginRequest req, HttpContext ctx, AppConfig cfg, AppDb db, SettingsService settings) =>
         {
             var ip = ActivityLog.ClientIp(ctx);
+            if (!cfg.AdminPasswordLogin) return Results.NotFound();
             // both checks always run so the response time does not reveal which one was wrong
             var userOk = cfg.AdminUsername == null || Passwords.FixedEquals(req.Username?.Trim() ?? "", cfg.AdminUsername);
             var passOk = Passwords.FixedEquals(req.Password ?? "", cfg.AdminPassword);
@@ -84,7 +85,7 @@ public static class AdminApi
                 return Results.StatusCode(401);
             }
             LoginGuard.Succeeded(ip);
-            var id = new ClaimsIdentity([new Claim(ClaimTypes.Name, "admin")], CookieAuthenticationDefaults.AuthenticationScheme);
+            var id = new ClaimsIdentity([new Claim(ClaimTypes.Name, "admin"), new Claim(ClaimTypes.Role, AccessService.AdminRole)], CookieAuthenticationDefaults.AuthenticationScheme);
             await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(id));
             return Results.NoContent();
         }).RequireRateLimiting("login");
@@ -95,9 +96,14 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        admin.MapGet("/me", (HttpContext ctx, AppConfig cfg) => new { admin = AccessService.IsAdmin(ctx), userRequired = cfg.AdminUsername != null });
+        admin.MapGet("/me", (HttpContext ctx, AppConfig cfg) => new
+        {
+            admin = AccessService.IsAdmin(ctx), userRequired = cfg.AdminUsername != null,
+            passwordLogin = cfg.AdminPasswordLogin, sso = cfg.OidcEnabled,
+            signedInAs = ctx.User.Identity?.IsAuthenticated == true && !AccessService.IsAdmin(ctx) ? ctx.User.Identity?.Name : null
+        });
 
-        var secured = admin.MapGroup("").RequireAuthorization();
+        var secured = admin.MapGroup("").RequireAuthorization("Admin");
 
         secured.MapGet("/folders", async (AppConfig cfg, AppDb db) =>
         {

@@ -272,3 +272,5 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .vid-bar { display: flex; gap: 12px; align-items: center; margin-top: 8px; color: #eee; }
 .vid-bar span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vid-bar a { color: #9cf; }
+
+.who { color: var(--muted, #888); margin: 0 8px; font-size: 14px; }

@@ -9,6 +9,16 @@ public class AppConfig
     public bool AdminPasswordGenerated { get; }
     /// <summary>Admin user name from ADMIN_USERNAME; null (no user name asked for) when the variable is empty.</summary>
     public string? AdminUsername { get; }
+    /// <summary>Password sign-in for the admin; can be switched off once single sign-on works.</summary>
+    public bool AdminPasswordLogin { get; }
+    // Single sign-on (Keycloak or any OpenID Connect provider); all empty means sign-in is off
+    public string? OidcAuthority { get; }
+    public string? OidcClientId { get; }
+    public string? OidcClientSecret { get; }
+    /// <summary>Role (or group) in the provider that makes a user an admin of the gallery.</summary>
+    public string OidcAdminRole { get; }
+    public bool OidcAllowHttp { get; }
+    public bool OidcEnabled => OidcAuthority != null && OidcClientId != null;
     public int[] Sizes { get; }
     public int MaxUploadMb { get; }
     public int MaxPendingPerGallery { get; }
@@ -39,6 +49,13 @@ public class AppConfig
         }
         AdminPassword = pw;
         AdminUsername = string.IsNullOrWhiteSpace(c["ADMIN_USERNAME"]) ? null : c["ADMIN_USERNAME"]!.Trim();
+        AdminPasswordLogin = !string.Equals(c["ADMIN_PASSWORD_LOGIN"], "false", StringComparison.OrdinalIgnoreCase);
+        static string? Opt(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
+        OidcAuthority = Opt(c["OIDC_AUTHORITY"])?.TrimEnd('/');
+        OidcClientId = Opt(c["OIDC_CLIENT_ID"]);
+        OidcClientSecret = Opt(c["OIDC_CLIENT_SECRET"]);
+        OidcAdminRole = Opt(c["OIDC_ADMIN_ROLE"]) ?? "gallery-admin";
+        OidcAllowHttp = string.Equals(c["OIDC_ALLOW_HTTP"], "true", StringComparison.OrdinalIgnoreCase);
         Sizes = (c["SIZES"] ?? "1080,1920,2560,4096")
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(int.Parse).Where(s => s > 0).Distinct().OrderBy(s => s).ToArray();

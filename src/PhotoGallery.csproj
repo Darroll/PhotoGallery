@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="9.0.*" />
     <PackageReference Include="NetVips" Version="3.2.0" />
     <PackageReference Include="NetVips.Native" Version="8.18.7" />
   </ItemGroup>

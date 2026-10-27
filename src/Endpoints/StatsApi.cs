@@ -6,7 +6,7 @@ public static class StatsApi
 {
     public static void Map(WebApplication app)
     {
-        var g = app.MapGroup("/api/admin/stats").RequireAuthorization();
+        var g = app.MapGroup("/api/admin/stats").RequireAuthorization("Admin");
         g.AddEndpointFilter(async (ctx, next) =>
         {
             var m = ctx.HttpContext.Request.Method;

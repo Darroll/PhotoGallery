@@ -12,7 +12,10 @@ public class AccessService(IDataProtectionProvider dpp, AppDb db)
     readonly IDataProtector protector = dpp.CreateProtector("gallery-grant.v1");
     static string CookieName(int galleryId) => $"pg_{galleryId}";
 
-    public static bool IsAdmin(HttpContext ctx) => ctx.User.Identity?.IsAuthenticated == true;
+    public const string AdminRole = "admin";
+
+    /// <summary>Only the admin role counts; visitors who signed in through single sign-on are not admins.</summary>
+    public static bool IsAdmin(HttpContext ctx) => ctx.User.Identity?.IsAuthenticated == true && ctx.User.IsInRole(AdminRole);
 
     public async Task<AccessInfo> CheckAsync(HttpContext ctx, Gallery g)
     {

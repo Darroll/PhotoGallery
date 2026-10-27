@@ -111,6 +111,16 @@ public class ShareLink
     public bool DownloadsExhausted => MaxDownloads != null && DownloadCount >= MaxDownloads;
 }
 
+/// <summary>A visitor who signed in through single sign-on, keyed by the provider's stable user id.</summary>
+public class AppUser
+{
+    public string Sub { get; set; } = "";
+    public string Email { get; set; } = "";
+    public string Name { get; set; } = "";
+    public DateTime FirstSeen { get; set; } = DateTime.UtcNow;
+    public DateTime LastSeen { get; set; } = DateTime.UtcNow;
+}
+
 public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
 {
     public DbSet<Gallery> Galleries => Set<Gallery>();
@@ -121,6 +131,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<FavoriteOwner> FavoriteOwners => Set<FavoriteOwner>();
     public DbSet<EmailOutbox> EmailOutbox => Set<EmailOutbox>();
     public DbSet<AlertState> AlertStates => Set<AlertState>();
+    public DbSet<AppUser> Users => Set<AppUser>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -130,6 +141,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<Favorite>().HasIndex(f => new { f.GalleryId, f.PhotoId, f.VisitorId }).IsUnique();
         b.Entity<FavoriteOwner>().HasIndex(o => new { o.GalleryId, o.VisitorId }).IsUnique();
         b.Entity<AlertState>().HasKey(a => a.Key);
+        b.Entity<AppUser>().HasKey(u => u.Sub);
         b.Entity<Visit>().HasIndex(v => v.Time);
         b.Entity<Visit>().HasIndex(v => new { v.GalleryId, v.Time });
         b.Entity<Photo>().HasOne(p => p.Gallery).WithMany(g => g.Photos).HasForeignKey(p => p.GalleryId).OnDelete(DeleteBehavior.Cascade);

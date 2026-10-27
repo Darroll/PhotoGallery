@@ -41,6 +41,9 @@ public static class Schema
             ""Attempts"" INTEGER NOT NULL, ""NextTry"" TEXT NOT NULL, ""SentAt"" TEXT NULL, ""Error"" TEXT NOT NULL, ""Failed"" INTEGER NOT NULL)");
         db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""AlertStates"" (
             ""Key"" TEXT NOT NULL CONSTRAINT ""PK_AlertStates"" PRIMARY KEY, ""Value"" TEXT NOT NULL, ""At"" TEXT NOT NULL)");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""Users"" (
+            ""Sub"" TEXT NOT NULL CONSTRAINT ""PK_Users"" PRIMARY KEY, ""Email"" TEXT NOT NULL, ""Name"" TEXT NOT NULL,
+            ""FirstSeen"" TEXT NOT NULL, ""LastSeen"" TEXT NOT NULL)");
     }
 
     static void AddColumn(AppDb db, string table, string column, string definition)

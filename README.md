@@ -101,6 +101,11 @@ Do on your side:
 |---|---|---|
 | `ADMIN_USERNAME` | empty (password only) | Admin user name; when set, the sign-in form asks for it. Only settable here, not in the app |
 | `ADMIN_PASSWORD` | random (logged) | Admin login |
+| `ADMIN_PASSWORD_LOGIN` | `true` | `false` turns off password sign-in (use once single sign-on works) |
+| `OIDC_AUTHORITY` | empty (sign-in off) | Issuer URL of the OpenID Connect provider, e.g. `https://auth.example.com/realms/gallery` |
+| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | empty | Client of the gallery in the provider |
+| `OIDC_ADMIN_ROLE` | `gallery-admin` | Provider role or group that makes a user an admin (email must be verified) |
+| `OIDC_ALLOW_HTTP` | `false` | `true` allows an `http://` provider, for local tests only |
 | `PHOTO_LIBRARY` | `/photos` | Library root |
 | `DATA_DIR` | `/data` | DB, cache, keys, guest uploads |
 | `SIZES` | `1080,1920,2560,4096` | Offered long-edge sizes |
@@ -122,3 +127,22 @@ PHOTO_LIBRARY=/path/to/photos DATA_DIR=./data ADMIN_PASSWORD=dev dotnet run
 ```
 
 The database schema is created with `EnsureCreated`. Future schema changes need EF migrations or a manual reset of `/data/photogallery.db` (galleries are re-creatable; originals are untouched).
+
+
+## Single sign-on (Keycloak)
+
+Visitors can sign in with any OpenID Connect provider; Keycloak is what this was built and tested with. Everything is off until `OIDC_AUTHORITY` and `OIDC_CLIENT_ID` are set.
+
+In Keycloak:
+
+1. Create a realm (not `master`). Realm settings, Login: turn on **User registration**, **Verify email**, **Forgot password**; Email: point SMTP at your relay with `gallery@darrollwalsh.com` as the sender. Turn on brute-force detection (Realm settings, Security defenses).
+2. Create a realm role `gallery-admin` and give it to your own user. Only users with this role and a verified email become admins.
+3. Create a client: type OpenID Connect, client id `photogallery`, **Client authentication on**, standard flow only.
+   - Valid redirect URIs: `https://gallery.darrollwalsh.com/signin-oidc`
+   - Valid post logout redirect URIs: `https://gallery.darrollwalsh.com/*`
+   - Advanced, Proof Key for Code Exchange method: `S256`
+   - Copy the secret from the Credentials tab.
+4. Set the container variables `OIDC_AUTHORITY=https://auth.darrollwalsh.com/realms/<realm>`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`.
+5. Keycloak behind SWAG: run it with `KC_PROXY_HEADERS=xforwarded`, `KC_HOSTNAME=https://auth.darrollwalsh.com` and `KC_HTTP_ENABLED=true`; keep its `/admin` console off the internet.
+
+The header then shows Sign in / Sign out, and the admin page offers **Sign in with SSO**. Keep password sign-in until SSO is proven, then set `ADMIN_PASSWORD_LOGIN=false` if you like.
