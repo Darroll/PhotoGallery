@@ -101,7 +101,7 @@ Do on your side:
 |---|---|---|
 | `ADMIN_USERNAME` | empty (password only) | Admin user name; when set, the sign-in form asks for it. Only settable here, not in the app |
 | `ADMIN_PASSWORD` | random (logged) | Admin login |
-| `ADMIN_PASSWORD_LOGIN` | `true` | `false` turns off password sign-in (use once single sign-on works) |
+| `ADMIN_PASSWORD_LOGIN` | `true` without SSO, `false` once SSO is configured | Set `true` to keep the password form alongside SSO, or `false` to turn it off |
 | `OIDC_AUTHORITY` | empty (sign-in off) | Issuer URL of the OpenID Connect provider, e.g. `https://auth.example.com/realms/gallery` |
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | empty | Client of the gallery in the provider |
 | `OIDC_ADMIN_ROLE` | `gallery-admin` | Provider role or group that makes a user an admin (email must be verified) |
@@ -129,20 +129,52 @@ PHOTO_LIBRARY=/path/to/photos DATA_DIR=./data ADMIN_PASSWORD=dev dotnet run
 The database schema is created with `EnsureCreated`. Future schema changes need EF migrations or a manual reset of `/data/photogallery.db` (galleries are re-creatable; originals are untouched).
 
 
-## Single sign-on (Keycloak)
+## Single sign-on (container setup)
 
-Visitors can sign in with any OpenID Connect provider; Keycloak is what this was built and tested with. Everything is off until `OIDC_AUTHORITY` and `OIDC_CLIENT_ID` are set.
+The gallery can sign visitors and the admin in through any OpenID Connect provider. SSO is off until `OIDC_AUTHORITY` and `OIDC_CLIENT_ID` are both set. Setting up the provider itself (realm, users, client) is not covered here.
 
-In Keycloak:
+You need these from your provider:
 
-1. Create a realm (not `master`). Realm settings, Login: turn on **User registration**, **Verify email**, **Forgot password**; Email: point SMTP at your relay with `gallery@darrollwalsh.com` as the sender. Turn on brute-force detection (Realm settings, Security defenses).
-2. Create a realm role `gallery-admin` and give it to your own user. Only users with this role and a verified email become admins.
-3. Create a client: type OpenID Connect, client id `photogallery`, **Client authentication on**, standard flow only.
-   - Valid redirect URIs: `https://gallery.darrollwalsh.com/signin-oidc`
-   - Valid post logout redirect URIs: `https://gallery.darrollwalsh.com/*`
-   - Advanced, Proof Key for Code Exchange method: `S256`
-   - Copy the secret from the Credentials tab.
-4. Set the container variables `OIDC_AUTHORITY=https://auth.darrollwalsh.com/realms/<realm>`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`.
-5. Keycloak behind SWAG: run it with `KC_PROXY_HEADERS=xforwarded`, `KC_HOSTNAME=https://auth.darrollwalsh.com` and `KC_HTTP_ENABLED=true`; keep its `/admin` console off the internet.
+| What | Value |
+|---|---|
+| Issuer URL | e.g. `https://auth.example.com/realms/gallery` (must be reachable from the container) |
+| Client ID and secret | A confidential client using the authorization code flow with PKCE (`S256`) |
+| Redirect URI registered at the provider | `https://<gallery host>/signin-oidc` |
+| Admin role or group | Name of the role or group whose members should be gallery admins (default `gallery-admin`) |
 
-The header then shows Sign in / Sign out, and the admin page offers **Sign in with SSO**. Keep password sign-in until SSO is proven, then set `ADMIN_PASSWORD_LOGIN=false` if you like.
+### Unraid
+
+1. Open the **photogallery** container, Edit, and click **Show more settings** so the advanced variables appear.
+2. Fill in:
+   - `OIDC_AUTHORITY`: the issuer URL, with no trailing slash
+   - `OIDC_CLIENT_ID`: the client id
+   - `OIDC_CLIENT_SECRET`: the client secret
+   - `OIDC_ADMIN_ROLE`: only if your admin role is not named `gallery-admin`
+3. Leave `ADMIN_PASSWORD_LOGIN` empty. Click **Apply**.
+
+### Docker run / compose
+
+```yaml
+environment:
+  OIDC_AUTHORITY: https://auth.example.com/realms/gallery
+  OIDC_CLIENT_ID: photogallery
+  OIDC_CLIENT_SECRET: change-me
+  OIDC_ADMIN_ROLE: gallery-admin   # optional
+```
+
+### Behind SWAG (nginx)
+
+The SSO session cookie is large, so the proxy needs a bigger header buffer. `unraid/photos.subdomain.conf` already sets `proxy_buffer_size`; if you use your own proxy config, add it there too. The container must also trust the proxy's forwarded headers (`TRUST_PROXY=true`, the default), otherwise the redirect URI is built with `http://` and the provider rejects it.
+
+### What changes once it is on
+
+- The header shows **Sign in** / **Sign out**, and `/admin` offers **Sign in with SSO**.
+- Users who have the admin role and a verified email become admins.
+- The admin password form is hidden and `/api/admin/login` returns 404. Set `ADMIN_PASSWORD_LOGIN=true` to keep it as a fallback (for example while testing SSO, or if the provider is down).
+- `OIDC_ALLOW_HTTP=true` permits an `http://` provider, for local testing only.
+
+### Troubleshooting
+
+- **"Sign-in failed" chip after returning from the provider**: check the container log. Common causes are a wrong client secret, a redirect URI that does not match exactly, or the container being unable to reach `OIDC_AUTHORITY`.
+- **Signed in but not admin**: the user lacks the admin role or group, or their email is not verified. The admin page says you are signed in as a non-admin account.
+- **Locked out**: set `ADMIN_PASSWORD_LOGIN=true` and `ADMIN_PASSWORD`, restart, sign in with the password.

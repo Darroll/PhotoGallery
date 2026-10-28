@@ -49,10 +49,12 @@ public class AppConfig
         }
         AdminPassword = pw;
         AdminUsername = string.IsNullOrWhiteSpace(c["ADMIN_USERNAME"]) ? null : c["ADMIN_USERNAME"]!.Trim();
-        AdminPasswordLogin = !string.Equals(c["ADMIN_PASSWORD_LOGIN"], "false", StringComparison.OrdinalIgnoreCase);
         static string? Opt(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
         OidcAuthority = Opt(c["OIDC_AUTHORITY"])?.TrimEnd('/');
         OidcClientId = Opt(c["OIDC_CLIENT_ID"]);
+        // Once SSO is configured the password form is gone; ADMIN_PASSWORD_LOGIN=true brings it back (e.g. if SSO is down).
+        var pwLogin = Opt(c["ADMIN_PASSWORD_LOGIN"]);
+        AdminPasswordLogin = pwLogin == null ? !OidcEnabled : !string.Equals(pwLogin, "false", StringComparison.OrdinalIgnoreCase);
         OidcClientSecret = Opt(c["OIDC_CLIENT_SECRET"]);
         OidcAdminRole = Opt(c["OIDC_ADMIN_ROLE"]) ?? "gallery-admin";
         OidcAllowHttp = string.Equals(c["OIDC_ALLOW_HTTP"], "true", StringComparison.OrdinalIgnoreCase);
