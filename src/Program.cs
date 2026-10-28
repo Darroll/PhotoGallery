@@ -119,7 +119,7 @@ var webRoot = app.Environment.WebRootPath ?? Path.Combine(app.Environment.Conten
 string AssetVersion()
 {
     using var sha = System.Security.Cryptography.SHA256.Create();
-    foreach (var f in new[] { "app.js", "style.css" })
+    foreach (var f in new[] { "app.js", "style.css", "theme.js" })
         sha.TransformBlock(File.ReadAllBytes(Path.Combine(webRoot, f)), 0, (int)new FileInfo(Path.Combine(webRoot, f)).Length, null, 0);
     sha.TransformFinalBlock([], 0, 0);
     return Convert.ToHexString(sha.Hash!)[..10].ToLowerInvariant();
@@ -133,7 +133,10 @@ app.Use(async (ctx, next) =>
     {
         ctx.Response.Headers.CacheControl = "no-store";
         ctx.Response.ContentType = "text/html; charset=utf-8";
-        await ctx.Response.WriteAsync(indexHtml.Replace("__TITLE__", System.Net.WebUtility.HtmlEncode(ctx.RequestServices.GetRequiredService<SettingsService>().SiteName)));
+        var st = ctx.RequestServices.GetRequiredService<SettingsService>();
+        var theme = st.Theme;   // the default goes into the page so theme.js can apply it before the first paint
+        await ctx.Response.WriteAsync(indexHtml.Replace("__TITLE__", System.Net.WebUtility.HtmlEncode(st.SiteName))
+            .Replace("__THEME__", theme.Default).Replace("__THEME_CHOICE__", theme.AllowVisitorChoice ? "1" : "0"));
         return;
     }
     await next();

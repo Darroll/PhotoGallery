@@ -18,7 +18,8 @@ public static class PublicApi
             version = cfg.Version, commit = cfg.Commit, built = cfg.BuildDate,
             sizes = cfg.Sizes,
             formats = ImageService.LosslessFormats,
-            watermark = img.WatermarkAvailable
+            watermark = img.WatermarkAvailable,
+            theme = settings.Theme.ForVisitors()
         });
 
         app.MapGet("/api/license", (SettingsService settings) => Results.Ok(settings.License.ForVisitors(settings.SiteName)));

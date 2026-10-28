@@ -167,6 +167,13 @@ public static class AdminApi
         secured.MapPut("/settings/site", (SiteInput input, SettingsService settings) => Results.Ok(new { name = settings.SetSiteName(input.Name) }));
         secured.MapGet("/settings/license", (SettingsService settings) => Results.Ok(new { license = settings.License, defaultText = LicenseSettings.DefaultText, maxText = LicenseSettings.MaxText }));
         secured.MapPut("/settings/license", (LicenseSettings input, SettingsService settings) => Results.Ok(settings.SetLicense(input)));
+        secured.MapGet("/settings/theme", (SettingsService settings) => Results.Ok(settings.Theme.ForVisitors()));
+        secured.MapPut("/settings/theme", (ThemeSettings input, SettingsService settings) =>
+        {
+            if (!ThemeSettings.IsValid(input.Default)) return Results.BadRequest("Unknown theme");
+            settings.SetTheme(input);
+            return Results.Ok(settings.Theme.ForVisitors());
+        });
         secured.MapGet("/settings/email", (SettingsService settings) => Results.Ok(settings.Email));
         secured.MapPut("/settings/email", (EmailSettings input, SettingsService settings) =>
         {

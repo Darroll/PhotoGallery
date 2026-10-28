@@ -46,6 +46,7 @@ class AppSettings
     public StatsSettings Stats { get; set; } = new();
     public EmailSettings Email { get; set; } = new();
     public LicenseSettings License { get; set; } = new();
+    public ThemeSettings Theme { get; set; } = new();
 }
 
 /// <summary>App-level settings kept in DATA_DIR/settings.json (editable from the admin Settings page).</summary>
@@ -73,6 +74,7 @@ public class SettingsService
                 data.Stats = (data.Stats ?? new()).Sanitized();
                 data.Email = (data.Email ?? new()).Sanitized();
                 data.License = (data.License ?? new()).Sanitized();
+                data.Theme = (data.Theme ?? new()).Sanitized();
                 if (string.IsNullOrWhiteSpace(data.SiteName)) { data.SiteName = SanitizeName(cfg.SiteTitle); Save(); }
             }
             else
@@ -126,6 +128,21 @@ public class SettingsService
             data.Email = s.Sanitized();
             Save();
             return data.Email.Clone();
+        }
+    }
+
+    public ThemeSettings Theme
+    {
+        get { lock (gate) return data.Theme.Clone(); }
+    }
+
+    public ThemeSettings SetTheme(ThemeSettings s)
+    {
+        lock (gate)
+        {
+            data.Theme = s.Sanitized();
+            Save();
+            return data.Theme.Clone();
         }
     }
 

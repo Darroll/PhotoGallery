@@ -115,6 +115,21 @@ Do on your side:
 | `MAX_PENDING_PER_GALLERY` | `200` | Pending upload cap |
 | `TRUST_PROXY` | `true` | Honour `X-Forwarded-*` |
 
+## Themes
+
+Visitors can pick a theme from the **Theme** menu in the header. The choice is remembered in their own browser (no account needed) and applies to every page. Themes change colors, fonts, corner rounding, shadows and photo-grid spacing, but never the layout. Photos in the full-screen viewer always sit on black.
+
+| Theme | Look |
+|---|---|
+| Auto (device) | Light or dark, following the visitor's device setting |
+| Light / Dark | The standard light and dark palettes |
+| Midnight | Near-black, cool blue accent, rounded corners, soft shadows |
+| Gallery White | Pure white, square corners, tight grid, black accent |
+| Warm | Paper tones with a serif typeface |
+| High contrast | Black and white with a yellow accent and strong borders |
+
+In **Admin -> Settings -> Appearance** you set the default theme for new visitors, and can switch the menu off so everyone gets the default. To add a theme, add its `{ id, label }` to `ThemeSettings.All` and a matching `html[data-theme="id"]` block (all tokens) in `style.css`; a test fails if a theme is missing from the stylesheet or incomplete. Only system fonts are used, because the site's content security policy blocks remote fonts.
+
 ## License agreement
 
 The gallery ships with a general-purpose photo license (personal, non-commercial use only; no resale, no advertising or stock use, no AI training, watermarks and credits must stay). It is an example, not legal advice, so have it reviewed for your country.
@@ -141,7 +156,7 @@ PHOTO_LIBRARY=/path/to/photos DATA_DIR=./data ADMIN_PASSWORD=dev dotnet run
 dotnet test tests/PhotoGallery.Tests
 ```
 
-The suite (about 80 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
+The suite (about 100 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
 
 Add a test whenever you add or fix a feature. `AppFactory` in `tests/PhotoGallery.Tests` boots the app; pass extra environment-style settings to a subclass to test other configurations (see `SsoFactory`).
 

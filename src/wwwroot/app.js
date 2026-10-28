@@ -35,6 +35,24 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const fmtLabels = { png: 'PNG (lossless)', webp: 'WebP (lossless)', tif: 'TIFF (lossless)' };
 let site = { title: 'Photos', sizes: [], formats: [] };
 let me = null, signinFailed = false;
+const themeKey = 'pg-theme';
+// The theme the visitor sees: their own pick (when the site allows it and it still exists), else the site default.
+function currentTheme() {
+  const t = site.theme || {}; let c = t.default || 'auto';
+  if (t.allowChoice) { try { const s = localStorage.getItem(themeKey); if (s && (t.themes || []).some(x => x.id === s)) c = s; } catch { } }
+  return c;
+}
+function applyTheme() {
+  const c = currentTheme(), root = document.documentElement;
+  if (c === 'auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', c);
+}
+function themePicker() {
+  const t = site.theme;
+  if (!t || !t.allowChoice || !(t.themes || []).length) return null;
+  const sel = h('select', { class: 'theme-pick', 'aria-label': 'Theme', title: 'Theme' }, t.themes.map(x => h('option', { value: x.id, text: x.label, selected: x.id === currentTheme() })));
+  sel.addEventListener('change', () => { try { localStorage.setItem(themeKey, sel.value); } catch { } applyTheme(); });
+  return sel;
+}
 let license = { enabled: false, require: false };
 const licenseKey = 'pg-license-accepted';
 const licenseAccepted = () => { try { return !!license.version && localStorage.getItem(licenseKey) === license.version; } catch { return false; } };
@@ -108,7 +126,8 @@ function renderHeader() {
       signinFailed ? h('span', { class: 'chip warn', text: 'Sign-in failed' }) : null,
       m.admin || !m.sso ? h('a', { href: '/admin', text: 'Admin' }) : null,
       m.sso && m.signedIn ? h('span', { class: 'who', text: m.name || 'Signed in' }) : null,
-      m.sso ? (m.signedIn ? h('a', { href: '/auth/logout', text: 'Sign out' }) : h('a', { href: '/auth/login?next=' + next, text: 'Sign in' })) : null));
+      m.sso ? (m.signedIn ? h('a', { href: '/auth/logout', text: 'Sign out' }) : h('a', { href: '/auth/login?next=' + next, text: 'Sign in' })) : null,
+      themePicker()));
 }
 
 function eventLine(g) {
@@ -677,6 +696,7 @@ async function viewSettings(app) {
   let hasPng = r.data.hasPng;
   app.append(h('div', { class: 'toolbar' }, h('h1', { text: 'Settings' }), h('span', { class: 'grow' }), h('a', { class: 'btn', href: '/admin', text: 'Back to admin' })));
   app.append(siteNamePanel());
+  app.append(await themePanel());
   app.append(await licensePanel());
 
   const modeSel = h('select', {}, [['none', 'None'], ['text', 'Text'], ['png', 'PNG image']].map(([v, t]) => h('option', { value: v, text: t, selected: v === w.mode })));
@@ -739,6 +759,24 @@ const orderLabels = [
   ['name-asc', 'Name, A to Z'], ['name-desc', 'Name, Z to A'],
   ['created-desc', 'Date created, newest first'], ['created-asc', 'Date created, oldest first'],
   ['manual', 'Manual (use the arrows on the admin list)']];
+
+async function themePanel() {
+  const r = await api('/api/admin/settings/theme');
+  if (!r.ok) return h('div', { class: 'panel' }, h('h3', { text: 'Appearance' }), h('p', { class: 'err', text: 'Could not load the theme settings.' }));
+  const t = r.data;
+  const def = h('select', {}, t.themes.map(x => h('option', { value: x.id, text: x.label, selected: x.id === t.default })));
+  const allow = h('input', { type: 'checkbox', checked: !!t.allowChoice });
+  const msg = h('span', { class: 'muted' });
+  return h('div', { class: 'panel' }, h('h3', { text: 'Appearance' }),
+    h('p', { class: 'muted', text: 'The theme new visitors see. When visitors may choose, a Theme menu appears in the header and each visitor’s pick is remembered in their own browser. Photos in the full-screen viewer always sit on black.' }),
+    h('div', { class: 'row' }, h('label', {}, 'Default theme ', def)),
+    h('div', { class: 'row' }, h('label', {}, allow, ' Let visitors choose their own theme')),
+    h('div', { class: 'row' }, h('button', { class: 'primary', text: 'Save', onclick: async () => {
+      const res = await api('/api/admin/settings/theme', { method: 'PUT', body: { default: def.value, allowVisitorChoice: allow.checked } });
+      if (!res.ok) { msg.textContent = 'Could not save'; return; }
+      site.theme = res.data; applyTheme(); renderHeader(); msg.textContent = 'Saved';
+    } }), msg));
+}
 
 async function licensePanel() {
   const r = await api('/api/admin/settings/license');
@@ -1412,6 +1450,7 @@ async function viewStats(app) {
   try { const r = await api('/api/me'); if (r.ok) me = r.data; } catch { }
   try { const r = await api('/api/license'); if (r.ok) license = r.data; } catch { }
   if (new URLSearchParams(location.search).get('signin') === 'failed') { signinFailed = true; history.replaceState(null, '', location.pathname); }
+  applyTheme();
   renderHeader();
   renderFooter();
   route();
