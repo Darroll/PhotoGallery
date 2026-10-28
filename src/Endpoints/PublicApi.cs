@@ -242,6 +242,16 @@ public static class PublicApi
             return Results.File(v.Value.path, ImageService.ContentType(f), $"{baseName}_{px}.{f}");
         }).RequireRateLimiting("download");
 
+        app.MapGet("/api/g/{slug}/photo/{id:int}/info", async (string slug, int id, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg) =>
+        {
+            var p = await db.Photos.Include(x => x.Gallery).FirstOrDefaultAsync(x => x.Id == id && x.Gallery!.Slug == slug);
+            if (p?.Gallery == null) return Results.NotFound();
+            var a = await access.CheckAsync(ctx, p.Gallery);
+            if (!a.Allowed || (!p.Approved && !a.Admin)) return Results.NotFound();
+            var versions = await PhotoInfo.ReadAsync(cfg, p, includeLocation: a.Admin);
+            return Results.Ok(new { name = p.Name, width = p.Width, height = p.Height, takenAt = p.TakenAt, versions });
+        });
+
         app.MapGet("/dl/{id:int}/raw", async (int id, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ActivityLog activity, SettingsService settings) =>
         {
             var p = await db.Photos.Include(x => x.Gallery).FirstOrDefaultAsync(x => x.Id == id);

@@ -336,3 +336,12 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 
 /* theme picker */
 .theme-pick { margin-left: 16px; font-size: 13px; padding: 3px 8px; max-width: 150px; }
+
+/* photo details */
+.info-sheet { max-height: 85vh; overflow: auto; }
+.info-table { border-collapse: collapse; width: 100%; font-size: 13px; margin: 2px 0 8px; }
+.info-table th { text-align: left; color: var(--muted); font-weight: 500; padding: 3px 12px 3px 0; vertical-align: top; white-space: nowrap; }
+.info-table td { padding: 3px 0; word-break: break-word; }
+.info-version h4 { margin: 14px 0 4px; font-size: 14px; }
+.info-version details { margin: 4px 0; }
+.info-version summary { cursor: pointer; font-size: 13px; color: var(--muted); }

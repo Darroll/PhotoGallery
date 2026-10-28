@@ -435,6 +435,27 @@ function openDownloadSheet(opts = {}) {
   document.body.append(sheet);
 }
 
+// Details of a photo: each file behind it (the image and its RAW, if any) with the metadata that file carries.
+async function openInfoSheet(photo) {
+  closeSheet();
+  if (!photo) return;
+  const r = await api(`/api/g/${encodeURIComponent(G.slug)}/photo/${photo.id}/info`);
+  if (!r.ok) { toast('Details are not available for this photo'); return; }
+  const d = r.data;
+  const table = (fields) => h('table', { class: 'info-table' }, Object.entries(fields).map(([k, v]) => h('tr', {}, h('th', { text: k }), h('td', { text: String(v) }))));
+  const version = (v) => h('div', { class: 'info-version' }, h('h4', { text: `${v.role}: ${v.file}` }),
+    Object.entries(v.groups).map(([g, fields]) => h('details', { open: g === 'File' || g === 'EXIF' }, h('summary', { text: g }), table(fields))));
+  const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } },
+    h('div', { class: 'sheet info-sheet', role: 'dialog', 'aria-label': 'Photo details' },
+      h('div', { class: 'sheet-grab' }), h('h3', { text: d.name }),
+      d.versions.length ? d.versions.map(version) : h('p', { class: 'muted', text: 'No details could be read for this photo.' }),
+      h('p', { class: 'muted', text: 'Where the photo was taken is not shown to visitors.' }),
+      h('div', { class: 'row sheet-actions' }, h('button', { text: 'Close', onclick: closeSheet }))));
+  sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
+  document.addEventListener('keydown', sheet._key, true);
+  document.body.append(sheet);
+}
+
 function uploadControl(slug) {
   const file = h('input', { type: 'file', accept: 'image/*,.cr2,.cr3,.nef,.arw,.dng,.raf,.orf,.rw2', multiple: true, class: 'hidden' });
   const label = h('span', { class: 'muted' });
@@ -485,13 +506,14 @@ function openLightbox(index, play, mode = 'push') {
   const closeBtn = h('button', { class: 'lb-close', 'aria-label': 'Close', text: '✕' });
   const prev = h('button', { class: 'nav prev', text: '‹', 'aria-label': 'Previous' });
   const next = h('button', { class: 'nav next', text: '›', 'aria-label': 'Next' });
-  const favA = act('♡', 'Favorite'), selA = act('☐', 'Select'), dlA = act('⬇', 'Download'), playA = act('▶', 'Play');
+  const favA = act('♡', 'Favorite'), selA = act('☐', 'Select'), dlA = act('⬇', 'Download'), playA = act('▶', 'Play'), infoA = act('ⓘ', 'Details');
   const speed = h('select', { 'aria-label': 'Slide time' }, [3, 5, 8, 12].map(s => h('option', { value: s, text: s + 's', selected: s === 5 })));
   const fsBtn = h('button', { class: 'lb-small', text: 'Fullscreen' });
   const adminRow = h('div', { class: 'lb-admin' });
   const stage = h('div', { class: 'stage' }, prev, img, next);
   const actions = h('div', { class: 'lb-actions' }, favA.el, selA.el);
   if (G.allowDownload) actions.append(dlA.el);
+  actions.append(infoA.el);
   actions.append(playA.el);
   root.append(
     h('div', { class: 'lb-top' }, h('div', { class: 'lb-info' }, title, counter), closeBtn),
@@ -549,6 +571,7 @@ function openLightbox(index, play, mode = 'push') {
   favA.el.onclick = () => toggleFav(cur());
   selA.el.onclick = () => toggleSel(cur());
   dlA.el.onclick = () => openDownloadSheet({ photo: cur() });
+  infoA.el.onclick = () => openInfoSheet(cur());
 
   const stop = () => { lb.playing = false; clearInterval(lb.timer); playA.i.textContent = '▶'; playA.l.textContent = 'Play'; };
   const start = () => { lb.playing = true; playA.i.textContent = '❚❚'; playA.l.textContent = 'Pause'; clearInterval(lb.timer); lb.timer = setInterval(() => show(lb.i + 1), Number(speed.value) * 1000); };
