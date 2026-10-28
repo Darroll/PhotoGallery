@@ -20,6 +20,8 @@ public class EmailSettings
     public int ExpiryDays { get; set; } = 3;
     public bool WeeklySummary { get; set; }
     public bool LoginAlerts { get; set; } = true;
+    /// <summary>Readers may subscribe to emails about new public galleries and photos (double opt-in).</summary>
+    public bool Subscribers { get; set; } = true;
 
     public EmailSettings Sanitized()
     {
@@ -28,7 +30,7 @@ public class EmailSettings
         {
             Enabled = Enabled, Host = T(Host, 200), Port = Math.Clamp(Port, 1, 65535), From = T(From, 200), To = T(To, 200),
             SiteUrl = T(SiteUrl, 200).TrimEnd('/'), GuestUploads = GuestUploads, LinkAlerts = LinkAlerts,
-            GalleryExpiring = GalleryExpiring, ExpiryDays = Math.Clamp(ExpiryDays, 1, 30), WeeklySummary = WeeklySummary, LoginAlerts = LoginAlerts
+            GalleryExpiring = GalleryExpiring, ExpiryDays = Math.Clamp(ExpiryDays, 1, 30), WeeklySummary = WeeklySummary, LoginAlerts = LoginAlerts, Subscribers = Subscribers
         };
     }
 

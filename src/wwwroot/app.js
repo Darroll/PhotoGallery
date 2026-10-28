@@ -161,9 +161,22 @@ function eventLine(g) {
 }
 
 // ---------- home ----------
+function subscribeForm() {
+  const email = h('input', { type: 'email', placeholder: 'Your email address', 'aria-label': 'Email address', maxlength: 200 });
+  const msg = h('span', { class: 'muted' });
+  const go = async () => {
+    const r = await api('/api/subscribe', { method: 'POST', body: { email: email.value } });
+    if (r.ok) { email.value = ''; msg.textContent = 'Check your inbox and click the link to confirm.'; }
+    else msg.textContent = typeof r.data === 'string' ? r.data : 'Could not subscribe. Try again.';
+  };
+  return h('div', { class: 'panel subscribe' }, h('strong', { text: 'Get an email when new galleries and photos are added' }),
+    h('div', { class: 'row' }, email, h('button', { class: 'primary', text: 'Subscribe', onclick: go }), msg));
+}
+
 async function viewHome(app) {
   const r = await api('/api/galleries');
   app.append(h('h1', { text: site.title }), h('p', { class: 'sub', text: 'Public galleries' }));
+  if (site.subscribe) app.append(subscribeForm());
   if (!r.ok || !r.data.length) return app.append(h('p', { class: 'muted', text: 'No public galleries yet. Private galleries are reached through their share link.' }));
   app.append(h('div', { class: 'cards' }, r.data.map(g =>
     h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
@@ -897,7 +910,9 @@ function statsSettingsPanel() {
 
 function emailPanel() {
   const cb = (checked) => h('input', { type: 'checkbox', checked });
-  const loginAlerts = cb(true), enabled = cb(false), uploads = cb(true), linkAlerts = cb(true), expiring = cb(true), weekly = cb(false);
+  const loginAlerts = cb(true), enabled = cb(false), uploads = cb(true), linkAlerts = cb(true), expiring = cb(true), weekly = cb(false), subscribers = cb(true);
+  const subCount = h('span', { class: 'muted' });
+  api('/api/admin/subscribers/count').then(r => { if (r.ok) subCount.textContent = `${r.data.confirmed} confirmed, ${r.data.pending} waiting to confirm`; });
   const host = h('input', { type: 'text', placeholder: '192.168.2.3' });
   const port = h('input', { type: 'number', min: 1, max: 65535, value: 25 });
   port.style.width = '90px';
@@ -911,7 +926,8 @@ function emailPanel() {
   const current = () => ({
     enabled: enabled.checked, host: host.value, port: Number(port.value) || 25, from: from.value, to: to.value,
     siteUrl: url.value || location.origin, guestUploads: uploads.checked, linkAlerts: linkAlerts.checked,
-    galleryExpiring: expiring.checked, expiryDays: Number(days.value) || 3, weeklySummary: weekly.checked, loginAlerts: loginAlerts.checked
+    galleryExpiring: expiring.checked, expiryDays: Number(days.value) || 3, weeklySummary: weekly.checked, loginAlerts: loginAlerts.checked,
+    subscribers: subscribers.checked
   });
   const loadOutbox = async () => {
     const r = await api('/api/admin/settings/email/outbox');
@@ -924,7 +940,7 @@ function emailPanel() {
     if (!r.ok) return;
     const d = r.data;
     enabled.checked = d.enabled; host.value = d.host; port.value = d.port; from.value = d.from; to.value = d.to; url.value = d.siteUrl || '';
-    uploads.checked = d.guestUploads; linkAlerts.checked = d.linkAlerts; expiring.checked = d.galleryExpiring; days.value = d.expiryDays; weekly.checked = d.weeklySummary; loginAlerts.checked = d.loginAlerts !== false;
+    uploads.checked = d.guestUploads; linkAlerts.checked = d.linkAlerts; expiring.checked = d.galleryExpiring; days.value = d.expiryDays; weekly.checked = d.weeklySummary; loginAlerts.checked = d.loginAlerts !== false; subscribers.checked = d.subscribers !== false;
   });
   loadOutbox();
   return h('div', { class: 'panel' }, h('h3', { text: 'Email alerts' }),
@@ -938,6 +954,7 @@ function emailPanel() {
     h('div', { class: 'row' }, h('label', {}, linkAlerts, ' A share link is nearly or fully used up')),
     h('div', { class: 'row' }, h('label', {}, expiring, ' A gallery expires within ', days, ' days')),
     h('div', { class: 'row' }, h('label', {}, loginAlerts, ' Every wrong admin sign-in attempt')),
+    h('div', { class: 'row' }, h('label', {}, subscribers, ' Let readers subscribe to emails about new galleries and photos'), subCount),
     h('div', { class: 'row' }, h('label', {}, weekly, ' Weekly visitor summary (Mondays, after 08:00 server time)')),
     h('div', { class: 'row' },
       h('button', { class: 'primary', text: 'Save', onclick: async () => {
@@ -1486,6 +1503,11 @@ async function viewStats(app) {
   try { const r = await api('/api/me'); if (r.ok) me = r.data; } catch { }
   try { const r = await api('/api/license'); if (r.ok) license = r.data; } catch { }
   if (new URLSearchParams(location.search).get('signin') === 'failed') { signinFailed = true; history.replaceState(null, '', location.pathname); }
+  const qp = new URLSearchParams(location.search);
+  if (qp.has('subscribed') || qp.has('unsubscribed')) {
+    toast(qp.has('unsubscribed') ? 'You have been unsubscribed.' : qp.get('subscribed') === '1' ? 'Subscribed. You will get emails about new galleries and photos.' : 'That link is not valid.');
+    history.replaceState(null, '', location.pathname);
+  }
   syncAccountTheme();
   applyTheme();
   renderHeader();

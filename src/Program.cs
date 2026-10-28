@@ -52,6 +52,7 @@ builder.Services.AddRateLimiter(o =>
             _ => new FixedWindowRateLimiterOptions { PermitLimit = permits, Window = TimeSpan.FromMinutes(1) });
     o.AddPolicy("login", c => Per(c, 8));
     o.AddPolicy("unlock", c => Per(c, 10));
+    o.AddPolicy("subscribe", c => Per(c, 5));
     o.AddPolicy("upload", c => Per(c, 30));
     o.AddPolicy("viewed", c => Per(c, 240));
     // one ZIP at a time per visitor, and a few concurrent single downloads
@@ -153,6 +154,7 @@ PublicApi.Map(app);
 AdminApi.Map(app);
 StatsApi.Map(app);
 AuthApi.Map(app);
+SubscribeApi.Map(app);
 
 app.Run();
 

@@ -20,7 +20,8 @@ public static class PublicApi
             sizes = cfg.Sizes,
             formats = ImageService.LosslessFormats,
             watermark = img.WatermarkAvailable,
-            theme = settings.Theme.ForVisitors()
+            theme = settings.Theme.ForVisitors(),
+            subscribe = Subscribers.Available(settings)
         });
 
         app.MapGet("/api/license", async (HttpContext ctx, AppDb db, SettingsService settings) =>

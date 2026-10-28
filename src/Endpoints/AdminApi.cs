@@ -165,6 +165,11 @@ public static class AdminApi
         });
         secured.MapGet("/settings/site", (SettingsService settings) => Results.Ok(new { name = settings.SiteName }));
         secured.MapPut("/settings/site", (SiteInput input, SettingsService settings) => Results.Ok(new { name = settings.SetSiteName(input.Name) }));
+        secured.MapGet("/subscribers/count", async (AppDb db) => new
+        {
+            confirmed = await db.Subscribers.CountAsync(x => x.ConfirmedAt != null && !x.Unsubscribed),
+            pending = await db.Subscribers.CountAsync(x => x.ConfirmedAt == null)
+        });
         secured.MapGet("/license/acceptances", async (AppDb db, SettingsService settings) =>
         {
             var current = settings.License.ForVisitors(settings.SiteName).Version;
@@ -206,7 +211,7 @@ public static class AdminApi
         secured.MapGet("/settings/home",(SettingsService settings) => Results.Ok(settings.Home));
         secured.MapPut("/settings/home", (HomeSettings input, SettingsService settings) => Results.Ok(settings.SetHome(input)));
 
-        secured.MapPost("/galleries", async (GalleryInput input, AppDb db, AppConfig cfg, Scanner scanner) =>
+        secured.MapPost("/galleries", async (GalleryInput input, AppDb db, AppConfig cfg, Scanner scanner, SettingsService settings) =>
         {
             if (string.IsNullOrWhiteSpace(input.Title)) return Results.BadRequest("Title required");
             var wanted = input.Title.Trim().ToLower();
@@ -237,6 +242,7 @@ public static class AdminApi
             db.Galleries.Add(g);
             await db.SaveChangesAsync();
             var scan = await scanner.ScanAsync(db, g);
+            await Subscribers.NewGalleryAsync(db, settings, g);
             return Results.Ok(new { gallery = Dto(g, scan.Total, 0, scan.RawOnly), scan });
         });
 
@@ -334,11 +340,11 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        secured.MapPost("/galleries/{id:int}/scan", async (int id, AppDb db, Scanner scanner) =>
+        secured.MapPost("/galleries/{id:int}/scan", async (int id, AppDb db, Scanner scanner, SettingsService settings) =>
         {
             var g = await db.Galleries.FindAsync(id);
             if (g == null) return Results.NotFound();
-            try { return Results.Ok(await scanner.ScanAsync(db, g)); }
+            try { var r = await scanner.ScanAsync(db, g); await Subscribers.NewPhotosAsync(db, settings, g, r.Added); return Results.Ok(r); }
             catch (DirectoryNotFoundException e) { return Results.BadRequest(e.Message); }
         });
 

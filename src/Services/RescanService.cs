@@ -23,6 +23,7 @@ public class RescanService(IServiceScopeFactory scopes, AppConfig cfg, ILogger<R
                     try
                     {
                         var r = await scanner.ScanAsync(db, g);
+                        await Subscribers.NewPhotosAsync(db, scope.ServiceProvider.GetRequiredService<SettingsService>(), g, r.Added);
                         if (r.Added > 0 || r.Removed > 0) log.LogInformation("Rescan {Slug}: +{Added} -{Removed}", g.Slug, r.Added, r.Removed);
                     }
                     catch (DirectoryNotFoundException) { }

@@ -48,6 +48,10 @@ public static class Schema
         db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""LicenseAcceptances"" (
             ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_LicenseAcceptances"" PRIMARY KEY AUTOINCREMENT,
             ""Sub"" TEXT NOT NULL, ""VisitorId"" TEXT NOT NULL, ""Name"" TEXT NOT NULL, ""Version"" TEXT NOT NULL, ""AcceptedAt"" TEXT NOT NULL)");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""Subscribers"" (
+            ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_Subscribers"" PRIMARY KEY AUTOINCREMENT,
+            ""Email"" TEXT NOT NULL, ""Token"" TEXT NOT NULL, ""CreatedAt"" TEXT NOT NULL, ""ConfirmedAt"" TEXT NULL, ""Unsubscribed"" INTEGER NOT NULL)");
+        db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_Subscribers_Token"" ON ""Subscribers"" (""Token"")");
     }
 
     static void AddColumn(AppDb db, string table, string column, string definition)

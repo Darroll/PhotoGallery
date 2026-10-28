@@ -147,6 +147,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<AlertState> AlertStates => Set<AlertState>();
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<LicenseAcceptance> LicenseAcceptances => Set<LicenseAcceptance>();
+    public DbSet<Subscriber> Subscribers => Set<Subscriber>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
