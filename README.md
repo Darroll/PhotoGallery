@@ -117,7 +117,7 @@ Do on your side:
 
 ## Themes
 
-Visitors can pick a theme from the **Theme** menu in the header. The choice is remembered in their own browser (no account needed) and applies to every page. Themes change colors, fonts, corner rounding, shadows and photo-grid spacing, but never the layout. Photos in the full-screen viewer always sit on black.
+Visitors can pick a theme from the **Theme** menu in the header. The choice is remembered in their own browser (no account needed) and applies to every page. Visitors who sign in with single sign-on also have it saved to their account, so it follows them to every device and browser: the account's theme wins over the browser's, and the first time someone signs in, the theme already chosen in that browser is saved to the account. (The password-only admin has no account, so the admin's choice stays in the browser.) Preferences are stored as JSON in the `Users` table (`UserPreferences`), so more can be added later. Themes change colors, fonts, corner rounding, shadows and photo-grid spacing, but never the layout. Photos in the full-screen viewer always sit on black.
 
 | Theme | Look |
 |---|---|

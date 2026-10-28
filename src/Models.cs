@@ -119,6 +119,8 @@ public class AppUser
     public string Name { get; set; } = "";
     public DateTime FirstSeen { get; set; } = DateTime.UtcNow;
     public DateTime LastSeen { get; set; } = DateTime.UtcNow;
+    /// <summary>JSON, see UserPreferences.</summary>
+    public string Preferences { get; set; } = "{}";
 }
 
 public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)

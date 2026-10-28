@@ -46,11 +46,32 @@ function applyTheme() {
   const c = currentTheme(), root = document.documentElement;
   if (c === 'auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', c);
 }
+// Signed-in people (those with an account id) also keep the pick on the server, so it follows them to every device.
+const hasAccountPrefs = () => !!(me && me.preferences);
+function saveTheme(id) {
+  if (!hasAccountPrefs()) return;
+  me.preferences.theme = id;
+  api('/api/me/preferences', { method: 'PUT', body: { theme: id } }).then(r => { if (!r.ok) toast('Could not save your theme to your account'); });
+}
+// On load: the account's saved theme wins over this browser's; if the account has none yet, this browser's pick is saved to it.
+function syncAccountTheme() {
+  const t = site.theme || {};
+  if (!hasAccountPrefs() || !t.allowChoice) return;
+  const known = (id) => (t.themes || []).some(x => x.id === id);
+  const saved = me.preferences.theme;
+  if (saved && known(saved)) { try { localStorage.setItem(themeKey, saved); } catch { } return; }
+  let local = null; try { local = localStorage.getItem(themeKey); } catch { }
+  if (local && known(local)) saveTheme(local);
+}
 function themePicker() {
   const t = site.theme;
   if (!t || !t.allowChoice || !(t.themes || []).length) return null;
   const sel = h('select', { class: 'theme-pick', 'aria-label': 'Theme', title: 'Theme' }, t.themes.map(x => h('option', { value: x.id, text: x.label, selected: x.id === currentTheme() })));
-  sel.addEventListener('change', () => { try { localStorage.setItem(themeKey, sel.value); } catch { } applyTheme(); });
+  sel.addEventListener('change', () => {
+    try { localStorage.setItem(themeKey, sel.value); } catch { }
+    applyTheme();
+    saveTheme(sel.value);
+  });
   return sel;
 }
 let license = { enabled: false, require: false };
@@ -1450,6 +1471,7 @@ async function viewStats(app) {
   try { const r = await api('/api/me'); if (r.ok) me = r.data; } catch { }
   try { const r = await api('/api/license'); if (r.ok) license = r.data; } catch { }
   if (new URLSearchParams(location.search).get('signin') === 'failed') { signinFailed = true; history.replaceState(null, '', location.pathname); }
+  syncAccountTheme();
   applyTheme();
   renderHeader();
   renderFooter();

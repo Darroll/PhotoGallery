@@ -44,6 +44,7 @@ public static class Schema
         db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""Users"" (
             ""Sub"" TEXT NOT NULL CONSTRAINT ""PK_Users"" PRIMARY KEY, ""Email"" TEXT NOT NULL, ""Name"" TEXT NOT NULL,
             ""FirstSeen"" TEXT NOT NULL, ""LastSeen"" TEXT NOT NULL)");
+        AddColumn(db, "Users", "Preferences", "TEXT NOT NULL DEFAULT '{}'");
     }
 
     static void AddColumn(AppDb db, string table, string column, string definition)

@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 
@@ -6,18 +7,43 @@ namespace PhotoGallery;
 /// <summary>Visitor sign-in through single sign-on (see Sso.cs).</summary>
 public static class AuthApi
 {
+    /// <summary>The identity provider's stable user id of the signed-in visitor, or null (anonymous, or the password admin).</summary>
+    static string? Sub(HttpContext ctx) =>
+        ctx.User.Identity?.IsAuthenticated == true ? ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value : null;
+
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/me", (HttpContext ctx, AppConfig cfg) =>
+        app.MapGet("/api/me", async (HttpContext ctx, AppConfig cfg, AppDb db) =>
         {
             var signedIn = ctx.User.Identity?.IsAuthenticated == true;
+            // preferences exist only for accounts with a provider id (not for the password admin), and follow the person across devices
+            var sub = Sub(ctx);
+            var prefs = sub == null ? null : UserPreferences.Parse(await db.Users.AsNoTracking().Where(u => u.Sub == sub).Select(u => u.Preferences).FirstOrDefaultAsync());
             return new
             {
                 sso = cfg.OidcEnabled,
                 signedIn,
                 name = signedIn ? ctx.User.Identity?.Name : null,
-                admin = AccessService.IsAdmin(ctx)
+                admin = AccessService.IsAdmin(ctx),
+                preferences = prefs
             };
+        });
+
+        app.MapPut("/api/me/preferences", async (UserPreferences input, HttpContext ctx, AppDb db) =>
+        {
+            if (ctx.Request.Headers["X-Requested-With"] != "pg") return Results.BadRequest("missing header");
+            var sub = Sub(ctx);
+            if (sub == null) return Results.StatusCode(401);
+            if (input.Theme != null && !ThemeSettings.IsValid(input.Theme)) return Results.BadRequest("Unknown theme");
+            var u = await db.Users.FirstOrDefaultAsync(x => x.Sub == sub);
+            if (u == null)
+            {
+                u = new AppUser { Sub = sub, Name = ctx.User.Identity?.Name ?? "" };
+                db.Users.Add(u);
+            }
+            u.Preferences = input.ToJson();
+            await db.SaveChangesAsync();
+            return Results.Ok(UserPreferences.Parse(u.Preferences));
         });
 
         app.MapGet("/auth/login", (HttpContext ctx, AppConfig cfg, string? next) =>
