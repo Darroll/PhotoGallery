@@ -4,6 +4,9 @@ using System.Text;
 namespace PhotoGallery;
 
 /// <summary>Photo license shown to visitors and (optionally) accepted before a download. Editable in Admin -> Settings.</summary>
+/// <summary>The public form of the license: placeholders filled in, plus a version id.</summary>
+public record LicenseView(bool Enabled, bool Require, string Title, string Text, string Version);
+
 public class LicenseSettings
 {
     public bool Enabled { get; set; } = true;
@@ -76,13 +79,13 @@ public class LicenseSettings
     };
 
     /// <summary>What visitors see: placeholders filled in, plus a version id that changes whenever the wording changes (so people re-accept).</summary>
-    public object ForVisitors(string siteName)
+    public LicenseView ForVisitors(string siteName)
     {
         var holder = Holder.Length > 0 ? Holder : siteName;
         var contact = Contact.Length > 0 ? Contact : $"{holder} through this site";
         var text = Text.Replace("{holder}", holder).Replace("{site}", siteName)
             .Replace("{year}", DateTime.UtcNow.Year.ToString()).Replace("{contact}", contact);
         var version = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Title + "\n" + text)))[..12].ToLowerInvariant();
-        return new { enabled = Enabled, require = Enabled && RequireAcceptance, title = Title, text, version };
+        return new LicenseView(Enabled, Enabled && RequireAcceptance, Title, text, version);
     }
 }

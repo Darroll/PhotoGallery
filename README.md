@@ -92,8 +92,8 @@ Do on your side:
    ```
 2. Copy `unraid/my-photogallery.xml` to `/boot/config/plugins/dockerMan/templates-user/`, then Docker tab -> Add Container -> select **photogallery**.
 3. Set the library path, `ADMIN_PASSWORD`, and put the container on the same custom network as SWAG (template assumes `proxynet`).
-4. Copy `unraid/photos.subdomain.conf` to `/mnt/user/appdata/swag/nginx/proxy-confs/`, add `photos` to SWAG's `SUBDOMAINS`, create the DNS record, restart SWAG.
-5. Open `https://photos.yourdomain/#/admin`, create galleries from folders.
+4. Copy `unraid/gallery.subdomain.conf` to `/mnt/user/appdata/swag/nginx/proxy-confs/`, add `gallery` to SWAG's `SUBDOMAINS`, create the DNS record, restart SWAG.
+5. Open `https://gallery.yourdomain/admin`, create galleries from folders.
 
 ## Configuration
 
@@ -134,6 +134,26 @@ The version shown at the bottom right of every page is `<Version>` in `src/Photo
 cd src
 PHOTO_LIBRARY=/path/to/photos DATA_DIR=./data ADMIN_PASSWORD=dev dotnet run
 ```
+
+## Tests
+
+```bash
+dotnet test tests/PhotoGallery.Tests
+```
+
+The suite (about 80 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
+
+Add a test whenever you add or fix a feature. `AppFactory` in `tests/PhotoGallery.Tests` boots the app; pass extra environment-style settings to a subclass to test other configurations (see `SsoFactory`).
+
+## Releasing
+
+From the dev machine, on `main` with everything committed and pushed:
+
+```bash
+./deploy.sh
+```
+
+It runs the tests, checks that `main` matches GitHub, copies that commit to the Unraid server (`DEPLOY_HOST`, default `voltron`), builds the image there with `release.sh` and pushes it to the local registry. Then use "check for updates" / "apply update" on the container in Unraid. `SKIP_TESTS=1 ./deploy.sh` skips the test run.
 
 The database schema is created with `EnsureCreated`. Future schema changes need EF migrations or a manual reset of `/data/photogallery.db` (galleries are re-creatable; originals are untouched).
 

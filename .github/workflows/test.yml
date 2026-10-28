@@ -1,0 +1,21 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Front-end syntax check
+        run: node --check src/wwwroot/app.js
+      - name: Shell script syntax check
+        run: bash -n release.sh && bash -n deploy.sh
+      - name: Tests
+        run: dotnet test tests/PhotoGallery.Tests -c Release --nologo
