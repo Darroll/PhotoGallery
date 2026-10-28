@@ -157,8 +157,8 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<LicenseAcceptance> LicenseAcceptances => Set<LicenseAcceptance>();
     public DbSet<Subscriber> Subscribers => Set<Subscriber>();
     public DbSet<CaptionEdit> CaptionEdits => Set<CaptionEdit>();
-    public DbSet<Person> People => Set<Person>();
-    public DbSet<PhotoPerson> PhotoPeople => Set<PhotoPerson>();
+    public DbSet<Tag> Tags => Set<Tag>();
+    public DbSet<PhotoTag> PhotoTags => Set<PhotoTag>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -169,7 +169,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<FavoriteOwner>().HasIndex(o => new { o.GalleryId, o.VisitorId }).IsUnique();
         b.Entity<AlertState>().HasKey(a => a.Key);
         b.Entity<AppUser>().HasKey(u => u.Sub);
-        b.Entity<PhotoPerson>().HasKey(x => new { x.PhotoId, x.PersonId });
+        b.Entity<PhotoTag>().HasKey(x => new { x.PhotoId, x.TagId });
         b.Entity<Visit>().HasIndex(v => v.Time);
         b.Entity<Visit>().HasIndex(v => new { v.GalleryId, v.Time });
         b.Entity<Photo>().HasOne(p => p.Gallery).WithMany(g => g.Photos).HasForeignKey(p => p.GalleryId).OnDelete(DeleteBehavior.Cascade);

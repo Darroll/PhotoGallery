@@ -127,8 +127,8 @@ Do on your side:
 
 *Automatic captions* need a vision model you run yourself. Set `CAPTION_URL` to an Ollama server (for example `http://192.168.2.5:11434`) and optionally `CAPTION_MODEL` (default `llava`). The server writes captions for photos that have none, a few at a time in the background, and gives up on a photo after three tries. Photos are sent only to that address. Leave `CAPTION_URL` empty and nothing leaves the server. Run the model on a machine with enough memory: a vision model on the Unraid server itself can exhaust its RAM.
 
-**Search and people.** The search box on the home page (and `/search`) finds public photos by file name, caption, alt text, gallery title, place, and date taken. Protected, unlisted and expired galleries are never searched.
-People are tagged per photo from the same Edit sheet (admin only). A person's name is shown under their photos, and found by search, only when you tick them in Admin -> Settings -> People. Everyone else stays anonymous, including in search results.
+**Search and tags.** The search box on the home page (and `/search`) finds public photos by file name, caption, alt text, tags, gallery title, place, and date taken. Protected, unlisted and expired galleries are never searched.
+Tags are labels you choose, about anything (Admin -> Settings -> Tags). Add them to a photo from its Edit sheet in the viewer. Visitors see tags under photos and can search by them, and the search page has a tag filter.
 
 ## Themes
 

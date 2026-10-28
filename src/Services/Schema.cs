@@ -60,12 +60,12 @@ public static class Schema
             ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_CaptionEdits"" PRIMARY KEY AUTOINCREMENT,
             ""PhotoId"" INTEGER NOT NULL, ""Field"" TEXT NOT NULL, ""Base"" TEXT NOT NULL, ""Proposed"" TEXT NOT NULL,
             ""Sub"" TEXT NOT NULL, ""Name"" TEXT NOT NULL, ""CreatedAt"" TEXT NOT NULL, ""Status"" TEXT NOT NULL, ""ReviewedAt"" TEXT NULL)");
-        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""People"" (
-            ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_People"" PRIMARY KEY AUTOINCREMENT,
-            ""Name"" TEXT NOT NULL, ""Public"" INTEGER NOT NULL, ""CreatedAt"" TEXT NOT NULL)");
-        db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_People_Name"" ON ""People"" (""Name"" COLLATE NOCASE)");
-        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""PhotoPeople"" (
-            ""PhotoId"" INTEGER NOT NULL, ""PersonId"" INTEGER NOT NULL, CONSTRAINT ""PK_PhotoPeople"" PRIMARY KEY (""PhotoId"", ""PersonId""))");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""Tags"" (
+            ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_Tags"" PRIMARY KEY AUTOINCREMENT,
+            ""Name"" TEXT NOT NULL, ""CreatedAt"" TEXT NOT NULL)");
+        db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_Tags_Name"" ON ""Tags"" (""Name"" COLLATE NOCASE)");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""PhotoTags"" (
+            ""PhotoId"" INTEGER NOT NULL, ""TagId"" INTEGER NOT NULL, CONSTRAINT ""PK_PhotoTags"" PRIMARY KEY (""PhotoId"", ""TagId""))");
     }
 
     static void AddColumn(AppDb db, string table, string column, string definition)

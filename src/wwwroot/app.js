@@ -176,27 +176,29 @@ function subscribeForm() {
 
 // Search: the form is reused on the home page and the results page; the query lives in the address so results can be shared.
 function searchForm(v) {
-  const q = h('input', { type: 'search', placeholder: 'Search photos, people, places', value: v.q || '', 'aria-label': 'Search', maxlength: 80 });
+  const q = h('input', { type: 'search', placeholder: 'Search photos, tags, places', value: v.q || '', 'aria-label': 'Search', maxlength: 80 });
   const where = h('input', { type: 'text', placeholder: 'Place or month', value: v.where || '', 'aria-label': 'Place or month', maxlength: 80 });
   const from = h('input', { type: 'date', value: v.from || '', 'aria-label': 'From date' });
   const to = h('input', { type: 'date', value: v.to || '', 'aria-label': 'To date' });
+  const tag = h('input', { type: 'text', placeholder: 'Tag', value: v.tag || '', 'aria-label': 'Tag', maxlength: 40 });
   const submit = () => {
     const p = new URLSearchParams();
     if (q.value.trim()) p.set('q', q.value.trim());
     if (where.value.trim()) p.set('where', where.value.trim());
     if (from.value) p.set('from', from.value);
     if (to.value) p.set('to', to.value);
+    if (tag.value.trim()) p.set('tag', tag.value.trim());
     const qs = p.toString();
     go('/search' + (qs ? '?' + qs : ''));
   };
   return h('form', { class: 'search-form', onsubmit: (e) => { e.preventDefault(); submit(); } },
-    q, where, h('label', { class: 'muted' }, 'From ', from), h('label', { class: 'muted' }, 'To ', to), h('button', { class: 'primary', type: 'submit', text: 'Search' }));
+    q, where, tag, h('label', { class: 'muted' }, 'From ', from), h('label', { class: 'muted' }, 'To ', to), h('button', { class: 'primary', type: 'submit', text: 'Search' }));
 }
 
 async function viewSearch(app) {
   const sp = new URLSearchParams(location.search);
   document.title = 'Search - ' + site.title;
-  app.append(h('h1', { text: 'Search' }), searchForm({ q: sp.get('q'), where: sp.get('where'), from: sp.get('from'), to: sp.get('to') }));
+  app.append(h('h1', { text: 'Search' }), searchForm({ q: sp.get('q'), where: sp.get('where'), tag: sp.get('tag'), from: sp.get('from'), to: sp.get('to') }));
   const r = await api('/api/search?' + sp.toString());
   if (!r.ok) return app.append(h('p', { class: 'err', text: 'Search failed. Try again.' }));
   const { galleries, photos } = r.data;
@@ -210,7 +212,7 @@ async function viewSearch(app) {
       h('img', { loading: 'lazy', src: `/img/${p.id}/thumb`, alt: p.altText || p.name }),
       h('div', { class: 'pc-name', text: p.caption || p.name, title: p.name }),
       h('div', { class: 'muted', text: [p.gallery, p.takenAt ? new Date(p.takenAt + (/Z$/.test(p.takenAt) ? '' : 'Z')).toLocaleDateString() : ''].filter(Boolean).join(' \u00B7 ') }),
-      p.people && p.people.length ? h('div', { class: 'muted', text: 'With ' + p.people.join(', ') }) : null))));
+      p.tags && p.tags.length ? h('div', { class: 'muted', text: p.tags.map(t => '#' + t).join(' ') }) : null))));
 }
 
 async function viewHome(app) {
@@ -502,6 +504,7 @@ function captionBlock(photo) {
   return h('div', { class: 'info-caption' }, h('h4', { text: 'Caption and description' }),
     h('p', { text: photo.caption || 'No caption yet.' }),
     h('p', { class: 'muted', text: photo.altText ? `Alt text: ${photo.altText}` : 'No alt text yet.' }),
+    h('p', { class: 'muted', text: photo.tags && photo.tags.length ? 'Tags: ' + photo.tags.join(', ') : 'No tags yet.' }),
     h('button', { text: me && me.admin ? 'Edit' : 'Suggest a change', onclick: () => captionSheet(photo) }));
 }
 
@@ -512,7 +515,7 @@ function captionSheet(photo) {
   const caption = h('input', { type: 'text', maxlength: 120, value: photo.caption || '', 'aria-label': 'Caption' });
   const alt = h('textarea', { rows: 3, maxlength: 300, 'aria-label': 'Alt text' });
   alt.value = photo.altText || '';
-  const people = isAdmin ? h('input', { type: 'text', maxlength: 400, 'aria-label': 'People in this photo' }) : null;
+  const tags = isAdmin ? h('input', { type: 'text', maxlength: 400, 'aria-label': 'Tags', value: (photo.tags || []).join(', ') }) : null;
   const msg = h('span', { class: 'muted' });
   const note = isAdmin ? 'Your changes apply straight away.'
     : signedIn ? 'Your suggestion goes to the photographer, who approves it before it appears.'
@@ -521,7 +524,7 @@ function captionSheet(photo) {
     const r = await api(`/api/g/${encodeURIComponent(G.slug)}/photo/${photo.id}/suggest`, { method: 'POST', body: { caption: caption.value, alt: alt.value } });
     if (r.status === 401) { msg.textContent = 'Sign in to suggest a change.'; return; }
     if (!r.ok) { msg.textContent = 'Could not save. Try again.'; return; }
-    if (people) await api(`/api/admin/photos/${photo.id}/people`, { method: 'PUT', body: { names: people.value.split(',') } });
+    if (tags) { const tr = await api(`/api/admin/photos/${photo.id}/tags`, { method: 'PUT', body: { names: tags.value.split(',') } }); if (tr.ok) photo.tags = tr.data; }
     if (r.data && r.data.applied) { photo.caption = r.data.caption; photo.altText = r.data.alt; closeSheet(); toast('Saved'); return; }
     msg.textContent = r.data && r.data.suggested ? 'Thanks. The photographer will review it.' : 'Nothing new to suggest.';
   };
@@ -530,13 +533,12 @@ function captionSheet(photo) {
       h('div', { class: 'sheet-grab' }), h('h3', { text: isAdmin ? 'Edit caption' : 'Suggest a caption' }),
       h('label', { class: 'sheet-field' }, 'Caption', caption),
       h('label', { class: 'sheet-field' }, 'Alt text (describes the photo for screen readers)', alt),
-      people ? h('label', { class: 'sheet-field' }, 'People in this photo (comma separated)', people) : null,
+      tags ? h('label', { class: 'sheet-field' }, 'Tags (comma separated)', tags) : null,
       h('p', { class: 'muted', text: note }), msg,
       h('div', { class: 'row sheet-actions' }, h('button', { class: 'primary', text: isAdmin ? 'Save' : 'Send suggestion', onclick: submit }), h('button', { text: 'Close', onclick: closeSheet }))));
   sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
   document.addEventListener('keydown', sheet._key, true);
   document.body.append(sheet);
-  if (people) api(`/api/admin/photos/${photo.id}/people`).then(pr => { if (pr.ok) people.value = pr.data.join(', '); });
 }
 
 function uploadControl(slug) {
@@ -632,7 +634,9 @@ function openLightbox(index, play, mode = 'push') {
     resetZoom();
     img.src = photoUrl(p, viewKind());
     if (p.id !== lb.lastSeen) { lb.lastSeen = p.id; fetch(`/api/g/${encodeURIComponent(G.slug)}/viewed/${p.id}`, { method: 'POST', headers: { 'X-Requested-With': 'pg' }, credentials: 'same-origin', keepalive: true }).catch(() => {}); }
-    title.textContent = p.name; captionEl.textContent = p.caption || ''; captionEl.classList.toggle('hidden', !p.caption); img.alt = p.altText || p.name;
+    title.textContent = p.name;
+    const capText = [p.caption, (p.tags || []).map(t => '#' + t).join(' ')].filter(Boolean).join('   ');
+    captionEl.textContent = capText; captionEl.classList.toggle('hidden', !capText); img.alt = p.altText || p.name;
     document.title = photoTitle(p); counter.textContent = `${lb.i + 1} / ${list.length}`;
     lb.sync();
     const n = list[(lb.i + 1) % list.length]; new Image().src = photoUrl(n, viewKind());   // preload
@@ -849,7 +853,7 @@ async function viewSettings(app) {
   app.append(siteNamePanel());
   app.append(await themePanel());
   app.append(await captionReviewPanel());
-  app.append(await peoplePanel());
+  app.append(await tagPanel());
   app.append(await licensePanel());
 
   const modeSel = h('select', {}, [['none', 'None'], ['text', 'Text'], ['png', 'PNG image']].map(([v, t]) => h('option', { value: v, text: t, selected: v === w.mode })));
@@ -944,21 +948,22 @@ async function captionReviewPanel() {
     items.length ? items : h('p', { class: 'muted', text: 'Nothing waiting for review.' }));
 }
 
-// People tagged in photos. Only ticked people are shown to visitors and found by search.
-async function peoplePanel() {
-  const r = await api('/api/admin/people');
-  if (!r.ok) return h('div', { class: 'panel' }, h('h3', { text: 'People' }), h('p', { class: 'err', text: 'Could not load people.' }));
-  const rows = r.data.map(p => {
-    const box = h('input', { type: 'checkbox', checked: !!p.public });
-    box.addEventListener('change', async () => {
-      const res = await api(`/api/admin/people/${p.id}`, { method: 'PUT', body: { public: box.checked } });
-      if (!res.ok) box.checked = !box.checked;
-    });
-    return h('div', { class: 'row' }, h('label', {}, box, ' ' + p.name), h('span', { class: 'muted', text: `${p.photos} photo${p.photos === 1 ? '' : 's'}` }));
+// Global tags: any label you choose. Visitors see them and can search them. Deleting a tag takes it off every photo.
+async function tagPanel() {
+  const r = await api('/api/admin/tags');
+  if (!r.ok) return h('div', { class: 'panel' }, h('h3', { text: 'Tags' }), h('p', { class: 'err', text: 'Could not load tags.' }));
+  const rows = r.data.map(t => {
+    const row = h('div', { class: 'row' }, h('span', { text: '#' + t.name }), h('span', { class: 'muted', text: `${t.photos} photo${t.photos === 1 ? '' : 's'}` }));
+    row.append(h('button', { text: 'Delete', onclick: async () => {
+      if (!confirm(`Remove the tag "${t.name}" from every photo?`)) return;
+      const res = await api(`/api/admin/tags/${t.id}`, { method: 'DELETE' });
+      if (res.ok) row.remove();
+    } }));
+    return row;
   });
-  return h('div', { class: 'panel' }, h('h3', { text: 'People' }),
-    h('p', { class: 'muted', text: 'Tick a person to show their name under their photos and let visitors find them in search. Everyone else stays anonymous. Tag people from a photo: open its details and choose Edit.' }),
-    rows.length ? rows : h('p', { class: 'muted', text: 'Nobody is tagged yet.' }));
+  return h('div', { class: 'panel' }, h('h3', { text: 'Tags' }),
+    h('p', { class: 'muted', text: 'Tags are labels you choose, about anything. Add them to a photo from its Edit sheet in the viewer. Visitors see them under photos and can search by them.' }),
+    rows.length ? rows : h('p', { class: 'muted', text: 'No tags yet.' }));
 }
 
 async function themePanel() {

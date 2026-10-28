@@ -5,10 +5,11 @@ namespace PhotoGallery.Tests;
 
 public class SearchTests(AppFactory app) : IClassFixture<AppFactory>
 {
+    /// <summary>A public gallery in Dover with a captioned first photo. Titles must be unique, so each call makes its own.</summary>
     static async Task<(string slug, int photo)> SetupAsync(AppFactory app, HttpClient admin)
     {
-        var title = "Harbour Walk " + Guid.NewGuid().ToString("N")[..6];   // titles must be unique within the app
-        var r = await admin.PostAsJsonAsync("/api/admin/galleries", new { title, folder = app.NewFolder(2), visibility = 0, location = "Dover" });
+        var title = "Harbour Walk " + Guid.NewGuid().ToString("N")[..6];
+        var r = await admin.PostAsJsonAsync("/api/admin/galleries", new { title, folder = app.NewFolder(2), visibility = 0 });
         var g = (await r.ReadAsync()).GetProperty("gallery");
         var slug = g.GetProperty("slug").GetString()!;
         // the location is set from the gallery's settings, not when it is created
@@ -33,10 +34,10 @@ public class SearchTests(AppFactory app) : IClassFixture<AppFactory>
         var (slug, _) = await SetupAsync(app, admin);
         var anon = app.NewClient();
 
-        Assert.Contains((await PhotosAsync(anon, "q=dawn")), p => p.GetProperty("slug").GetString() == slug);
-        Assert.Contains((await PhotosAsync(anon, "q=grey")), p => p.GetProperty("slug").GetString() == slug);
-        Assert.Contains((await PhotosAsync(anon, "q=harbour")), p => p.GetProperty("slug").GetString() == slug);
-        Assert.Contains((await PhotosAsync(anon, "where=dover")), p => p.GetProperty("slug").GetString() == slug);
+        Assert.Contains(await PhotosAsync(anon, "q=dawn"), p => p.GetProperty("slug").GetString() == slug);
+        Assert.Contains(await PhotosAsync(anon, "q=grey"), p => p.GetProperty("slug").GetString() == slug);
+        Assert.Contains(await PhotosAsync(anon, "q=harbour"), p => p.GetProperty("slug").GetString() == slug);
+        Assert.Contains(await PhotosAsync(anon, "where=dover"), p => p.GetProperty("slug").GetString() == slug);
         Assert.Empty(await PhotosAsync(anon, "where=paris"));
         Assert.Empty(await PhotosAsync(anon, "q=zzz-nothing-matches"));
     }
@@ -48,7 +49,7 @@ public class SearchTests(AppFactory app) : IClassFixture<AppFactory>
         var (slug, _) = await SetupAsync(app, admin);
         var anon = app.NewClient();
 
-        Assert.Contains((await PhotosAsync(anon, "q=dawn&from=2000-01-01&to=2100-01-01")), p => p.GetProperty("slug").GetString() == slug);
+        Assert.Contains(await PhotosAsync(anon, "q=dawn&from=2000-01-01&to=2100-01-01"), p => p.GetProperty("slug").GetString() == slug);
         Assert.Empty(await PhotosAsync(anon, "q=dawn&from=2100-01-01"));
         Assert.Empty(await PhotosAsync(anon, "q=dawn&to=2000-01-01"));
     }
@@ -74,39 +75,51 @@ public class SearchTests(AppFactory app) : IClassFixture<AppFactory>
     }
 
     [Fact]
-    public async Task People_are_searchable_and_shown_only_once_the_admin_makes_them_public()
+    public async Task Tags_are_global_shown_on_photos_searchable_and_removable()
     {
         var admin = await app.AdminAsync();
         var (slug, photo) = await SetupAsync(app, admin);
         var anon = app.NewClient();
 
-        var tag = await admin.PutAsJsonAsync($"/api/admin/photos/{photo}/people", new { names = new[] { "Alex Rivera", "alex rivera" } });
+        var tag = await admin.PutAsJsonAsync($"/api/admin/photos/{photo}/tags", new { names = new[] { "Sunrise", "sunrise", "#Fishing boats" } });
         Assert.Equal(HttpStatusCode.OK, tag.StatusCode);
-        Assert.Equal(new[] { "Alex Rivera" }, (await tag.ReadAsync()).EnumerateArray().Select(n => n.GetString()).ToArray());
+        Assert.Equal(new[] { "Fishing boats", "Sunrise" }, (await tag.ReadAsync()).EnumerateArray().Select(n => n.GetString()).ToArray());
 
-        // a name that is not public is neither found nor shown
-        Assert.Empty(await PhotosAsync(anon, "q=Rivera"));
+        // visitors see the tags on the photo, and find it by a tag
+        var gallery = await (await anon.GetAsync($"/api/g/{slug}")).ReadAsync();
+        var shown = gallery.GetProperty("photos").EnumerateArray().First(p => p.GetProperty("id").GetInt32() == photo);
+        Assert.Contains("Sunrise", shown.GetProperty("tags").EnumerateArray().Select(t => t.GetString()));
 
-        var person = (await (await admin.GetAsync("/api/admin/people")).ReadAsync()).EnumerateArray().Single(p => p.GetProperty("name").GetString() == "Alex Rivera");
-        var personId = person.GetProperty("id").GetInt32();
-        Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/admin/people/{personId}", new { @public = true })).StatusCode);
+        Assert.Contains(await PhotosAsync(anon, "q=sunrise"), p => p.GetProperty("slug").GetString() == slug);
+        Assert.Contains(await PhotosAsync(anon, "tag=sunrise"), p => p.GetProperty("slug").GetString() == slug);
+        Assert.Contains(await PhotosAsync(anon, "tag=FISHING%20BOATS"), p => p.GetProperty("slug").GetString() == slug);
+        Assert.DoesNotContain(await PhotosAsync(anon, "tag=winter"), p => p.GetProperty("slug").GetString() == slug);
 
-        var found = (await PhotosAsync(anon, "q=Rivera")).Single();
-        Assert.Equal(slug, found.GetProperty("slug").GetString());
-        Assert.Equal("Alex Rivera", found.GetProperty("people")[0].GetString());
-
-        // removing the tag takes the person off the photo
-        await admin.PutAsJsonAsync($"/api/admin/photos/{photo}/people", new { names = Array.Empty<string>() });
-        Assert.Empty(await PhotosAsync(anon, "q=Rivera"));
+        // removing the tags from the photo takes them off
+        await admin.PutAsJsonAsync($"/api/admin/photos/{photo}/tags", new { names = Array.Empty<string>() });
+        Assert.DoesNotContain(await PhotosAsync(anon, "tag=sunrise"), p => p.GetProperty("slug").GetString() == slug);
     }
 
     [Fact]
-    public async Task Tagging_people_is_for_the_admin_only()
+    public async Task Deleting_a_tag_removes_it_from_every_photo_and_the_list()
     {
         var admin = await app.AdminAsync();
         var (_, photo) = await SetupAsync(app, admin);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await app.NewClient().PutAsJsonAsync($"/api/admin/photos/{photo}/people", new { names = new[] { "Nobody" } })).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await app.NewClient().GetAsync("/api/admin/people")).StatusCode);
+        await admin.PutAsJsonAsync($"/api/admin/photos/{photo}/tags", new { names = new[] { "Temporary label" } });
+
+        var list = (await (await admin.GetAsync("/api/admin/tags")).ReadAsync()).EnumerateArray().Single(t => t.GetProperty("name").GetString() == "Temporary label");
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.DeleteAsync($"/api/admin/tags/{list.GetProperty("id").GetInt32()}")).StatusCode);
+        var remaining = await (await admin.GetAsync("/api/admin/tags")).ReadAsync();
+        Assert.DoesNotContain(remaining.EnumerateArray(), t => t.GetProperty("name").GetString() == "Temporary label");
+    }
+
+    [Fact]
+    public async Task Tagging_is_for_the_admin_only()
+    {
+        var admin = await app.AdminAsync();
+        var (_, photo) = await SetupAsync(app, admin);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await app.NewClient().PutAsJsonAsync($"/api/admin/photos/{photo}/tags", new { names = new[] { "Nobody" } })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await app.NewClient().GetAsync("/api/admin/tags")).StatusCode);
     }
 
     [Fact]

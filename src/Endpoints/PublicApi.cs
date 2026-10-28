@@ -80,6 +80,10 @@ public static class PublicApi
                 .ToListAsync();
             photos = GalleryRules.Sort(photos, g, x => x.taken, x => x.Name, x => x.added);
 
+            var tagNames = await Tags.NamesByPhotoAsync(db, photos.Select(x => x.Id).ToList());
+            var shaped = photos.Select(x => new { x.Id, x.w, x.h, x.Name, x.raw, x.rawOnly, x.taken, x.added, x.Approved, x.Caption, x.AltText,
+                tags = tagNames.TryGetValue(x.Id, out var t) ? t : new List<string>() }).ToList();
+
             var locked = g.WatermarkDownload && !admin;
             return Results.Ok(new
             {
@@ -99,7 +103,7 @@ public static class PublicApi
                     expires = a.Link.ExpiresAt,
                     remaining = a.Link.MaxDownloads == null ? (int?)null : Math.Max(0, a.Link.MaxDownloads.Value - a.Link.DownloadCount)
                 },
-                photos
+                photos = shaped
             });
         });
 
