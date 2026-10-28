@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace PhotoGallery.Tests;
 
@@ -79,6 +80,32 @@ public class AppFactory : WebApplicationFactory<Program>
         return admin;
     }
 
+    /// <summary>A new library folder with n small JPEGs (a.jpg, b.jpg, ...), named uniquely so each gallery gets its own.</summary>
+    public string NewFolder(int n = 1)
+    {
+        var name = "f" + Guid.NewGuid().ToString("N")[..8];
+        Directory.CreateDirectory(Path.Combine(Library, name));
+        for (int i = 0; i < n; i++) TestImages.Write(Path.Combine(Library, name, $"{(char)('a' + i)}.jpg"), 400 + i * 40, 300, 60 + i * 30);
+        return name;
+    }
+
+    /// <summary>Creates a public gallery over a library folder and returns its address slug.</summary>
+    public static async Task<string> GalleryAsync(HttpClient admin, string title, string folder, bool allowRaw = false, bool allowZip = true)
+    {
+        var r = await admin.PostAsJsonAsync("/api/admin/galleries", new { title, folder, visibility = 0, allowRaw, allowZip });
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        return (await r.ReadAsync()).GetProperty("gallery").GetProperty("slug").GetString()!;
+    }
+
+    public static async Task<int[]> PhotoIdsAsync(HttpClient c, string slug) =>
+        (await (await c.GetAsync($"/api/g/{slug}")).ReadAsync()).GetProperty("photos").EnumerateArray().Select(p => p.GetProperty("id").GetInt32()).ToArray();
+
+    public async Task<T> WithDbAsync<T>(Func<AppDb, Task<T>> work)
+    {
+        using var scope = Services.CreateScope();
+        return await work(scope.ServiceProvider.GetRequiredService<AppDb>());
+    }
+
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
@@ -102,5 +129,16 @@ public static class TestImages
     {
         using var img = NetVips.Image.Black(w, h) + grey;
         img.Cast(NetVips.Enums.BandFormat.Uchar).WriteToFile(path);
+    }
+}
+
+public static class LicenseTestExtensions
+{
+    /// <summary>Accepts the current license wording as this client, the way the download dialog does.</summary>
+    public static async Task AcceptLicenseAsync(this HttpClient c)
+    {
+        var version = (await (await c.GetAsync("/api/license")).ReadAsync()).GetProperty("version").GetString();
+        var r = await c.PostAsJsonAsync("/api/license/accept", new { version });
+        Assert.Equal(HttpStatusCode.NoContent, r.StatusCode);
     }
 }

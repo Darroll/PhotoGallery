@@ -322,6 +322,7 @@ public class GalleryFlowTests(AppFactory app) : IClassFixture<AppFactory>
         Assert.Equal(HttpStatusCode.NoContent, (await guest.PostAsJsonAsync($"/api/g/{slug}/unlock", new { password = "open sesame" })).StatusCode);
 
         Assert.Equal(HttpStatusCode.OK, (await guest.GetAsync($"/api/g/{slug}")).StatusCode);
+        await guest.AcceptLicenseAsync();
         var dl = await guest.GetAsync($"/dl/{photoId}?size=original");
         Assert.Equal(HttpStatusCode.OK, dl.StatusCode);
         Assert.Equal("image/jpeg", dl.Content.Headers.ContentType?.MediaType);
@@ -340,6 +341,7 @@ public class GalleryFlowTests(AppFactory app) : IClassFixture<AppFactory>
         var anon = app.NewClient();
         var j = await (await anon.GetAsync($"/api/g/{slug}")).ReadAsync();
         var a = j.GetProperty("photos").EnumerateArray().First(p => p.GetProperty("name").GetString() == "a.jpg");
+        await anon.AcceptLicenseAsync();
         var bytes = await (await anon.GetAsync($"/dl/{a.GetProperty("id").GetInt32()}?size=original")).Content.ReadAsByteArrayAsync();
         Assert.Equal(await File.ReadAllBytesAsync(Path.Combine(app.Library, folder, "a.jpg")), bytes);
     }
@@ -352,6 +354,7 @@ public class GalleryFlowTests(AppFactory app) : IClassFixture<AppFactory>
         var anon = app.NewClient();
         var id = (await PhotoIdsAsync(anon, slug))[0];
 
+        await anon.AcceptLicenseAsync();
         var ok = await anon.GetAsync($"/dl/{id}?size=1080&fmt=png");
         Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
         Assert.Equal("image/png", ok.Content.Headers.ContentType?.MediaType);
@@ -392,6 +395,7 @@ public class GalleryFlowTests(AppFactory app) : IClassFixture<AppFactory>
         Assert.Equal($"/g/{slug}", open.Headers.Location?.OriginalString);
         Assert.Equal(HttpStatusCode.OK, (await guest.GetAsync($"/api/g/{slug}")).StatusCode);
 
+        await guest.AcceptLicenseAsync();
         Assert.Equal(HttpStatusCode.OK, (await guest.GetAsync($"/dl/{photoId}?size=original")).StatusCode);
         Assert.Equal(HttpStatusCode.Gone, (await guest.GetAsync($"/dl/{photoId}?size=original")).StatusCode);
     }

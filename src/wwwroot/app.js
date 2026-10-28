@@ -75,9 +75,13 @@ function themePicker() {
   return sel;
 }
 let license = { enabled: false, require: false };
-const licenseKey = 'pg-license-accepted';
-const licenseAccepted = () => { try { return !!license.version && localStorage.getItem(licenseKey) === license.version; } catch { return false; } };
-const licenseAccept = () => { try { localStorage.setItem(licenseKey, license.version); } catch { } };
+// Acceptance is recorded on the server (against the account, or the browser's visitor id); the server reports whether this visitor has accepted the current wording.
+async function recordLicenseAcceptance() {
+  const r = await api('/api/license/accept', { method: 'POST', body: { version: license.version } });
+  if (r.ok) { license.accepted = true; return true; }
+  toast(r.status === 409 ? 'The license has changed. Reload the page to read it.' : 'Could not record your agreement. Try again.');
+  return false;
+}
 const fmtDate = (s) => s ? new Date(/Z$|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z').toLocaleString() : '';
 
 // ---------- routing ----------
@@ -352,13 +356,18 @@ function openDownloadSheet(opts = {}) {
   const size = h('select'), fmt = h('select'), rawBox = h('input', { type: 'checkbox' });
   const rawRow = h('label', { class: 'sheet-row' }, rawBox, ' Include the RAW files (where they exist)');
   const note = h('p', { class: 'muted' });
-  const needAgree = license.enabled && license.require && !licenseAccepted();
+  const needAgree = license.enabled && license.require && !license.accepted;
   const agreeBox = h('input', { type: 'checkbox' });
   const agreeRow = needAgree ? h('div', { class: 'license-agree' },
     h('label', { class: 'sheet-row' }, agreeBox, h('span', {}, ' I have read and agree to the ', h('a', { href: '/license', target: '_blank', rel: 'noopener', text: license.title || 'license agreement' }), ': personal, non-commercial use only.'))) : null;
   const agreed = () => !needAgree || agreeBox.checked;
   const rawBtn = photo && photo.raw && G.allowRaw ? h('a', { class: 'btn', href: `/dl/${photo.id}/raw`, text: 'Download the RAW file',
-    onclick: (e) => { if (!agreed()) { e.preventDefault(); toast('Please agree to the license first'); } else if (needAgree) licenseAccept(); } }) : null;
+    onclick: async (e) => {
+      e.preventDefault();
+      if (!agreed()) { toast('Please agree to the license first'); return; }
+      if (needAgree && !(await recordLicenseAcceptance())) return;
+      location.href = `/dl/${photo.id}/raw`;
+    } }) : null;
 
   const fillSizes = () => {
     const keep = size.value;
@@ -379,9 +388,9 @@ function openDownloadSheet(opts = {}) {
   size.addEventListener('change', () => { fmt.disabled = size.value === 'original'; });
   sync();
 
-  const go = () => {
+  const go = async () => {
     if (!agreed()) { toast('Please agree to the license first'); return; }
-    if (needAgree) licenseAccept();
+    if (needAgree && !(await recordLicenseAcceptance())) return;
     const q = new URLSearchParams({ size: size.value, fmt: fmt.value });
     if (scope === 'photo') { location.href = `/dl/${photo.id}?${q}`; closeSheet(); return; }
     if (rawBox.checked && G.allowRaw) q.set('raw', 'true');
@@ -811,6 +820,12 @@ async function licensePanel() {
   const text = h('textarea', { rows: 16, maxlength: r.data.maxText, class: 'license-edit' }); text.value = l.text;
   const msg = h('span', { class: 'muted' });
   const refresh = async () => { const v = await api('/api/license'); if (v.ok) { license = v.data; renderFooter(); } };
+  const log = await api('/api/admin/license/acceptances');
+  const acceptLog = !log.ok ? null : h('details', { class: 'accept-log' }, h('summary', { text: `Acceptance log (${log.data.total})` }),
+    log.data.total ? h('table', {}, h('tr', {}, ['When', 'Who', 'Current wording'].map(x => h('th', { text: x }))),
+      log.data.recent.map(a => h('tr', {}, h('td', { text: new Date(a.time).toLocaleString() }),
+        h('td', { text: a.signedIn ? (a.name || 'Signed-in account') : 'Anonymous browser' }),
+        h('td', { text: a.current ? 'Yes' : 'No, accepted an earlier wording' })))) : h('p', { class: 'muted', text: 'Nobody has accepted yet.' }));
   return h('div', { class: 'panel' }, h('h3', { text: 'License agreement' }),
     h('p', { class: 'muted', text: 'Shown at /license and in the footer. When "require acceptance" is on, visitors must tick an agree box before any download. Acceptance is remembered in their browser until you change the wording. The default is a general-purpose example, not legal advice: have it reviewed for your country before relying on it.' }),
     h('div', { class: 'row' }, h('label', {}, enabled, ' Show the license')),
@@ -827,7 +842,7 @@ async function licensePanel() {
         text.value = res.data.text; title.value = res.data.title; msg.textContent = 'Saved'; await refresh();
       } }),
       h('button', { text: 'Reset text to default', onclick: () => { if (confirm('Replace the text with the built-in default? Save to apply.')) text.value = def; } }),
-      h('a', { class: 'btn', href: '/license', target: '_blank', rel: 'noopener', text: 'Preview' }), msg));
+      h('a', { class: 'btn', href: '/license', target: '_blank', rel: 'noopener', text: 'Preview' }), msg), acceptLog);
 }
 
 function siteNamePanel() {

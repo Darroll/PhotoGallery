@@ -165,6 +165,15 @@ public static class AdminApi
         });
         secured.MapGet("/settings/site", (SettingsService settings) => Results.Ok(new { name = settings.SiteName }));
         secured.MapPut("/settings/site", (SiteInput input, SettingsService settings) => Results.Ok(new { name = settings.SetSiteName(input.Name) }));
+        secured.MapGet("/license/acceptances", async (AppDb db, SettingsService settings) =>
+        {
+            var current = settings.License.ForVisitors(settings.SiteName).Version;
+            var total = await db.LicenseAcceptances.CountAsync();
+            var recent = await db.LicenseAcceptances.OrderByDescending(a => a.Id).Take(200)
+                .Select(a => new { time = a.AcceptedAt, name = a.Name, signedIn = a.Sub != "", current = a.Version == current })
+                .ToListAsync();
+            return Results.Ok(new { total, recent });
+        });
         secured.MapGet("/settings/license", (SettingsService settings) => Results.Ok(new { license = settings.License, defaultText = LicenseSettings.DefaultText, maxText = LicenseSettings.MaxText }));
         secured.MapPut("/settings/license", (LicenseSettings input, SettingsService settings) => Results.Ok(settings.SetLicense(input)));
         secured.MapGet("/settings/theme", (SettingsService settings) => Results.Ok(settings.Theme.ForVisitors()));

@@ -135,9 +135,11 @@ In **Admin -> Settings -> Appearance** you set the default theme for new visitor
 The gallery ships with a general-purpose photo license (personal, non-commercial use only; no resale, no advertising or stock use, no AI training, watermarks and credits must stay). It is an example, not legal advice, so have it reviewed for your country.
 
 - Visitors see it at `/license` and through a footer link.
-- By default they must tick an agree box in the download dialog before any download. The acceptance is remembered in the browser until the wording changes. This is a click-through notice, not technical protection: use watermarks (Admin -> Settings) to deter misuse.
+- By default they must tick an agree box in the download dialog before any download. Acceptance is recorded on the server (see below), and downloads are refused until the visitor has accepted the current wording, so the tick box cannot be skipped by calling the download links directly. Admins are not asked. Changing the wording asks everyone to accept again. Saving a copy of what is shown on screen is still possible, so watermarks (Admin -> Settings) remain the deterrent for reuse.
 - Edit it in **Admin -> Settings -> License agreement**: turn it off, turn the required tick-box off, set the title, copyright holder, contact address and the full text. `{holder}`, `{site}`, `{year}` and `{contact}` are filled in automatically. **Reset text to default** restores the built-in wording.
 - It is stored in `settings.json` in `DATA_DIR`, so it survives updates.
+- **Records:** each accept is saved in the `LicenseAcceptances` table with the wording version and time. Signed-in people are recorded against their account; everyone is also tied to their browser's visitor cookie. IP addresses are not stored with acceptances. Admin -> Settings -> License agreement shows the log (who, when, and whether they accepted the current wording).
+- **Enforcement:** single-photo downloads, RAW downloads and ZIPs return 403 with `licenseRequired` until the visitor has accepted the current wording. Admins are exempt.
 
 ## Versioning
 
@@ -156,7 +158,7 @@ PHOTO_LIBRARY=/path/to/photos DATA_DIR=./data ADMIN_PASSWORD=dev dotnet run
 dotnet test tests/PhotoGallery.Tests
 ```
 
-The suite (about 100 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
+The suite (132 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
 
 Add a test whenever you add or fix a feature. `AppFactory` in `tests/PhotoGallery.Tests` boots the app; pass extra environment-style settings to a subclass to test other configurations (see `SsoFactory`).
 

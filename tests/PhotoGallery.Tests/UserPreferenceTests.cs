@@ -26,12 +26,6 @@ public class UserFactory : AppFactory
         return c;
     }
 
-    public async Task<T> WithDbAsync<T>(Func<AppDb, Task<T>> work)
-    {
-        using var scope = Services.CreateScope();
-        return await work(scope.ServiceProvider.GetRequiredService<AppDb>());
-    }
-
     class TestUserFilter : IStartupFilter
     {
         public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>

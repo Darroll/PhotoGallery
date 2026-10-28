@@ -45,6 +45,9 @@ public static class Schema
             ""Sub"" TEXT NOT NULL CONSTRAINT ""PK_Users"" PRIMARY KEY, ""Email"" TEXT NOT NULL, ""Name"" TEXT NOT NULL,
             ""FirstSeen"" TEXT NOT NULL, ""LastSeen"" TEXT NOT NULL)");
         AddColumn(db, "Users", "Preferences", "TEXT NOT NULL DEFAULT '{}'");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""LicenseAcceptances"" (
+            ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_LicenseAcceptances"" PRIMARY KEY AUTOINCREMENT,
+            ""Sub"" TEXT NOT NULL, ""VisitorId"" TEXT NOT NULL, ""Name"" TEXT NOT NULL, ""Version"" TEXT NOT NULL, ""AcceptedAt"" TEXT NOT NULL)");
     }
 
     static void AddColumn(AppDb db, string table, string column, string definition)

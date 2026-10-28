@@ -123,6 +123,18 @@ public class AppUser
     public string Preferences { get; set; } = "{}";
 }
 
+/// <summary>One accepted license, recorded per accept click. Signed-in people are recorded by provider id; every accept is also tied to the browser's visitor id.</summary>
+public class LicenseAcceptance
+{
+    public int Id { get; set; }
+    public string Sub { get; set; } = "";
+    public string VisitorId { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>The license wording version that was accepted (see LicenseView.Version).</summary>
+    public string Version { get; set; } = "";
+    public DateTime AcceptedAt { get; set; } = DateTime.UtcNow;
+}
+
 public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
 {
     public DbSet<Gallery> Galleries => Set<Gallery>();
@@ -134,6 +146,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<EmailOutbox> EmailOutbox => Set<EmailOutbox>();
     public DbSet<AlertState> AlertStates => Set<AlertState>();
     public DbSet<AppUser> Users => Set<AppUser>();
+    public DbSet<LicenseAcceptance> LicenseAcceptances => Set<LicenseAcceptance>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {

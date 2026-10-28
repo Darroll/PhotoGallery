@@ -8,7 +8,7 @@ namespace PhotoGallery;
 public static class AuthApi
 {
     /// <summary>The identity provider's stable user id of the signed-in visitor, or null (anonymous, or the password admin).</summary>
-    static string? Sub(HttpContext ctx) =>
+    public static string? Sub(HttpContext ctx) =>
         ctx.User.Identity?.IsAuthenticated == true ? ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value : null;
 
     public static void Map(WebApplication app)

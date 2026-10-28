@@ -9,6 +9,7 @@ public static class PublicApi
     record UnlockRequest(string? Password);
     record FavInput(bool On);
     record NameInput(string? Name);
+    record LicenseAcceptInput(string? Version);
 
     public static void Map(WebApplication app)
     {
@@ -22,7 +23,27 @@ public static class PublicApi
             theme = settings.Theme.ForVisitors()
         });
 
-        app.MapGet("/api/license", (SettingsService settings) => Results.Ok(settings.License.ForVisitors(settings.SiteName)));
+        app.MapGet("/api/license", async (HttpContext ctx, AppDb db, SettingsService settings) =>
+        {
+            var v = settings.License.ForVisitors(settings.SiteName);
+            return Results.Ok(new { v.Enabled, v.Require, v.Title, v.Text, v.Version, accepted = await LicenseGate.AcceptedAsync(ctx, db, settings) });
+        });
+
+        app.MapPost("/api/license/accept", async (LicenseAcceptInput input, HttpContext ctx, AppDb db, SettingsService settings) =>
+        {
+            if (ctx.Request.Headers["X-Requested-With"] != "pg") return Results.BadRequest("missing header");
+            var v = settings.License.ForVisitors(settings.SiteName);
+            if (!v.Enabled) return Results.NoContent();
+            if (input.Version != v.Version) return Results.Conflict("The license has changed. Reload the page and read it again.");
+            var name = (ctx.User.Identity?.Name ?? "").Trim();
+            db.LicenseAcceptances.Add(new LicenseAcceptance
+            {
+                Sub = AuthApi.Sub(ctx) ?? "", VisitorId = ActivityLog.EnsureVisitorId(ctx),
+                Name = name.Length > 120 ? name[..120] : name, Version = v.Version, AcceptedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
 
         app.MapGet("/api/galleries", async (AppDb db, SettingsService settings) =>
         {
@@ -187,7 +208,7 @@ public static class PublicApi
             return Results.File(file, "image/jpeg");
         });
 
-        app.MapGet("/dl/{id:int}", async (int id, string? size, string? fmt, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity) =>
+        app.MapGet("/dl/{id:int}", async (int id, string? size, string? fmt, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity, SettingsService settings) =>
         {
             var p = await db.Photos.Include(x => x.Gallery).FirstOrDefaultAsync(x => x.Id == id);
             if (p?.Gallery == null) return Results.NotFound();
@@ -195,6 +216,7 @@ public static class PublicApi
             var a = await access.CheckAsync(ctx, g);
             if (!a.Allowed || (!p.Approved && !a.Admin)) return Results.NotFound();
             if (!g.AllowDownload && !a.Admin) return Results.StatusCode(403);
+            if (!await LicenseGate.AcceptedAsync(ctx, db, settings)) return LicenseGate.Required();
 
             var baseName = Path.GetFileNameWithoutExtension(p.Name);
             var wm = g.WatermarkDownload && !a.Admin && images.WatermarkAvailable;
@@ -219,7 +241,7 @@ public static class PublicApi
             return Results.File(v.Value.path, ImageService.ContentType(f), $"{baseName}_{px}.{f}");
         }).RequireRateLimiting("download");
 
-        app.MapGet("/dl/{id:int}/raw", async (int id, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ActivityLog activity) =>
+        app.MapGet("/dl/{id:int}/raw", async (int id, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ActivityLog activity, SettingsService settings) =>
         {
             var p = await db.Photos.Include(x => x.Gallery).FirstOrDefaultAsync(x => x.Id == id);
             if (p?.Gallery == null || p.RawRelPath == null) return Results.NotFound();
@@ -227,6 +249,7 @@ public static class PublicApi
             var a = await access.CheckAsync(ctx, g);
             if (!a.Allowed || (!p.Approved && !a.Admin)) return Results.NotFound();
             if (!a.Admin && (!g.AllowDownload || !g.AllowRaw || g.WatermarkDownload)) return Results.StatusCode(403);
+            if (!await LicenseGate.AcceptedAsync(ctx, db, settings)) return LicenseGate.Required();
             var path = cfg.ResolvePhoto(p, p.RawRelPath);
             if (path == null || !File.Exists(path)) return Results.NotFound();
             if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);
@@ -234,13 +257,14 @@ public static class PublicApi
             return Results.File(path, "application/octet-stream", Path.GetFileName(path));
         }).RequireRateLimiting("download");
 
-        app.MapGet("/api/g/{slug}/zip", async (string slug, string? size, string? fmt, bool? raw, string? ids, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity) =>
+        app.MapGet("/api/g/{slug}/zip", async (string slug, string? size, string? fmt, bool? raw, string? ids, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity, SettingsService settings) =>
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
             if (g == null) return Results.NotFound();
             var a = await access.CheckAsync(ctx, g);
             if (!a.Allowed) return Results.StatusCode(403);
             if (!a.Admin && (!g.AllowDownload || !g.AllowZip)) return Results.StatusCode(403);
+            if (!await LicenseGate.AcceptedAsync(ctx, db, settings)) return LicenseGate.Required();
 
             var original = string.Equals(size, "original", StringComparison.OrdinalIgnoreCase);
             int px = 0;
