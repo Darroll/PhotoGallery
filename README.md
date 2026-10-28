@@ -164,7 +164,7 @@ environment:
 
 ### Behind SWAG (nginx)
 
-The SSO session cookie is large, so the proxy needs a bigger header buffer. `unraid/photos.subdomain.conf` already sets `proxy_buffer_size`; if you use your own proxy config, add it there too. The container must also trust the proxy's forwarded headers (`TRUST_PROXY=true`, the default), otherwise the redirect URI is built with `http://` and the provider rejects it.
+The SSO session cookie is large, so the proxy needs a bigger header buffer. `unraid/gallery.subdomain.conf` already sets `proxy_buffer_size 16k`; if you use your own proxy config, add it there too. The container must also trust the proxy's forwarded headers (`TRUST_PROXY=true`, the default), otherwise the redirect URI is built with `http://` and the provider rejects it.
 
 ### What changes once it is on
 
