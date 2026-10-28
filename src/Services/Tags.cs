@@ -18,6 +18,13 @@ public class PhotoTag
     public int TagId { get; set; }
 }
 
+/// <summary>Links a tag to a whole gallery.</summary>
+public class GalleryTag
+{
+    public int GalleryId { get; set; }
+    public int TagId { get; set; }
+}
+
 public static class Tags
 {
     public const int MaxLength = 40;
@@ -37,5 +44,15 @@ public static class Tags
             .Join(db.Tags, pt => pt.TagId, t => t.Id, (pt, t) => new { pt.PhotoId, t.Name })
             .ToListAsync();
         return rows.GroupBy(r => r.PhotoId).ToDictionary(g => g.Key, g => g.Select(x => x.Name).OrderBy(n => n).ToList());
+    }
+
+    /// <summary>The tag names of each gallery in the list, sorted.</summary>
+    public static async Task<Dictionary<int, List<string>>> NamesByGalleryAsync(AppDb db, List<int> galleryIds)
+    {
+        if (galleryIds.Count == 0) return new();
+        var rows = await db.GalleryTags.AsNoTracking().Where(gt => galleryIds.Contains(gt.GalleryId))
+            .Join(db.Tags, gt => gt.TagId, t => t.Id, (gt, t) => new { gt.GalleryId, t.Name })
+            .ToListAsync();
+        return rows.GroupBy(r => r.GalleryId).ToDictionary(g => g.Key, g => g.Select(x => x.Name).OrderBy(n => n).ToList());
     }
 }

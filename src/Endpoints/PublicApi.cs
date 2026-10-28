@@ -52,9 +52,11 @@ public static class PublicApi
             var rows = await db.Galleries.Where(g => g.Visibility == Visibility.Public && (g.ExpiresAt == null || g.ExpiresAt > now))
                 .Select(g => new { g, count = g.Photos.Count(p => p.Approved) }).ToListAsync();
             var counts = rows.ToDictionary(r => r.g.Id, r => r.count);
+            var galleryTags = await Tags.NamesByGalleryAsync(db, rows.Select(r => r.g.Id).ToList());
             var list = GalleryRules.OrderGalleries(rows.Select(r => r.g), settings.Home.Order).Select(g => new
             {
-                g.Slug, g.Title, g.Description, g.Location, eventDate = g.EventDate, cover = g.CoverPhotoId, count = counts[g.Id]
+                g.Slug, g.Title, g.Description, g.Location, eventDate = g.EventDate, cover = g.CoverPhotoId, count = counts[g.Id],
+                tags = galleryTags.TryGetValue(g.Id, out var gt) ? gt : new List<string>()
             });
             return Results.Ok(list);
         });
@@ -84,10 +86,11 @@ public static class PublicApi
             var shaped = photos.Select(x => new { x.Id, x.w, x.h, x.Name, x.raw, x.rawOnly, x.taken, x.added, x.Approved, x.Caption, x.AltText,
                 tags = tagNames.TryGetValue(x.Id, out var t) ? t : new List<string>() }).ToList();
 
+            var gTags = (await Tags.NamesByGalleryAsync(db, new List<int> { g.Id })).GetValueOrDefault(g.Id) ?? new List<string>();
             var locked = g.WatermarkDownload && !admin;
             return Results.Ok(new
             {
-                g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId,
+                g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId, tags = gTags,
                 g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url) }), favorites = favoriteIds, favoriteName, sizes = GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
                 allowDownload = g.AllowDownload,
                 allowOriginal = g.AllowDownload && !locked,

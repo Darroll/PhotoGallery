@@ -206,7 +206,7 @@ async function viewSearch(app) {
   if (galleries.length) app.append(h('h2', { text: 'Galleries' }), h('div', { class: 'cards' }, galleries.map(g =>
     h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
       g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
-      h('div', { class: 'meta' }, h('b', { text: g.title }), h('span', { class: 'muted', text: eventLine(g) }))))));
+      h('div', { class: 'meta' }, h('b', { text: g.title }), h('span', { class: 'muted', text: eventLine(g) }), tagChips(g))))));
   if (photos.length) app.append(h('h2', { text: 'Photos' }), h('div', { class: 'photo-cards' }, photos.map(p =>
     h('a', { class: 'photo-card', href: `/g/${encodeURIComponent(p.slug)}/p/${p.id}` },
       h('img', { loading: 'lazy', src: `/img/${p.id}/thumb`, alt: p.altText || p.name }),
@@ -224,7 +224,7 @@ async function viewHome(app) {
   app.append(h('div', { class: 'cards' }, r.data.map(g =>
     h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
       g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
-      h('div', { class: 'meta' }, h('b', { text: g.title }), g.eventDate || g.location ? h('span', { class: 'muted', text: eventLine(g) }) : null, h('span', { class: 'muted', text: plural(g.count, 'photo') }))))));
+      h('div', { class: 'meta' }, h('b', { text: g.title }), g.eventDate || g.location ? h('span', { class: 'muted', text: eventLine(g) }) : null, h('span', { class: 'muted', text: plural(g.count, 'photo') }), tagChips(g))))));
 }
 
 // ---------- gallery ----------
@@ -270,6 +270,7 @@ async function viewGallery(app, slug) {
   document.title = G.title;
   app.append(h('h1', { class: 'g-title', text: G.title }));
   if (G.eventDate || G.location) app.append(h('p', { class: 'muted', text: eventLine(G) }));
+  if (G.tags && G.tags.length) app.append(h('p', { class: 'muted', text: G.tags.map(t => '#' + t).join(' ') }));
   if (G.description) app.append(h('p', { class: 'sub', text: G.description }));
   const vids = (G.links || []).filter(l => l.videoId), others = (G.links || []).filter(l => !l.videoId);
   if (vids.length) app.append(h('h2', { class: 'vid-head', text: vids.length === 1 ? 'Video' : 'Videos' }), h('div', { class: 'videos' }, vids.map(l =>
@@ -498,6 +499,11 @@ async function openInfoSheet(photo) {
   sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
   document.addEventListener('keydown', sheet._key, true);
   document.body.append(sheet);
+}
+
+// Gallery tags as a line of #labels (empty when the gallery has none).
+function tagChips(g) {
+  return g.tags && g.tags.length ? h('span', { class: 'muted', text: g.tags.map(t => '#' + t).join(' ') }) : null;
 }
 
 function captionBlock(photo) {
@@ -1207,6 +1213,7 @@ async function viewGallerySettings(app, id) {
   if (!me.data || !me.data.admin) return adminLogin(app);
   const gals = await api('/api/admin/galleries');
   const g = (gals.data || []).find(x => x.id === id);
+  if (g) { const gt = await api(`/api/admin/galleries/${id}/tags`); if (gt.ok) g.tags = gt.data; }
   if (!g) document.title = 'Gallery not found - ' + site.title;
   if (!g) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Gallery not found' }), h('a', { class: 'btn', href: '/admin', text: 'Back to admin' })));
   document.title = g.title + ' settings - ' + site.title;
@@ -1256,10 +1263,11 @@ async function viewGallerySettings(app, id) {
   (g.footageLinks || []).forEach(addLinkRow);
   const footage = h('div', {}, linkRows, h('button', { text: '+ Add link', onclick: () => { addLinkRow(); touch(); } }));
   const collectLinks = () => [...linkRows.children].map(r => ({ label: r.children[0].value.trim(), url: r.children[1].value.trim() })).filter(l => l.url);
+  const tagsInput = track(h('input', { type: 'text', value: (g.tags || []).join(', '), placeholder: 'e.g. wedding, portraits' }));
   const general = section('General', 'Name, date, order, cover', true,
     h('div', { class: 'form1' },
       field('Title', title), field('URL name', slug, `Gallery address: /g/${g.slug}`), field('Description', desc),
-      field('Event date', eventDate), field('Location', location_),
+      field('Event date', eventDate), field('Location', location_), field('Tags', tagsInput, 'Labels that help visitors find this gallery in search. Separate with commas.'),
       field('Videos and links', footage, 'Paste YouTube links to show the recordings together on the gallery page (leave the title empty to use the video\'s own title). Other links appear as buttons. Only http and https links are kept, up to 30.'),
       field('Photo order', h('div', { class: 'row' }, sortMode, h('label', {}, sortDesc, ' Reverse (newest / Z-A first)'))),
       field('Cover image', h('div', {}, h('div', { class: 'row' }, coverImg, coverBtn), pickerBox)),
@@ -1338,6 +1346,7 @@ async function viewGallerySettings(app, id) {
     };
     if (pw.value) body.password = pw.value === '-' ? '' : pw.value;
     const r = await api('/api/admin/galleries/' + g.id, { method: 'PUT', body });
+    if (r.ok) await api(`/api/admin/galleries/${g.id}/tags`, { method: 'PUT', body: { names: tagsInput.value.split(',') } });
     if (r.ok) { dirty = false; toast('Saved'); route(); }
     else status.textContent = typeof r.data === 'string' ? r.data : 'Save failed';
   };

@@ -159,6 +159,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<CaptionEdit> CaptionEdits => Set<CaptionEdit>();
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<PhotoTag> PhotoTags => Set<PhotoTag>();
+    public DbSet<GalleryTag> GalleryTags => Set<GalleryTag>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -170,6 +171,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<AlertState>().HasKey(a => a.Key);
         b.Entity<AppUser>().HasKey(u => u.Sub);
         b.Entity<PhotoTag>().HasKey(x => new { x.PhotoId, x.TagId });
+        b.Entity<GalleryTag>().HasKey(x => new { x.GalleryId, x.TagId });
         b.Entity<Visit>().HasIndex(v => v.Time);
         b.Entity<Visit>().HasIndex(v => new { v.GalleryId, v.Time });
         b.Entity<Photo>().HasOne(p => p.Gallery).WithMany(g => g.Photos).HasForeignKey(p => p.GalleryId).OnDelete(DeleteBehavior.Cascade);
