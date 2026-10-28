@@ -19,6 +19,7 @@ builder.Services.AddSingleton<CacheService>();
 builder.Services.AddSingleton<ActivityLog>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ActivityLog>());
 builder.Services.AddHostedService<EmailService>();
+builder.Services.AddHostedService<CaptionService>();
 builder.Services.AddScoped<AccessService>();
 builder.Services.AddScoped<Scanner>();
 builder.Services.AddHostedService<RescanService>();
@@ -53,6 +54,7 @@ builder.Services.AddRateLimiter(o =>
     o.AddPolicy("login", c => Per(c, 8));
     o.AddPolicy("unlock", c => Per(c, 10));
     o.AddPolicy("subscribe", c => Per(c, 5));
+    o.AddPolicy("suggest", c => Per(c, 10));
     o.AddPolicy("upload", c => Per(c, 30));
     o.AddPolicy("viewed", c => Per(c, 240));
     // one ZIP at a time per visitor, and a few concurrent single downloads
@@ -126,7 +128,7 @@ string AssetVersion()
     return Convert.ToHexString(sha.Hash!)[..10].ToLowerInvariant();
 }
 static bool IsAppRoute(PathString p) =>
-    p.Value is "/" or "/index.html" or "/admin" or "/expired" or "/license" || p.StartsWithSegments("/g") || p.StartsWithSegments("/admin");
+    p.Value is "/" or "/index.html" or "/admin" or "/expired" or "/license" or "/search" || p.StartsWithSegments("/g") || p.StartsWithSegments("/admin");
 var indexHtml = File.ReadAllText(Path.Combine(webRoot, "index.html")).Replace("__V__", AssetVersion());
 app.Use(async (ctx, next) =>
 {
@@ -155,6 +157,8 @@ AdminApi.Map(app);
 StatsApi.Map(app);
 AuthApi.Map(app);
 SubscribeApi.Map(app);
+CaptionApi.Map(app);
+SearchApi.Map(app);
 
 app.Run();
 

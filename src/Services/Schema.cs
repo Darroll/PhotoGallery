@@ -52,6 +52,20 @@ public static class Schema
             ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_Subscribers"" PRIMARY KEY AUTOINCREMENT,
             ""Email"" TEXT NOT NULL, ""Token"" TEXT NOT NULL, ""CreatedAt"" TEXT NOT NULL, ""ConfirmedAt"" TEXT NULL, ""Unsubscribed"" INTEGER NOT NULL)");
         db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_Subscribers_Token"" ON ""Subscribers"" (""Token"")");
+        AddColumn(db, "Photos", "Caption", "TEXT NOT NULL DEFAULT ''");
+        AddColumn(db, "Photos", "AltText", "TEXT NOT NULL DEFAULT ''");
+        AddColumn(db, "Photos", "CaptionSource", "TEXT NOT NULL DEFAULT ''");
+        AddColumn(db, "Photos", "CaptionAttempts", "INTEGER NOT NULL DEFAULT 0");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""CaptionEdits"" (
+            ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_CaptionEdits"" PRIMARY KEY AUTOINCREMENT,
+            ""PhotoId"" INTEGER NOT NULL, ""Field"" TEXT NOT NULL, ""Base"" TEXT NOT NULL, ""Proposed"" TEXT NOT NULL,
+            ""Sub"" TEXT NOT NULL, ""Name"" TEXT NOT NULL, ""CreatedAt"" TEXT NOT NULL, ""Status"" TEXT NOT NULL, ""ReviewedAt"" TEXT NULL)");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""People"" (
+            ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_People"" PRIMARY KEY AUTOINCREMENT,
+            ""Name"" TEXT NOT NULL, ""Public"" INTEGER NOT NULL, ""CreatedAt"" TEXT NOT NULL)");
+        db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_People_Name"" ON ""People"" (""Name"" COLLATE NOCASE)");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""PhotoPeople"" (
+            ""PhotoId"" INTEGER NOT NULL, ""PersonId"" INTEGER NOT NULL, CONSTRAINT ""PK_PhotoPeople"" PRIMARY KEY (""PhotoId"", ""PersonId""))");
     }
 
     static void AddColumn(AppDb db, string table, string column, string definition)

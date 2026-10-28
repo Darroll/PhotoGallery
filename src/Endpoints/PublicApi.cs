@@ -76,7 +76,7 @@ public static class PublicApi
             var favoriteIds = vid == "" ? new List<int>() : await db.Favorites.AsNoTracking().Where(f => f.GalleryId == g.Id && f.VisitorId == vid).Select(f => f.PhotoId).ToListAsync();
             var favoriteName = vid == "" ? "" : await db.FavoriteOwners.AsNoTracking().Where(o => o.GalleryId == g.Id && o.VisitorId == vid).Select(o => o.Name).FirstOrDefaultAsync() ?? "";
             var photos = await db.Photos.Where(p => p.GalleryId == g.Id && (p.Approved || admin))
-                .Select(p => new { p.Id, w = p.Width, h = p.Height, p.Name, raw = p.RawRelPath != null, rawOnly = p.RawRelPath != null && p.RawRelPath == p.RelPath, taken = p.TakenAt, added = p.AddedAt, p.Approved })
+                .Select(p => new { p.Id, w = p.Width, h = p.Height, p.Name, raw = p.RawRelPath != null, rawOnly = p.RawRelPath != null && p.RawRelPath == p.RelPath, taken = p.TakenAt, added = p.AddedAt, p.Approved, p.Caption, p.AltText })
                 .ToListAsync();
             photos = GalleryRules.Sort(photos, g, x => x.taken, x => x.Name, x => x.added);
 

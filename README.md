@@ -115,6 +115,21 @@ Do on your side:
 | `MAX_PENDING_PER_GALLERY` | `200` | Pending upload cap |
 | `TRUST_PROXY` | `true` | Honour `X-Forwarded-*` |
 
+## Sharing, search and details
+
+**Link previews.** A shared gallery link shows its name and cover in chat apps and social feeds. Public and unlisted galleries reveal their name and a picture; a protected gallery shows only the site name, so its title and photos stay private. Expired galleries show only the site name.
+
+**Subscriptions.** Visitors can subscribe on the home page to emails about new public galleries and new photos. Each subscriber confirms by a link first (double opt-in), and every email has an unsubscribe link. Unlisted and protected galleries are never announced. Subscriptions need the site address (Admin -> Settings -> Email alerts) and can be turned off there, where you also see how many people are confirmed.
+
+**Details.** The ⓘ Details button in the viewer lists the metadata of every file behind a photo: the processed image and its RAW, if it has one. With exiftool installed on the server you get the full set (camera, lens, settings, dates); without it, the image library's own fields are shown. Where a photo was taken (GPS) is shown only to the admin.
+
+**Captions and alt text.** Each photo can have a short caption and an alt text (a description for screen readers, which is also used as the image's alt attribute). Visitors who sign in can suggest changes from Details. Suggestions are reviewed in Admin -> Settings -> Caption suggestions, like a merge request: approving applies the text, rejecting drops it, and if the text has changed since the suggestion was made it is marked as a conflict and needs an explicit "Apply anyway". The admin's own edits apply straight away.
+
+*Automatic captions* need a vision model you run yourself. Set `CAPTION_URL` to an Ollama server (for example `http://192.168.2.5:11434`) and optionally `CAPTION_MODEL` (default `llava`). The server writes captions for photos that have none, a few at a time in the background, and gives up on a photo after three tries. Photos are sent only to that address. Leave `CAPTION_URL` empty and nothing leaves the server. Run the model on a machine with enough memory: a vision model on the Unraid server itself can exhaust its RAM.
+
+**Search and people.** The search box on the home page (and `/search`) finds public photos by file name, caption, alt text, gallery title, place, and date taken. Protected, unlisted and expired galleries are never searched.
+People are tagged per photo from the same Edit sheet (admin only). A person's name is shown under their photos, and found by search, only when you tick them in Admin -> Settings -> People. Everyone else stays anonymous, including in search results.
+
 ## Themes
 
 Visitors can pick a theme from the **Theme** menu in the header. The choice is remembered in their own browser (no account needed) and applies to every page. Visitors who sign in with single sign-on also have it saved to their account, so it follows them to every device and browser: the account's theme wins over the browser's, and the first time someone signs in, the theme already chosen in that browser is saved to the account. (The password-only admin has no account, so the admin's choice stays in the browser.) Preferences are stored as JSON in the `Users` table (`UserPreferences`), so more can be added later. Themes change colors, fonts, corner rounding, shadows and photo-grid spacing, but never the layout. Photos in the full-screen viewer always sit on black.
@@ -158,7 +173,7 @@ PHOTO_LIBRARY=/path/to/photos DATA_DIR=./data ADMIN_PASSWORD=dev dotnet run
 dotnet test tests/PhotoGallery.Tests
 ```
 
-The suite (132 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
+The suite (158 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
 
 Add a test whenever you add or fix a feature. `AppFactory` in `tests/PhotoGallery.Tests` boots the app; pass extra environment-style settings to a subclass to test other configurations (see `SsoFactory`).
 

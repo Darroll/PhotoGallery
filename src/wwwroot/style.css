@@ -345,3 +345,19 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .info-version h4 { margin: 14px 0 4px; font-size: 14px; }
 .info-version details { margin: 4px 0; }
 .info-version summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+
+/* captions and alt text */
+.lb-caption { color: #eee; text-align: center; padding: 4px 12px; font-size: 14px; max-width: 900px; margin: 0 auto; }
+.info-caption { margin-bottom: 8px; }
+.info-caption h4 { margin: 0 0 4px; font-size: 14px; }
+.sheet-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; color: var(--muted); font-size: 13px; }
+.sheet-field input, .sheet-field textarea { width: 100%; }
+.review-row { border-top: 1px solid var(--line); padding: 10px 0; display: flex; flex-direction: column; gap: 4px; }
+.diff-old { color: var(--muted); }
+.diff-new { font-weight: 550; }
+
+/* search */
+.search-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0 18px; }
+.search-form input[type=search] { flex: 1 1 240px; }
+.search-form label { display: flex; gap: 4px; align-items: center; }
+.photo-card { display: block; text-decoration: none; color: var(--fg); }

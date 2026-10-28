@@ -18,6 +18,9 @@ public class AppConfig
     /// <summary>Role (or group) in the provider that makes a user an admin of the gallery.</summary>
     public string OidcAdminRole { get; }
     public bool OidcAllowHttp { get; }
+    /// <summary>Address of an Ollama server with a vision model, for automatic captions. Empty means off.</summary>
+    public string? CaptionUrl { get; }
+    public string CaptionModel { get; }
     public bool OidcEnabled => OidcAuthority != null && OidcClientId != null;
     public int[] Sizes { get; }
     public int MaxUploadMb { get; }
@@ -58,6 +61,8 @@ public class AppConfig
         OidcClientSecret = Opt(c["OIDC_CLIENT_SECRET"]);
         OidcAdminRole = Opt(c["OIDC_ADMIN_ROLE"]) ?? "gallery-admin";
         OidcAllowHttp = string.Equals(c["OIDC_ALLOW_HTTP"], "true", StringComparison.OrdinalIgnoreCase);
+        CaptionUrl = Opt(c["CAPTION_URL"])?.TrimEnd('/');
+        CaptionModel = Opt(c["CAPTION_MODEL"]) ?? "llava";
         Sizes = (c["SIZES"] ?? "1080,1920,2560,4096")
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(int.Parse).Where(s => s > 0).Distinct().OrderBy(s => s).ToArray();

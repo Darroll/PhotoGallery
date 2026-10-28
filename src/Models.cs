@@ -69,6 +69,14 @@ public class Photo
     public long SizeBytes { get; set; }
     public bool Approved { get; set; } = true;
     public bool IsGuest { get; set; }
+    /// <summary>Short title shown under the photo. Empty when there is none.</summary>
+    public string Caption { get; set; } = "";
+    /// <summary>Description for screen readers (alt text).</summary>
+    public string AltText { get; set; } = "";
+    /// <summary>Who wrote the current caption: "auto" (a vision model), "admin" (you, or a suggestion you approved), or "" for none.</summary>
+    public string CaptionSource { get; set; } = "";
+    /// <summary>Automatic captioning attempts made for this photo (it stops after a few).</summary>
+    public int CaptionAttempts { get; set; }
     public DateTime AddedAt { get; set; } = DateTime.UtcNow;
     public bool RawOnly => RawRelPath != null && RawRelPath == RelPath;
 }
@@ -148,6 +156,9 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<AppUser> Users => Set<AppUser>();
     public DbSet<LicenseAcceptance> LicenseAcceptances => Set<LicenseAcceptance>();
     public DbSet<Subscriber> Subscribers => Set<Subscriber>();
+    public DbSet<CaptionEdit> CaptionEdits => Set<CaptionEdit>();
+    public DbSet<Person> People => Set<Person>();
+    public DbSet<PhotoPerson> PhotoPeople => Set<PhotoPerson>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -158,6 +169,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<FavoriteOwner>().HasIndex(o => new { o.GalleryId, o.VisitorId }).IsUnique();
         b.Entity<AlertState>().HasKey(a => a.Key);
         b.Entity<AppUser>().HasKey(u => u.Sub);
+        b.Entity<PhotoPerson>().HasKey(x => new { x.PhotoId, x.PersonId });
         b.Entity<Visit>().HasIndex(v => v.Time);
         b.Entity<Visit>().HasIndex(v => new { v.GalleryId, v.Time });
         b.Entity<Photo>().HasOne(p => p.Gallery).WithMany(g => g.Photos).HasForeignKey(p => p.GalleryId).OnDelete(DeleteBehavior.Cascade);

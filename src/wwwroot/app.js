@@ -108,6 +108,7 @@ async function route(force = false) {
   if (parts[0] === 'admin' && parts[1] === 'galleries' && parts[2]) return viewGallerySettings(app, Number(parts[2]));
   if (parts[0] === 'admin') return viewAdmin(app);
   if (parts[0] === 'license') return viewLicense(app);
+  if (parts[0] === 'search') return viewSearch(app);
   if (parts[0] === 'expired') document.title = 'Link unavailable - ' + site.title;
   if (parts[0] === 'expired') return app.append(h('div', { class: 'center' }, h('h1', { text: 'Link unavailable' }), h('p', { class: 'sub', text: 'This share link has expired or was revoked.' })));
   return viewHome(app);
@@ -121,7 +122,7 @@ document.addEventListener('click', (e) => {
   const a = e.target.closest && e.target.closest('a[href]');
   if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || a.target === '_blank' || a.hasAttribute('download')) return;
   const href = a.getAttribute('href');
-  if (href === '/' || /^\/(g|admin|expired|license)(\/|$)/.test(href)) {
+  if (href === '/' || /^\/(g|admin|expired|license|search)(\/|$)/.test(href)) {
     e.preventDefault();
     if (dirtyGuard && !dirtyGuard()) return;
     go(href);
@@ -173,9 +174,49 @@ function subscribeForm() {
     h('div', { class: 'row' }, email, h('button', { class: 'primary', text: 'Subscribe', onclick: go }), msg));
 }
 
+// Search: the form is reused on the home page and the results page; the query lives in the address so results can be shared.
+function searchForm(v) {
+  const q = h('input', { type: 'search', placeholder: 'Search photos, people, places', value: v.q || '', 'aria-label': 'Search', maxlength: 80 });
+  const where = h('input', { type: 'text', placeholder: 'Place or month', value: v.where || '', 'aria-label': 'Place or month', maxlength: 80 });
+  const from = h('input', { type: 'date', value: v.from || '', 'aria-label': 'From date' });
+  const to = h('input', { type: 'date', value: v.to || '', 'aria-label': 'To date' });
+  const submit = () => {
+    const p = new URLSearchParams();
+    if (q.value.trim()) p.set('q', q.value.trim());
+    if (where.value.trim()) p.set('where', where.value.trim());
+    if (from.value) p.set('from', from.value);
+    if (to.value) p.set('to', to.value);
+    const qs = p.toString();
+    go('/search' + (qs ? '?' + qs : ''));
+  };
+  return h('form', { class: 'search-form', onsubmit: (e) => { e.preventDefault(); submit(); } },
+    q, where, h('label', { class: 'muted' }, 'From ', from), h('label', { class: 'muted' }, 'To ', to), h('button', { class: 'primary', type: 'submit', text: 'Search' }));
+}
+
+async function viewSearch(app) {
+  const sp = new URLSearchParams(location.search);
+  document.title = 'Search - ' + site.title;
+  app.append(h('h1', { text: 'Search' }), searchForm({ q: sp.get('q'), where: sp.get('where'), from: sp.get('from'), to: sp.get('to') }));
+  const r = await api('/api/search?' + sp.toString());
+  if (!r.ok) return app.append(h('p', { class: 'err', text: 'Search failed. Try again.' }));
+  const { galleries, photos } = r.data;
+  if (!photos.length && !galleries.length) return app.append(h('p', { class: 'muted', text: 'Nothing matched. Only public galleries are searched.' }));
+  if (galleries.length) app.append(h('h2', { text: 'Galleries' }), h('div', { class: 'cards' }, galleries.map(g =>
+    h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
+      g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
+      h('div', { class: 'meta' }, h('b', { text: g.title }), h('span', { class: 'muted', text: eventLine(g) }))))));
+  if (photos.length) app.append(h('h2', { text: 'Photos' }), h('div', { class: 'photo-cards' }, photos.map(p =>
+    h('a', { class: 'photo-card', href: `/g/${encodeURIComponent(p.slug)}/p/${p.id}` },
+      h('img', { loading: 'lazy', src: `/img/${p.id}/thumb`, alt: p.altText || p.name }),
+      h('div', { class: 'pc-name', text: p.caption || p.name, title: p.name }),
+      h('div', { class: 'muted', text: [p.gallery, p.takenAt ? new Date(p.takenAt + (/Z$/.test(p.takenAt) ? '' : 'Z')).toLocaleDateString() : ''].filter(Boolean).join(' \u00B7 ') }),
+      p.people && p.people.length ? h('div', { class: 'muted', text: 'With ' + p.people.join(', ') }) : null))));
+}
+
 async function viewHome(app) {
   const r = await api('/api/galleries');
   app.append(h('h1', { text: site.title }), h('p', { class: 'sub', text: 'Public galleries' }));
+  app.append(searchForm({}));
   if (site.subscribe) app.append(subscribeForm());
   if (!r.ok || !r.data.length) return app.append(h('p', { class: 'muted', text: 'No public galleries yet. Private galleries are reached through their share link.' }));
   app.append(h('div', { class: 'cards' }, r.data.map(g =>
@@ -307,7 +348,7 @@ async function viewGallery(app, slug) {
       const item = h('div', { class: 'ph' + (p.approved ? '' : ' pending'), title: p.name, tabindex: 0,
         onclick: () => { if (selectMode) toggleSel(p); else openLightbox(i, false); },
         onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); if (selectMode) toggleSel(p); else openLightbox(i, false); } } },
-        h('img', { loading: 'lazy', src: photoUrl(p, 'thumb'), alt: p.name }),
+        h('img', { loading: 'lazy', src: photoUrl(p, 'thumb'), alt: p.altText || p.name }),
         p.approved ? null : h('span', { class: 'badge', text: 'pending' }),
         p.rawOnly ? h('span', { class: 'badge', text: 'RAW' }) : null,
         selectMode ? check : null, heart);
@@ -448,12 +489,54 @@ async function openInfoSheet(photo) {
   const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } },
     h('div', { class: 'sheet info-sheet', role: 'dialog', 'aria-label': 'Photo details' },
       h('div', { class: 'sheet-grab' }), h('h3', { text: d.name }),
+      captionBlock(photo),
       d.versions.length ? d.versions.map(version) : h('p', { class: 'muted', text: 'No details could be read for this photo.' }),
       h('p', { class: 'muted', text: 'Where the photo was taken is not shown to visitors.' }),
       h('div', { class: 'row sheet-actions' }, h('button', { text: 'Close', onclick: closeSheet }))));
   sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
   document.addEventListener('keydown', sheet._key, true);
   document.body.append(sheet);
+}
+
+function captionBlock(photo) {
+  return h('div', { class: 'info-caption' }, h('h4', { text: 'Caption and description' }),
+    h('p', { text: photo.caption || 'No caption yet.' }),
+    h('p', { class: 'muted', text: photo.altText ? `Alt text: ${photo.altText}` : 'No alt text yet.' }),
+    h('button', { text: me && me.admin ? 'Edit' : 'Suggest a change', onclick: () => captionSheet(photo) }));
+}
+
+// Edit (the photographer) or suggest (a signed-in visitor, who the photographer then reviews like a merge).
+function captionSheet(photo) {
+  closeSheet();
+  const isAdmin = !!(me && me.admin), signedIn = !!(me && me.signedIn);
+  const caption = h('input', { type: 'text', maxlength: 120, value: photo.caption || '', 'aria-label': 'Caption' });
+  const alt = h('textarea', { rows: 3, maxlength: 300, 'aria-label': 'Alt text' });
+  alt.value = photo.altText || '';
+  const people = isAdmin ? h('input', { type: 'text', maxlength: 400, 'aria-label': 'People in this photo' }) : null;
+  const msg = h('span', { class: 'muted' });
+  const note = isAdmin ? 'Your changes apply straight away.'
+    : signedIn ? 'Your suggestion goes to the photographer, who approves it before it appears.'
+    : me && me.sso ? 'Sign in to suggest a change.' : 'Only the photographer can change this.';
+  const submit = async () => {
+    const r = await api(`/api/g/${encodeURIComponent(G.slug)}/photo/${photo.id}/suggest`, { method: 'POST', body: { caption: caption.value, alt: alt.value } });
+    if (r.status === 401) { msg.textContent = 'Sign in to suggest a change.'; return; }
+    if (!r.ok) { msg.textContent = 'Could not save. Try again.'; return; }
+    if (people) await api(`/api/admin/photos/${photo.id}/people`, { method: 'PUT', body: { names: people.value.split(',') } });
+    if (r.data && r.data.applied) { photo.caption = r.data.caption; photo.altText = r.data.alt; closeSheet(); toast('Saved'); return; }
+    msg.textContent = r.data && r.data.suggested ? 'Thanks. The photographer will review it.' : 'Nothing new to suggest.';
+  };
+  const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } },
+    h('div', { class: 'sheet', role: 'dialog', 'aria-label': 'Caption' },
+      h('div', { class: 'sheet-grab' }), h('h3', { text: isAdmin ? 'Edit caption' : 'Suggest a caption' }),
+      h('label', { class: 'sheet-field' }, 'Caption', caption),
+      h('label', { class: 'sheet-field' }, 'Alt text (describes the photo for screen readers)', alt),
+      people ? h('label', { class: 'sheet-field' }, 'People in this photo (comma separated)', people) : null,
+      h('p', { class: 'muted', text: note }), msg,
+      h('div', { class: 'row sheet-actions' }, h('button', { class: 'primary', text: isAdmin ? 'Save' : 'Send suggestion', onclick: submit }), h('button', { text: 'Close', onclick: closeSheet }))));
+  sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
+  document.addEventListener('keydown', sheet._key, true);
+  document.body.append(sheet);
+  if (people) api(`/api/admin/photos/${photo.id}/people`).then(pr => { if (pr.ok) people.value = pr.data.join(', '); });
 }
 
 function uploadControl(slug) {
@@ -502,6 +585,7 @@ function openLightbox(index, play, mode = 'push') {
   const act = (icon, label) => { const i = h('span', { class: 'ic', text: icon }), l = h('span', { class: 'lbl', text: label }); return { el: h('button', { class: 'lb-act' }, i, l), i, l }; };
   const img = h('img', { alt: '', draggable: 'false' });
   const title = h('div', { class: 'lb-title' });
+  const captionEl = h('div', { class: 'lb-caption hidden' });
   const counter = h('div', { class: 'lb-count' });
   const closeBtn = h('button', { class: 'lb-close', 'aria-label': 'Close', text: '✕' });
   const prev = h('button', { class: 'nav prev', text: '‹', 'aria-label': 'Previous' });
@@ -518,7 +602,7 @@ function openLightbox(index, play, mode = 'push') {
   root.append(
     h('div', { class: 'lb-top' }, h('div', { class: 'lb-info' }, title, counter), closeBtn),
     stage,
-    h('div', { class: 'lb-bottom' }, actions, h('div', { class: 'lb-extra' }, speed, fsBtn), adminRow));
+    h('div', { class: 'lb-bottom' }, captionEl, actions, h('div', { class: 'lb-extra' }, speed, fsBtn), adminRow));
   lb = { i: index, timer: null, idle: null, playing: false, lastSeen: null };
 
   // zoom / pan state of the current photo
@@ -548,7 +632,8 @@ function openLightbox(index, play, mode = 'push') {
     resetZoom();
     img.src = photoUrl(p, viewKind());
     if (p.id !== lb.lastSeen) { lb.lastSeen = p.id; fetch(`/api/g/${encodeURIComponent(G.slug)}/viewed/${p.id}`, { method: 'POST', headers: { 'X-Requested-With': 'pg' }, credentials: 'same-origin', keepalive: true }).catch(() => {}); }
-    title.textContent = p.name; document.title = photoTitle(p); counter.textContent = `${lb.i + 1} / ${list.length}`;
+    title.textContent = p.name; captionEl.textContent = p.caption || ''; captionEl.classList.toggle('hidden', !p.caption); img.alt = p.altText || p.name;
+    document.title = photoTitle(p); counter.textContent = `${lb.i + 1} / ${list.length}`;
     lb.sync();
     const n = list[(lb.i + 1) % list.length]; new Image().src = photoUrl(n, viewKind());   // preload
   };
@@ -763,6 +848,8 @@ async function viewSettings(app) {
   app.append(h('div', { class: 'toolbar' }, h('h1', { text: 'Settings' }), h('span', { class: 'grow' }), h('a', { class: 'btn', href: '/admin', text: 'Back to admin' })));
   app.append(siteNamePanel());
   app.append(await themePanel());
+  app.append(await captionReviewPanel());
+  app.append(await peoplePanel());
   app.append(await licensePanel());
 
   const modeSel = h('select', {}, [['none', 'None'], ['text', 'Text'], ['png', 'PNG image']].map(([v, t]) => h('option', { value: v, text: t, selected: v === w.mode })));
@@ -825,6 +912,54 @@ const orderLabels = [
   ['name-asc', 'Name, A to Z'], ['name-desc', 'Name, Z to A'],
   ['created-desc', 'Date created, newest first'], ['created-asc', 'Date created, oldest first'],
   ['manual', 'Manual (use the arrows on the admin list)']];
+
+// Suggestions from signed-in visitors, reviewed like merge requests: approve applies, reject drops, and a conflict needs a deliberate "apply anyway".
+async function captionReviewPanel() {
+  const r = await api('/api/admin/caption-edits');
+  if (!r.ok) return h('div', { class: 'panel' }, h('h3', { text: 'Caption suggestions' }), h('p', { class: 'err', text: 'Could not load suggestions.' }));
+  const rows = r.data;
+  const items = rows.map(e => {
+    const msg = h('span', { class: 'muted' });
+    const row = h('div', { class: 'review-row' });
+    const decide = async (path, force) => {
+      const res = await api(`/api/admin/caption-edits/${e.id}/${path}`, { method: 'POST', body: force ? { force: true } : {} });
+      if (res.status === 409) { msg.textContent = 'The text changed after it was suggested. Apply anyway to replace it, or reject.'; return; }
+      if (!res.ok) { msg.textContent = 'Failed. Try again.'; return; }
+      row.remove();
+    };
+    row.append(
+      h('strong', { text: `${e.photoName} \u00B7 ${e.field === 'alt' ? 'alt text' : 'caption'}` }),
+      h('div', { class: 'muted', text: `Suggested by ${e.name || 'a signed-in visitor'} on ${new Date(e.createdAt + (/Z$/.test(e.createdAt) ? '' : 'Z')).toLocaleString()}` }),
+      h('div', { class: 'diff-old', text: `Now: ${e.current || '(empty)'}` }),
+      h('div', { class: 'diff-new', text: `Suggested: ${e.proposed || '(empty)'}` }),
+      e.conflict ? h('div', { class: 'err', text: 'Conflict: the text changed after this was suggested.' }) : null,
+      h('div', { class: 'row' },
+        h('button', { class: 'primary', text: 'Approve', onclick: () => decide('approve', false) }),
+        e.conflict ? h('button', { text: 'Apply anyway', onclick: () => decide('approve', true) }) : null,
+        h('button', { text: 'Reject', onclick: () => decide('reject', false) }), msg));
+    return row;
+  });
+  return h('div', { class: 'panel' }, h('h3', { text: `Caption suggestions (${rows.length})` }),
+    h('p', { class: 'muted', text: 'Suggestions from signed-in visitors. Approve to apply, reject to drop. A conflict means the text changed after the suggestion was made.' }),
+    items.length ? items : h('p', { class: 'muted', text: 'Nothing waiting for review.' }));
+}
+
+// People tagged in photos. Only ticked people are shown to visitors and found by search.
+async function peoplePanel() {
+  const r = await api('/api/admin/people');
+  if (!r.ok) return h('div', { class: 'panel' }, h('h3', { text: 'People' }), h('p', { class: 'err', text: 'Could not load people.' }));
+  const rows = r.data.map(p => {
+    const box = h('input', { type: 'checkbox', checked: !!p.public });
+    box.addEventListener('change', async () => {
+      const res = await api(`/api/admin/people/${p.id}`, { method: 'PUT', body: { public: box.checked } });
+      if (!res.ok) box.checked = !box.checked;
+    });
+    return h('div', { class: 'row' }, h('label', {}, box, ' ' + p.name), h('span', { class: 'muted', text: `${p.photos} photo${p.photos === 1 ? '' : 's'}` }));
+  });
+  return h('div', { class: 'panel' }, h('h3', { text: 'People' }),
+    h('p', { class: 'muted', text: 'Tick a person to show their name under their photos and let visitors find them in search. Everyone else stays anonymous. Tag people from a photo: open its details and choose Edit.' }),
+    rows.length ? rows : h('p', { class: 'muted', text: 'Nobody is tagged yet.' }));
+}
 
 async function themePanel() {
   const r = await api('/api/admin/settings/theme');
