@@ -274,3 +274,11 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .vid-bar a { color: #9cf; }
 
 .who { color: var(--muted, #888); margin: 0 8px; font-size: 14px; }
+
+/* license agreement */
+.license-page { max-width: 760px; margin: 30px auto; padding: 0 16px; }
+.license-text { white-space: pre-wrap; line-height: 1.55; background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+.license-agree { margin: 6px 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.license-agree .sheet-row { align-items: flex-start; font-size: 14px; }
+.license-edit { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; min-height: 260px; margin: 6px 0 10px; }
+.foot-link { color: inherit; }

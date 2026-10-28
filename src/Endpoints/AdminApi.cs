@@ -165,6 +165,8 @@ public static class AdminApi
         });
         secured.MapGet("/settings/site", (SettingsService settings) => Results.Ok(new { name = settings.SiteName }));
         secured.MapPut("/settings/site", (SiteInput input, SettingsService settings) => Results.Ok(new { name = settings.SetSiteName(input.Name) }));
+        secured.MapGet("/settings/license", (SettingsService settings) => Results.Ok(new { license = settings.License, defaultText = LicenseSettings.DefaultText, maxText = LicenseSettings.MaxText }));
+        secured.MapPut("/settings/license", (LicenseSettings input, SettingsService settings) => Results.Ok(settings.SetLicense(input)));
         secured.MapGet("/settings/email", (SettingsService settings) => Results.Ok(settings.Email));
         secured.MapPut("/settings/email", (EmailSettings input, SettingsService settings) =>
         {

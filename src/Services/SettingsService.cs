@@ -45,6 +45,7 @@ class AppSettings
     public HomeSettings Home { get; set; } = new();
     public StatsSettings Stats { get; set; } = new();
     public EmailSettings Email { get; set; } = new();
+    public LicenseSettings License { get; set; } = new();
 }
 
 /// <summary>App-level settings kept in DATA_DIR/settings.json (editable from the admin Settings page).</summary>
@@ -71,6 +72,7 @@ public class SettingsService
                 data.Home = data.Home.Sanitized();
                 data.Stats = (data.Stats ?? new()).Sanitized();
                 data.Email = (data.Email ?? new()).Sanitized();
+                data.License = (data.License ?? new()).Sanitized();
                 if (string.IsNullOrWhiteSpace(data.SiteName)) { data.SiteName = SanitizeName(cfg.SiteTitle); Save(); }
             }
             else
@@ -124,6 +126,21 @@ public class SettingsService
             data.Email = s.Sanitized();
             Save();
             return data.Email.Clone();
+        }
+    }
+
+    public LicenseSettings License
+    {
+        get { lock (gate) return data.License.Clone(); }
+    }
+
+    public LicenseSettings SetLicense(LicenseSettings s)
+    {
+        lock (gate)
+        {
+            data.License = s.Sanitized();
+            Save();
+            return data.License.Clone();
         }
     }
 

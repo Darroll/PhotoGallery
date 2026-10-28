@@ -115,6 +115,15 @@ Do on your side:
 | `MAX_PENDING_PER_GALLERY` | `200` | Pending upload cap |
 | `TRUST_PROXY` | `true` | Honour `X-Forwarded-*` |
 
+## License agreement
+
+The gallery ships with a general-purpose photo license (personal, non-commercial use only; no resale, no advertising or stock use, no AI training, watermarks and credits must stay). It is an example, not legal advice, so have it reviewed for your country.
+
+- Visitors see it at `/license` and through a footer link.
+- By default they must tick an agree box in the download dialog before any download. The acceptance is remembered in the browser until the wording changes. This is a click-through notice, not technical protection: use watermarks (Admin -> Settings) to deter misuse.
+- Edit it in **Admin -> Settings -> License agreement**: turn it off, turn the required tick-box off, set the title, copyright holder, contact address and the full text. `{holder}`, `{site}`, `{year}` and `{contact}` are filled in automatically. **Reset text to default** restores the built-in wording.
+- It is stored in `settings.json` in `DATA_DIR`, so it survives updates.
+
 ## Versioning
 
 The version shown at the bottom right of every page is `<Version>` in `src/PhotoGallery.csproj` plus the git commit it was built from (hover for the build time). Bump `<Version>` for a release; `release.sh` passes the commit and build time into the image.

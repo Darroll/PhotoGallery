@@ -21,6 +21,8 @@ public static class PublicApi
             watermark = img.WatermarkAvailable
         });
 
+        app.MapGet("/api/license", (SettingsService settings) => Results.Ok(settings.License.ForVisitors(settings.SiteName)));
+
         app.MapGet("/api/galleries", async (AppDb db, SettingsService settings) =>
         {
             var now = DateTime.UtcNow;

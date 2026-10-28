@@ -35,6 +35,10 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const fmtLabels = { png: 'PNG (lossless)', webp: 'WebP (lossless)', tif: 'TIFF (lossless)' };
 let site = { title: 'Photos', sizes: [], formats: [] };
 let me = null, signinFailed = false;
+let license = { enabled: false, require: false };
+const licenseKey = 'pg-license-accepted';
+const licenseAccepted = () => { try { return !!license.version && localStorage.getItem(licenseKey) === license.version; } catch { return false; } };
+const licenseAccept = () => { try { localStorage.setItem(licenseKey, license.version); } catch { } };
 const fmtDate = (s) => s ? new Date(/Z$|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z').toLocaleString() : '';
 
 // ---------- routing ----------
@@ -60,6 +64,7 @@ async function route(force = false) {
   if (parts[0] === 'admin' && parts[1] === 'settings') return viewSettings(app);
   if (parts[0] === 'admin' && parts[1] === 'galleries' && parts[2]) return viewGallerySettings(app, Number(parts[2]));
   if (parts[0] === 'admin') return viewAdmin(app);
+  if (parts[0] === 'license') return viewLicense(app);
   if (parts[0] === 'expired') document.title = 'Link unavailable - ' + site.title;
   if (parts[0] === 'expired') return app.append(h('div', { class: 'center' }, h('h1', { text: 'Link unavailable' }), h('p', { class: 'sub', text: 'This share link has expired or was revoked.' })));
   return viewHome(app);
@@ -73,7 +78,7 @@ document.addEventListener('click', (e) => {
   const a = e.target.closest && e.target.closest('a[href]');
   if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || a.target === '_blank' || a.hasAttribute('download')) return;
   const href = a.getAttribute('href');
-  if (href === '/' || /^\/(g|admin|expired)(\/|$)/.test(href)) {
+  if (href === '/' || /^\/(g|admin|expired|license)(\/|$)/.test(href)) {
     e.preventDefault();
     if (dirtyGuard && !dirtyGuard()) return;
     go(href);
@@ -83,8 +88,15 @@ function go(path) { if (path !== location.pathname) history.pushState(null, '', 
 
 function renderFooter() {
   const f = $('#foot'); if (!f) return;
-  f.textContent = `v${site.version || '?'}${site.commit && site.commit !== 'dev' ? ' \u00B7 ' + site.commit : ''}`;
-  f.title = site.built ? `Built ${site.built}` : 'Development build';
+  const ver = h('span', { text: `v${site.version || '?'}${site.commit && site.commit !== 'dev' ? ' \u00B7 ' + site.commit : ''}`, title: site.built ? `Built ${site.built}` : 'Development build' });
+  f.replaceChildren(license.enabled ? h('a', { class: 'foot-link', href: '/license', text: license.title || 'License' }) : null, license.enabled ? ' \u00B7 ' : null, ver);
+}
+
+async function viewLicense(app) {
+  document.title = (license.title || 'License') + ' - ' + site.title;
+  if (!license.enabled) return app.append(h('div', { class: 'center' }, h('h1', { text: 'License' }), h('p', { class: 'sub', text: 'There is no license agreement for this site.' })));
+  app.append(h('div', { class: 'license-page' }, h('h1', { text: license.title }), h('div', { class: 'license-text', text: license.text }),
+    h('p', {}, h('a', { class: 'btn', href: '/', text: 'Back to galleries' }))));
 }
 
 function renderHeader() {
@@ -300,7 +312,13 @@ function openDownloadSheet(opts = {}) {
   const size = h('select'), fmt = h('select'), rawBox = h('input', { type: 'checkbox' });
   const rawRow = h('label', { class: 'sheet-row' }, rawBox, ' Include the RAW files (where they exist)');
   const note = h('p', { class: 'muted' });
-  const rawBtn = photo && photo.raw && G.allowRaw ? h('a', { class: 'btn', href: `/dl/${photo.id}/raw`, text: 'Download the RAW file' }) : null;
+  const needAgree = license.enabled && license.require && !licenseAccepted();
+  const agreeBox = h('input', { type: 'checkbox' });
+  const agreeRow = needAgree ? h('div', { class: 'license-agree' },
+    h('label', { class: 'sheet-row' }, agreeBox, h('span', {}, ' I have read and agree to the ', h('a', { href: '/license', target: '_blank', rel: 'noopener', text: license.title || 'license agreement' }), ': personal, non-commercial use only.'))) : null;
+  const agreed = () => !needAgree || agreeBox.checked;
+  const rawBtn = photo && photo.raw && G.allowRaw ? h('a', { class: 'btn', href: `/dl/${photo.id}/raw`, text: 'Download the RAW file',
+    onclick: (e) => { if (!agreed()) { e.preventDefault(); toast('Please agree to the license first'); } else if (needAgree) licenseAccept(); } }) : null;
 
   const fillSizes = () => {
     const keep = size.value;
@@ -322,6 +340,8 @@ function openDownloadSheet(opts = {}) {
   sync();
 
   const go = () => {
+    if (!agreed()) { toast('Please agree to the license first'); return; }
+    if (needAgree) licenseAccept();
     const q = new URLSearchParams({ size: size.value, fmt: fmt.value });
     if (scope === 'photo') { location.href = `/dl/${photo.id}?${q}`; closeSheet(); return; }
     if (rawBox.checked && G.allowRaw) q.set('raw', 'true');
@@ -335,15 +355,19 @@ function openDownloadSheet(opts = {}) {
     toast('Your download is starting…');
   };
 
+  const dlGo = h('button', { class: 'primary', text: 'Download', onclick: go });
   const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } },
     h('div', { class: 'sheet', role: 'dialog', 'aria-label': 'Download' },
       h('div', { class: 'sheet-grab' }),
       h('h3', { text: 'Download' }),
       scopes.length > 1 ? scopeBox : h('p', { text: scopes[0][1] }),
       h('div', { class: 'sheet-fields' }, h('label', {}, 'Size', size), h('label', {}, 'Format', fmt)),
-      rawRow, note,
+      rawRow, note, agreeRow,
+      license.enabled && !needAgree ? h('p', { class: 'muted' }, 'Downloads are for personal, non-commercial use. See the ', h('a', { href: '/license', target: '_blank', rel: 'noopener', text: license.title || 'license' }), '.') : null,
       G.link && G.link.remaining !== null && G.link.remaining !== undefined ? h('p', { class: 'muted', text: `${G.link.remaining} downloads remaining on your link` }) : null,
-      h('div', { class: 'row sheet-actions' }, h('button', { class: 'primary', text: 'Download', onclick: go }), rawBtn, h('button', { text: 'Close', onclick: closeSheet }))));
+      h('div', { class: 'row sheet-actions' }, dlGo, rawBtn, h('button', { text: 'Close', onclick: closeSheet }))));
+  const syncGo = () => { dlGo.disabled = !agreed(); };
+  agreeBox.addEventListener('change', syncGo); syncGo();
   sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
   document.addEventListener('keydown', sheet._key, true);
   document.body.append(sheet);
@@ -653,6 +677,7 @@ async function viewSettings(app) {
   let hasPng = r.data.hasPng;
   app.append(h('div', { class: 'toolbar' }, h('h1', { text: 'Settings' }), h('span', { class: 'grow' }), h('a', { class: 'btn', href: '/admin', text: 'Back to admin' })));
   app.append(siteNamePanel());
+  app.append(await licensePanel());
 
   const modeSel = h('select', {}, [['none', 'None'], ['text', 'Text'], ['png', 'PNG image']].map(([v, t]) => h('option', { value: v, text: t, selected: v === w.mode })));
   const text = h('input', { type: 'text', value: w.text || '', placeholder: '(c) Your Name', maxlength: 80 });
@@ -714,6 +739,37 @@ const orderLabels = [
   ['name-asc', 'Name, A to Z'], ['name-desc', 'Name, Z to A'],
   ['created-desc', 'Date created, newest first'], ['created-asc', 'Date created, oldest first'],
   ['manual', 'Manual (use the arrows on the admin list)']];
+
+async function licensePanel() {
+  const r = await api('/api/admin/settings/license');
+  if (!r.ok) return h('div', { class: 'panel' }, h('h3', { text: 'License agreement' }), h('p', { class: 'err', text: 'Could not load the license settings.' }));
+  const l = r.data.license, def = r.data.defaultText;
+  const cb = (v) => h('input', { type: 'checkbox', checked: !!v });
+  const enabled = cb(l.enabled), require = cb(l.requireAcceptance);
+  const title = h('input', { type: 'text', value: l.title, maxlength: 100 });
+  const holder = h('input', { type: 'text', value: l.holder || '', maxlength: 100, placeholder: site.title });
+  const contact = h('input', { type: 'text', value: l.contact || '', maxlength: 200, placeholder: 'you@example.com or https://example.com/contact' });
+  const text = h('textarea', { rows: 16, maxlength: r.data.maxText, class: 'license-edit' }); text.value = l.text;
+  const msg = h('span', { class: 'muted' });
+  const refresh = async () => { const v = await api('/api/license'); if (v.ok) { license = v.data; renderFooter(); } };
+  return h('div', { class: 'panel' }, h('h3', { text: 'License agreement' }),
+    h('p', { class: 'muted', text: 'Shown at /license and in the footer. When "require acceptance" is on, visitors must tick an agree box before any download. Acceptance is remembered in their browser until you change the wording. The default is a general-purpose example, not legal advice: have it reviewed for your country before relying on it.' }),
+    h('div', { class: 'row' }, h('label', {}, enabled, ' Show the license')),
+    h('div', { class: 'row' }, h('label', {}, require, ' Require acceptance before downloading')),
+    h('div', { class: 'row' }, h('label', {}, 'Title ', title)),
+    h('div', { class: 'row' }, h('label', {}, 'Copyright holder ', holder)),
+    h('div', { class: 'row' }, h('label', {}, 'Contact for permissions ', contact)),
+    h('p', { class: 'muted', text: 'In the text, {holder}, {site}, {year} and {contact} are filled in automatically.' }),
+    text,
+    h('div', { class: 'row' },
+      h('button', { class: 'primary', text: 'Save', onclick: async () => {
+        const res = await api('/api/admin/settings/license', { method: 'PUT', body: { enabled: enabled.checked, requireAcceptance: require.checked, title: title.value, holder: holder.value, contact: contact.value, text: text.value } });
+        if (!res.ok) { msg.textContent = 'Could not save'; return; }
+        text.value = res.data.text; title.value = res.data.title; msg.textContent = 'Saved'; await refresh();
+      } }),
+      h('button', { text: 'Reset text to default', onclick: () => { if (confirm('Replace the text with the built-in default? Save to apply.')) text.value = def; } }),
+      h('a', { class: 'btn', href: '/license', target: '_blank', rel: 'noopener', text: 'Preview' }), msg));
+}
 
 function siteNamePanel() {
   const name = h('input', { type: 'text', value: site.title, maxlength: 80 });
@@ -1354,6 +1410,7 @@ async function viewStats(app) {
 (async function boot() {
   try { const r = await api('/api/site'); if (r.ok) site = r.data; } catch { }
   try { const r = await api('/api/me'); if (r.ok) me = r.data; } catch { }
+  try { const r = await api('/api/license'); if (r.ok) license = r.data; } catch { }
   if (new URLSearchParams(location.search).get('signin') === 'failed') { signinFailed = true; history.replaceState(null, '', location.pathname); }
   renderHeader();
   renderFooter();
