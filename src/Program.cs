@@ -135,8 +135,9 @@ app.Use(async (ctx, next) =>
         ctx.Response.ContentType = "text/html; charset=utf-8";
         var st = ctx.RequestServices.GetRequiredService<SettingsService>();
         var theme = st.Theme;   // the default goes into the page so theme.js can apply it before the first paint
+        var meta = await LinkPreview.BuildAsync(ctx, ctx.RequestServices.GetRequiredService<AppDb>(), st);
         await ctx.Response.WriteAsync(indexHtml.Replace("__TITLE__", System.Net.WebUtility.HtmlEncode(st.SiteName))
-            .Replace("__THEME__", theme.Default).Replace("__THEME_CHOICE__", theme.AllowVisitorChoice ? "1" : "0"));
+            .Replace("__META__", meta).Replace("__THEME__", theme.Default).Replace("__THEME_CHOICE__", theme.AllowVisitorChoice ? "1" : "0"));
         return;
     }
     await next();
