@@ -80,8 +80,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var startDb = scope.ServiceProvider.GetRequiredService<AppDb>();
-    startDb.Database.EnsureCreated();
-    Schema.Upgrade(startDb);
+    Schema.Migrate(startDb);
 }
 if (cfg.TrustProxy)
     app.Logger.LogInformation("Trusting proxy headers only from: {Nets}", string.Join(", ", cfg.TrustedNetworks.Select(n => n.Net + "/" + n.Prefix)));

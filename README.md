@@ -195,7 +195,21 @@ From the dev machine, on `main` with everything committed and pushed:
 
 It runs the tests, checks that `main` matches GitHub, copies that commit to the Unraid server (`DEPLOY_HOST`, default `voltron`), builds the image there with `release.sh` and pushes it to the local registry. Then use "check for updates" / "apply update" on the container in Unraid. `SKIP_TESTS=1 ./deploy.sh` skips the test run.
 
-The database schema is created with `EnsureCreated`. Future schema changes need EF migrations or a manual reset of `/data/photogallery.db` (galleries are re-creatable; originals are untouched).
+### Database schema and migrations
+
+The SQLite schema is managed with EF Core migrations (`src/Migrations`), applied automatically at startup (`Schema.Migrate`):
+
+- A new database is built by the migrations.
+- A database from before migrations existed is caught up once, then adopted into the migration history at the `InitialCreate` baseline. No data is touched.
+- Before an existing database is changed (the adoption, or any later pending migration), `photogallery.db` is copied to `photogallery.db.bak-<UTC timestamp>` beside it. The three most recent copies are kept.
+
+To change the schema, edit the model in `src/Models.cs`, then from `src/`:
+
+```bash
+dotnet ef migrations add <Name>
+```
+
+Commit the generated files with the change. A test fails if the model and the migrations disagree. Do not add to `Schema.Upgrade`: it is frozen and exists only to bring pre-migration databases up to the baseline. Install the tool once with `dotnet tool install -g dotnet-ef`.
 
 
 ## Single sign-on (container setup)

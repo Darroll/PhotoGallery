@@ -2,9 +2,56 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PhotoGallery;
 
-/// <summary>Adds columns introduced after the first release to databases created by EnsureCreated.</summary>
+/// <summary>
+/// Brings the database to the current schema with EF Core migrations. Databases created before migrations existed
+/// (by EnsureCreated plus the hand-written Upgrade below) are caught up once and then adopted into the migration
+/// history at the baseline. Do not add to Upgrade: new schema changes belong in a migration.
+/// </summary>
 public static class Schema
 {
+    public static void Migrate(AppDb db)
+    {
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+        var hasTables = TableExists(conn, "Galleries");
+        var hasHistory = TableExists(conn, "__EFMigrationsHistory");
+
+        if (hasTables && !hasHistory)
+        {
+            Upgrade(db);   // legacy databases: catch up to the baseline shape, then stamp it as applied
+            BackupFile(conn);
+            db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""__EFMigrationsHistory"" (
+                ""MigrationId"" TEXT NOT NULL CONSTRAINT ""PK___EFMigrationsHistory"" PRIMARY KEY, ""ProductVersion"" TEXT NOT NULL)");
+            db.Database.ExecuteSql($"INSERT INTO \"__EFMigrationsHistory\" (\"MigrationId\", \"ProductVersion\") VALUES ({db.Database.GetMigrations().First()}, '9.0.0')");
+        }
+        else if (hasHistory && db.Database.GetPendingMigrations().Any())
+            BackupFile(conn);
+
+        db.Database.Migrate();
+        // EF only sets WAL when it creates the file itself, which the probes above pre-empt; it persists in the file
+        db.Database.ExecuteSqlRaw("PRAGMA journal_mode = 'wal'");
+    }
+
+    static bool TableExists(System.Data.Common.DbConnection conn, string name)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $n";
+        var p = cmd.CreateParameter(); p.ParameterName = "$n"; p.Value = name; cmd.Parameters.Add(p);
+        return Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+    }
+
+    /// <summary>Copies the database file beside itself before a schema change, keeping the three most recent copies.</summary>
+    static void BackupFile(System.Data.Common.DbConnection conn)
+    {
+        var file = conn.DataSource;
+        if (string.IsNullOrEmpty(file) || !File.Exists(file)) return;
+        using (var cp = conn.CreateCommand()) { cp.CommandText = "PRAGMA wal_checkpoint(TRUNCATE)"; cp.ExecuteNonQuery(); }
+        File.Copy(file, $"{file}.bak-{DateTime.UtcNow:yyyyMMddHHmmss}", overwrite: true);
+        foreach (var old in Directory.GetFiles(Path.GetDirectoryName(Path.GetFullPath(file))!, Path.GetFileName(file) + ".bak-*").OrderDescending().Skip(3))
+            try { File.Delete(old); } catch { }
+    }
+
+    /// <summary>Frozen: the pre-migration catch-up for databases created by EnsureCreated.</summary>
     public static void Upgrade(AppDb db)
     {
         db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""Visits"" (

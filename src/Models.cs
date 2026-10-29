@@ -180,6 +180,12 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<GalleryTag>().HasKey(x => new { x.GalleryId, x.TagId });
         b.Entity<GroupMember>().HasKey(x => new { x.GroupId, x.Email });
         b.Entity<GalleryGroup>().HasKey(x => new { x.GalleryId, x.GroupId });
+        b.Entity<Subscriber>().HasIndex(s => s.Token).IsUnique();
+        b.Entity<Tag>().Property(t => t.Name).UseCollation("NOCASE");
+        b.Entity<Tag>().HasIndex(t => t.Name).IsUnique();
+        b.Entity<PeopleGroup>().Property(g => g.Name).UseCollation("NOCASE");
+        b.Entity<PeopleGroup>().HasIndex(g => g.Name).IsUnique();
+        b.Entity<Visit>().HasIndex(v => v.VisitorId);
         b.Entity<Visit>().HasIndex(v => v.Time);
         b.Entity<Visit>().HasIndex(v => new { v.GalleryId, v.Time });
         b.Entity<Photo>().HasOne(p => p.Gallery).WithMany(g => g.Photos).HasForeignKey(p => p.GalleryId).OnDelete(DeleteBehavior.Cascade);
