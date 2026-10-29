@@ -20,11 +20,15 @@ public static class SearchApi
 
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/search", async (string? q, string? where, string? tag, string? from, string? to, AppDb db) =>
+        app.MapGet("/api/search", async (string? q, string? where, string? tag, string? from, string? to, string? scope, AppDb db) =>
         {
             var term = Clean(q, 80);
             var place = Clean(where, 80);
             var tagName = Tags.Clean(tag);
+            // scope: "galleries" or "photos" searches only that kind; anything else searches both
+            var kind = (scope ?? "").Trim().ToLowerInvariant();
+            var withGalleries = kind != "photos";
+            var withPhotos = kind != "galleries";
             DateTime? start = DateTime.TryParse(from, out var fromDate) ? fromDate.Date : null;
             DateTime? end = DateTime.TryParse(to, out var toDate) ? toDate.Date.AddDays(1) : null;
 
@@ -40,7 +44,7 @@ public static class SearchApi
 
             bool Hit(string? s) => term.Length == 0 || (s ?? "").Contains(term, StringComparison.OrdinalIgnoreCase);
 
-            var hits = photos.Where(p =>
+            var hits = !withPhotos ? new List<object>() : photos.Where(p =>
             {
                 var g = byId[p.GalleryId];
                 var photoTags = tags.TryGetValue(p.Id, out var list) ? list : new List<string>();
@@ -54,7 +58,7 @@ public static class SearchApi
                 return Hit(p.Name) || Hit(p.Caption) || Hit(p.AltText) || Hit(g.Title) || photoTags.Concat(inherited).Any(x => Hit(x));
             })
             .OrderByDescending(p => p.TakenAt).Take(60)
-            .Select(p => new
+            .Select(p => (object)new
             {
                 id = p.Id, slug = byId[p.GalleryId].Slug, gallery = byId[p.GalleryId].Title,
                 name = p.Name, caption = p.Caption, altText = p.AltText, takenAt = p.TakenAt,
@@ -62,7 +66,7 @@ public static class SearchApi
             }).ToList();
 
             static List<string> TagsOf(Dictionary<int, List<string>> map, int id) => map.TryGetValue(id, out var list) ? list : new List<string>();
-            var matchedGalleries = term.Length == 0 && place.Length == 0 && tagName.Length == 0 ? new List<object>() : galleries
+            var matchedGalleries = !withGalleries || (term.Length == 0 && place.Length == 0 && tagName.Length == 0) ? new List<object>() : galleries
                 .Where(g => (term.Length > 0 && (Hit(g.Title) || Hit(g.Description) || TagsOf(galleryTags, g.Id).Any(x => Hit(x))))
                     || (place.Length > 0 && g.Location.Contains(place, StringComparison.OrdinalIgnoreCase))
                     || (tagName.Length > 0 && TagsOf(galleryTags, g.Id).Any(x => x.Equals(tagName, StringComparison.OrdinalIgnoreCase))))

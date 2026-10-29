@@ -123,6 +123,35 @@ public class SearchTests(AppFactory app) : IClassFixture<AppFactory>
     }
 
     [Fact]
+    public async Task Scope_limits_search_to_galleries_or_photos_and_defaults_to_both()
+    {
+        var admin = await app.AdminAsync();
+        var (slug, _) = await SetupAsync(app, admin);
+        var anon = app.NewClient();
+
+        // "harbour" matches the gallery title, so both kinds have results
+        async Task<System.Text.Json.JsonElement> SearchAsync(string scope) =>
+            await (await anon.GetAsync("/api/search?q=harbour" + (scope == "" ? "" : "&scope=" + scope))).ReadAsync();
+
+        var both = await SearchAsync("");
+        Assert.Contains(both.GetProperty("galleries").EnumerateArray(), g => g.GetProperty("slug").GetString() == slug);
+        Assert.Contains(both.GetProperty("photos").EnumerateArray(), p => p.GetProperty("slug").GetString() == slug);
+
+        var galleriesOnly = await SearchAsync("galleries");
+        Assert.Contains(galleriesOnly.GetProperty("galleries").EnumerateArray(), g => g.GetProperty("slug").GetString() == slug);
+        Assert.Empty(galleriesOnly.GetProperty("photos").EnumerateArray());
+
+        var photosOnly = await SearchAsync("photos");
+        Assert.Empty(photosOnly.GetProperty("galleries").EnumerateArray());
+        Assert.Contains(photosOnly.GetProperty("photos").EnumerateArray(), p => p.GetProperty("slug").GetString() == slug);
+
+        // an unknown scope searches both
+        var unknown = await SearchAsync("everything");
+        Assert.NotEmpty(unknown.GetProperty("galleries").EnumerateArray());
+        Assert.NotEmpty(unknown.GetProperty("photos").EnumerateArray());
+    }
+
+    [Fact]
     public async Task Search_text_cannot_use_wildcards_to_match_everything()
     {
         var admin = await app.AdminAsync();

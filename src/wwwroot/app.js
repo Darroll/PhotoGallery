@@ -181,6 +181,8 @@ function searchForm(v) {
   const from = h('input', { type: 'date', value: v.from || '', 'aria-label': 'From date' });
   const to = h('input', { type: 'date', value: v.to || '', 'aria-label': 'To date' });
   const tag = h('input', { type: 'text', placeholder: 'Tag', value: v.tag || '', 'aria-label': 'Tag', maxlength: 40 });
+  const scopes = [['all', 'Galleries and photos'], ['galleries', 'Galleries only'], ['photos', 'Photos only']];
+  const scope = h('select', { 'aria-label': 'Search in' }, scopes.map(([val, text]) => h('option', { value: val, text, selected: val === (v.scope || 'all') })));
   const submit = () => {
     const p = new URLSearchParams();
     if (q.value.trim()) p.set('q', q.value.trim());
@@ -188,17 +190,18 @@ function searchForm(v) {
     if (from.value) p.set('from', from.value);
     if (to.value) p.set('to', to.value);
     if (tag.value.trim()) p.set('tag', tag.value.trim());
+    if (scope.value !== 'all') p.set('scope', scope.value);
     const qs = p.toString();
     go('/search' + (qs ? '?' + qs : ''));
   };
   return h('form', { class: 'search-form', onsubmit: (e) => { e.preventDefault(); submit(); } },
-    q, where, tag, h('label', { class: 'muted' }, 'From ', from), h('label', { class: 'muted' }, 'To ', to), h('button', { class: 'primary', type: 'submit', text: 'Search' }));
+    q, scope, where, tag, h('label', { class: 'muted' }, 'From ', from), h('label', { class: 'muted' }, 'To ', to), h('button', { class: 'primary', type: 'submit', text: 'Search' }));
 }
 
 async function viewSearch(app) {
   const sp = new URLSearchParams(location.search);
   document.title = 'Search - ' + site.title;
-  app.append(h('h1', { text: 'Search' }), searchForm({ q: sp.get('q'), where: sp.get('where'), tag: sp.get('tag'), from: sp.get('from'), to: sp.get('to') }));
+  app.append(h('h1', { text: 'Search' }), searchForm({ q: sp.get('q'), where: sp.get('where'), tag: sp.get('tag'), from: sp.get('from'), to: sp.get('to'), scope: sp.get('scope') }));
   const r = await api('/api/search?' + sp.toString());
   if (!r.ok) return app.append(h('p', { class: 'err', text: 'Search failed. Try again.' }));
   const { galleries, photos } = r.data;
