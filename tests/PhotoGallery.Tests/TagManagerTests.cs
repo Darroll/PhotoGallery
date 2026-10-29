@@ -91,6 +91,44 @@ public class TagManagerTests(AppFactory app) : IClassFixture<AppFactory>
     }
 
     [Fact]
+    public async Task A_tag_colour_is_validated_saved_and_shown_only_for_tags_visitors_can_see()
+    {
+        var admin = await app.AdminAsync();
+        var anon = app.NewClient();
+        var open = Unique("Colored "); var secret = Unique("Hidden ");
+
+        var pub = await AppFactory.GalleryAsync(admin, Unique("Colour gallery "), app.NewFolder(1));
+        var pubPhoto = (await AppFactory.PhotoIdsAsync(admin, pub))[0];
+        await admin.PutAsJsonAsync($"/api/admin/photos/{pubPhoto}/tags", new { names = new[] { open } });
+        var priv = await admin.PostAsJsonAsync("/api/admin/galleries", new { title = Unique("Private colour "), folder = app.NewFolder(1), visibility = 2 });
+        var privId = (await priv.ReadAsync()).GetProperty("gallery").GetProperty("id").GetInt32();
+        await admin.PutAsJsonAsync($"/api/admin/galleries/{privId}/tags", new { names = new[] { secret } });
+
+        var openId = (await TagAsync(admin, open)).GetProperty("id").GetInt32();
+        var secretId = (await TagAsync(admin, secret)).GetProperty("id").GetInt32();
+        Assert.Equal("", (await TagAsync(admin, open)).GetProperty("color").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync($"/api/admin/tags/{openId}/color", new { color = "red" })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync($"/api/admin/tags/{openId}/color", new { color = "#12345" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/admin/tags/{openId}/color", new { color = "#1A2B3C" })).StatusCode);
+        await admin.PutAsJsonAsync($"/api/admin/tags/{secretId}/color", new { color = "#ff0000" });
+        Assert.Equal("#1a2b3c", (await TagAsync(admin, open)).GetProperty("color").GetString());
+
+        // the gallery payload carries the colours of its own tags
+        var gallery = await (await anon.GetAsync($"/api/g/{pub}")).ReadAsync();
+        Assert.Equal("#1a2b3c", gallery.GetProperty("tagColors").GetProperty(open.ToLowerInvariant()).GetString());
+
+        // the public list has the visible tag's colour and does not give away the private gallery's tag
+        var colors = await (await anon.GetAsync("/api/tag-colors")).ReadAsync();
+        Assert.Equal("#1a2b3c", colors.GetProperty(open.ToLowerInvariant()).GetString());
+        Assert.False(colors.TryGetProperty(secret.ToLowerInvariant(), out _));
+
+        // clearing goes back to automatic
+        await admin.PutAsJsonAsync($"/api/admin/tags/{openId}/color", new { color = "" });
+        Assert.Equal("", (await TagAsync(admin, open)).GetProperty("color").GetString());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.PutAsJsonAsync($"/api/admin/tags/{openId}/color", new { color = "#000000" })).StatusCode);
+    }
+
+    [Fact]
     public async Task Tag_management_needs_the_admin()
     {
         var anon = app.NewClient();

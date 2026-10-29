@@ -82,6 +82,23 @@ async function recordLicenseAcceptance() {
   toast(r.status === 409 ? 'The license has changed. Reload the page to read it.' : 'Could not record your agreement. Try again.');
   return false;
 }
+// Tag colours. A tag the admin has not coloured gets one picked from its name, so every tag has a colour and a tag keeps the same one everywhere.
+const tagPalette = ['#e5484d', '#f76b15', '#e0a000', '#30a46c', '#12a594', '#0091ff', '#3e63dd', '#8e4ec6', '#d6409f', '#6e7b8b'];
+let tagColorMap = {};   // lower-case tag name -> colour the admin chose
+function learnTagColors(map) { if (map && typeof map === 'object') Object.assign(tagColorMap, map); }
+function tagColor(name) {
+  const key = String(name).toLowerCase();
+  if (tagColorMap[key]) return tagColorMap[key];
+  let n = 0; for (const c of key) n = (n * 31 + c.charCodeAt(0)) >>> 0;
+  return tagPalette[n % tagPalette.length];
+}
+// A coloured #label. The colour tints the background and border; the text stays the theme's own colour so it is always readable.
+function tagPill(name, extra) {
+  const el = h('span', { class: 'tag-pill' + (extra ? ' ' + extra : ''), text: '#' + name });
+  el.style.setProperty('--tag-c', tagColor(name));
+  return el;
+}
+function tagLine(names) { return names && names.length ? h('div', { class: 'tag-line' }, names.map(n => tagPill(n))) : null; }
 const fmtDate = (s) => s ? new Date(/Z$|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z').toLocaleString() : '';
 
 // ---------- routing ----------
@@ -203,7 +220,8 @@ async function viewSearch(app) {
   const sp = new URLSearchParams(location.search);
   document.title = 'Search - ' + site.title;
   app.append(h('h1', { text: 'Search' }), searchForm({ q: sp.get('q'), where: sp.get('where'), tag: sp.get('tag'), from: sp.get('from'), to: sp.get('to'), scope: sp.get('scope') }));
-  const r = await api('/api/search?' + sp.toString());
+  const [r, colors] = await Promise.all([api('/api/search?' + sp.toString()), api('/api/tag-colors')]);
+  if (colors.ok) learnTagColors(colors.data);
   if (!r.ok) return app.append(h('p', { class: 'err', text: 'Search failed. Try again.' }));
   const { galleries, photos } = r.data;
   if (!photos.length && !galleries.length) return app.append(h('p', { class: 'muted', text: 'Nothing matched. Only public galleries are searched.' }));
@@ -216,11 +234,12 @@ async function viewSearch(app) {
       h('img', { loading: 'lazy', src: `/img/${p.id}/thumb`, alt: p.altText || p.name }),
       h('div', { class: 'pc-name', text: p.caption || p.name, title: p.name }),
       h('div', { class: 'muted', text: [p.gallery, p.takenAt ? new Date(p.takenAt + (/Z$/.test(p.takenAt) ? '' : 'Z')).toLocaleDateString() : ''].filter(Boolean).join(' \u00B7 ') }),
-      p.tags && p.tags.length ? h('div', { class: 'muted', text: p.tags.map(t => '#' + t).join(' ') }) : null))));
+      tagLine(p.tags)))));
 }
 
 async function viewHome(app) {
-  const r = await api('/api/galleries');
+  const [r, colors] = await Promise.all([api('/api/galleries'), api('/api/tag-colors')]);
+  if (colors.ok) learnTagColors(colors.data);
   app.append(h('h1', { text: site.title }), h('p', { class: 'sub', text: 'Public galleries' }));
   app.append(searchForm({}));
   if (site.subscribe) app.append(subscribeForm());
@@ -278,12 +297,13 @@ async function viewGallery(app, slug) {
   if (!r.ok) document.title = 'Not available - ' + site.title;
   if (!r.ok) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Not available' }), h('p', { class: 'sub', text: 'This gallery does not exist or you do not have access.' })));
   G = r.data;
+  learnTagColors(G.tagColors);
   sel = new Set();
   favs = new Set(G.favorites || []);
   document.title = G.title;
   app.append(h('h1', { class: 'g-title', text: G.title }));
   if (G.eventDate || G.location) app.append(h('p', { class: 'muted', text: eventLine(G) }));
-  if (G.tags && G.tags.length) app.append(h('p', { class: 'muted', text: G.tags.map(t => '#' + t).join(' ') }));
+  if (G.tags && G.tags.length) app.append(tagLine(G.tags));
   if (G.description) app.append(h('p', { class: 'sub', text: G.description }));
   const vids = (G.links || []).filter(l => l.videoId), others = (G.links || []).filter(l => !l.videoId);
   if (vids.length) app.append(h('h2', { class: 'vid-head', text: vids.length === 1 ? 'Video' : 'Videos' }), h('div', { class: 'videos' }, vids.map(l =>
@@ -517,7 +537,7 @@ async function openInfoSheet(photo) {
 
 // Gallery tags as a line of #labels (empty when the gallery has none).
 function tagChips(g) {
-  return g.tags && g.tags.length ? h('span', { class: 'muted', text: g.tags.map(t => '#' + t).join(' ') }) : null;
+  return tagLine(g.tags);
 }
 
 // Tag chips with a + button. Typing offers the tags already on the site; Enter or a comma adds the typed tag,
@@ -533,8 +553,12 @@ function tagEditor(initial, onChange, opts = {}) {
   const addRow = h('div', { class: 'tag-add' }, addBox, list);
   addRow.hidden = true;
   const draw = () => {
-    chips.replaceChildren(...names.map(n => h('span', { class: 'tag-chip' }, '#' + n,
-      h('button', { type: 'button', class: 'tag-x', 'aria-label': 'Remove ' + n, text: '×', onclick: () => { names = names.filter(x => x !== n); draw(); emit(); } }))));
+    chips.replaceChildren(...names.map(n => {
+      const chip = h('span', { class: 'tag-chip' }, '#' + n,
+        h('button', { type: 'button', class: 'tag-x', 'aria-label': 'Remove ' + n, text: '×', onclick: () => { names = names.filter(x => x !== n); draw(); emit(); } }));
+      chip.style.setProperty('--tag-c', tagColor(n));   // the page's CSP forbids style attributes, so set it through the style object
+      return chip;
+    }));
   };
   const emit = () => { if (onChange) onChange(); };
   const suggest = () => {
@@ -560,7 +584,7 @@ function tagEditor(initial, onChange, opts = {}) {
     addRow.hidden = false;
     addBox.focus();
     const r = await api('/api/admin/tags');
-    if (r.ok && Array.isArray(r.data)) known = r.data;
+    if (r.ok && Array.isArray(r.data)) { known = r.data; for (const t of known) if (t.color) tagColorMap[t.name.toLowerCase()] = t.color; draw(); }
     suggest();
   };
   addBox.addEventListener('input', suggest);
@@ -584,7 +608,7 @@ function captionBlock(photo) {
   return h('div', { class: 'info-caption' }, h('h4', { text: 'Caption and description' }),
     h('p', { text: photo.caption || 'No caption yet.' }),
     h('p', { class: 'muted', text: photo.altText ? `Alt text: ${photo.altText}` : 'No alt text yet.' }),
-    h('p', { class: 'muted', text: photo.tags && photo.tags.length ? 'Tags: ' + photo.tags.join(', ') : 'No tags yet.' }),
+    photo.tags && photo.tags.length ? h('div', {}, h('span', { class: 'muted', text: 'Tags: ' }), tagLine(photo.tags)) : h('p', { class: 'muted', text: 'No tags yet.' }),
     h('button', { text: me && me.admin ? 'Edit' : 'Suggest a change', onclick: () => captionSheet(photo) }));
 }
 
@@ -748,8 +772,8 @@ function openLightbox(index, play, mode = 'push') {
     img.src = photoUrl(p, viewKind());
     if (p.id !== lb.lastSeen) { lb.lastSeen = p.id; fetch(`/api/g/${encodeURIComponent(G.slug)}/viewed/${p.id}`, { method: 'POST', headers: { 'X-Requested-With': 'pg' }, credentials: 'same-origin', keepalive: true }).catch(() => {}); }
     title.textContent = p.name;
-    const capText = [p.caption, (p.tags || []).map(t => '#' + t).join(' ')].filter(Boolean).join('   ');
-    captionEl.textContent = capText; captionEl.classList.toggle('hidden', !capText); img.alt = p.altText || p.name;
+    const capText = [p.caption, (p.tags || []).length ? 'tags' : ''].filter(Boolean).join('');
+    captionEl.replaceChildren(...[p.caption ? h('span', { text: p.caption + '   ' }) : null, ...(p.tags || []).map(t => tagPill(t))].filter(Boolean)); captionEl.classList.toggle('hidden', !capText); img.alt = p.altText || p.name;
     document.title = photoTitle(p); counter.textContent = `${lb.i + 1} / ${list.length}`;
     lb.sync();
     const n = list[(lb.i + 1) % list.length]; new Image().src = photoUrl(n, viewKind());   // preload
@@ -1145,7 +1169,10 @@ async function tagPanel() {
   const load = async () => {
     const r = await api('/api/admin/tags');
     if (!r.ok) { listBox.replaceChildren(h('p', { class: 'err', text: 'Could not load tags.' })); return; }
-    tags = r.data; draw();
+    tags = r.data;
+    tagColorMap = {};
+    for (const t of tags) if (t.color) tagColorMap[t.name.toLowerCase()] = t.color;
+    draw();
   };
 
   const newBox = h('input', { type: 'text', maxlength: 40, placeholder: 'New tag, e.g. Sunset', 'aria-label': 'New tag name' });
@@ -1167,7 +1194,7 @@ async function tagPanel() {
 
   const row = (t) => {
     const actions = h('div', { class: 'row tag-actions' });
-    const nameEl = h('span', { class: 'tag-name', text: '#' + t.name });
+    const nameEl = tagPill(t.name, 'tag-name');
     const reset = () => { nameEl.hidden = false; showButtons(); };
     const showButtons = () => actions.replaceChildren(
       h('button', { text: 'Rename', onclick: () => {
@@ -1181,6 +1208,18 @@ async function tagPanel() {
         input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); else if (e.key === 'Escape') reset(); });
         actions.replaceChildren(input, h('button', { class: 'primary', text: 'Save', onclick: save }), h('button', { text: 'Cancel', onclick: reset }));
         input.focus(); input.select();
+      } }),
+      h('button', { text: 'Color', onclick: () => {
+        const setColor = async (color) => {
+          const r = await api(`/api/admin/tags/${t.id}/color`, { method: 'PUT', body: { color } });
+          if (!r.ok) { msg.textContent = errText(r); return; }
+          msg.textContent = color ? `#${t.name} is now ${color}` : `#${t.name} picks its own colour again`; load();
+        };
+        const custom = h('input', { type: 'color', value: tagColor(t.name), 'aria-label': 'Custom colour' });
+        custom.addEventListener('change', () => setColor(custom.value));
+        actions.replaceChildren(
+          ...tagPalette.map(c => { const b = h('button', { type: 'button', class: 'swatch' + (c === tagColor(t.name) ? ' on' : ''), title: c, 'aria-label': 'Use ' + c, onclick: () => setColor(c) }); b.style.background = c; return b; }),
+          custom, h('button', { text: 'Auto', title: 'Pick a colour from the name', onclick: () => setColor('') }), h('button', { text: 'Cancel', onclick: reset }));
       } }),
       tags.length > 1 ? h('button', { text: 'Merge into...', onclick: () => {
         const sel = h('select', { 'aria-label': 'Merge into' }, tags.filter(x => x.id !== t.id).map(x => h('option', { value: x.id, text: '#' + x.name })));
@@ -1215,6 +1254,7 @@ async function tagPanel() {
         const b = h('button', { class: 'cloud-tag' + (used(t) ? '' : ' unused'), text: '#' + t.name, title: counts(t),
           onclick: () => { view = 'list'; search.value = t.name; filter = t.name.toLowerCase(); draw(); } });
         b.style.fontSize = (13 + Math.round(17 * used(t) / max)) + 'px';
+        b.style.setProperty('--tag-c', tagColor(t.name));
         return b;
       })), h('p', { class: 'muted', text: 'Bigger means used on more photos and galleries. Click a tag to manage it.' }));
     } else listBox.replaceChildren(...shown.map(row));

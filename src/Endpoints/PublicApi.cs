@@ -89,10 +89,11 @@ public static class PublicApi
                 tags = tagNames.TryGetValue(x.Id, out var t) ? t : new List<string>() }).ToList();
 
             var gTags = (await Tags.NamesByGalleryAsync(db, new List<int> { g.Id })).GetValueOrDefault(g.Id) ?? new List<string>();
+            var tagColors = await Tags.ColorsAsync(db, gTags.Concat(tagNames.Values.SelectMany(v => v)));
             var locked = g.WatermarkDownload && !admin;
             return Results.Ok(new
             {
-                g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId, tags = gTags,
+                g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId, tags = gTags, tagColors,
                 g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url) }), favorites = favoriteIds, favoriteName, sizes = GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
                 allowDownload = g.AllowDownload,
                 allowOriginal = g.AllowDownload && !locked,

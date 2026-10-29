@@ -65,6 +65,7 @@ public static class Schema
             ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_Tags"" PRIMARY KEY AUTOINCREMENT,
             ""Name"" TEXT NOT NULL, ""CreatedAt"" TEXT NOT NULL)");
         db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_Tags_Name"" ON ""Tags"" (""Name"" COLLATE NOCASE)");
+        AddColumn(db, "Tags", "Color", "TEXT NOT NULL DEFAULT ''");
         db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""PhotoTags"" (
             ""PhotoId"" INTEGER NOT NULL, ""TagId"" INTEGER NOT NULL, CONSTRAINT ""PK_PhotoTags"" PRIMARY KEY (""PhotoId"", ""TagId""))");
         db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""GalleryTags"" (

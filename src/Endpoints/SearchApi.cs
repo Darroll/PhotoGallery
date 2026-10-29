@@ -10,6 +10,7 @@ public static class SearchApi
 {
     record TagsInput(List<string>? Names);
     record TagNameInput(string? Name);
+    record TagColorInput(string? Color);
     record MergeInput(int IntoId);
     record BulkTagInput(List<int>? PhotoIds, List<string>? Add, List<string>? Remove);
 
@@ -23,6 +24,16 @@ public static class SearchApi
 
     public static void Map(WebApplication app)
     {
+        // colours the admin chose for tags that visitors can see on the home page and in search (public, listed galleries only)
+        app.MapGet("/api/tag-colors", async (AppDb db) =>
+        {
+            var galleries = (await db.Galleries.AsNoTracking().Where(g => g.Visibility == Visibility.Public).ToListAsync()).Where(g => !GalleryRules.IsExpired(g)).Select(g => g.Id).ToList();
+            var onGalleries = db.GalleryTags.Where(gt => galleries.Contains(gt.GalleryId)).Select(gt => gt.TagId);
+            var onPhotos = db.PhotoTags.Where(pt => db.Photos.Any(p => p.Id == pt.PhotoId && p.Approved && galleries.Contains(p.GalleryId))).Select(pt => pt.TagId);
+            var rows = await db.Tags.AsNoTracking().Where(t => t.Color != "" && (onGalleries.Contains(t.Id) || onPhotos.Contains(t.Id))).Select(t => new { t.Name, t.Color }).ToListAsync();
+            return Results.Ok(rows.ToDictionary(r => r.Name.ToLowerInvariant(), r => r.Color));
+        });
+
         app.MapGet("/api/search", async (string? q, string? where, string? tag, string? from, string? to, string? scope, AppDb db) =>
         {
             var term = Clean(q, 80);
@@ -81,7 +92,20 @@ public static class SearchApi
         var secured = app.MapGroup("/api/admin").RequireAuthorization("Admin");
 
         secured.MapGet("/tags", async (AppDb db) => Results.Ok(await db.Tags.OrderBy(x => x.Name)
-            .Select(x => new { x.Id, x.Name, photos = db.PhotoTags.Count(pt => pt.TagId == x.Id), galleries = db.GalleryTags.Count(gt => gt.TagId == x.Id) }).ToListAsync()));
+            .Select(x => new { x.Id, x.Name, x.Color, photos = db.PhotoTags.Count(pt => pt.TagId == x.Id), galleries = db.GalleryTags.Count(gt => gt.TagId == x.Id) }).ToListAsync()));
+
+        // sets a tag's colour (#rrggbb), or clears it so the site picks one from the name
+        secured.MapPut("/tags/{id:int}/color", async (int id, TagColorInput input, HttpContext ctx, AppDb db) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var tag = await db.Tags.FindAsync(id);
+            if (tag == null) return Results.NotFound();
+            var color = Tags.CleanColor(input.Color);
+            if (color == null) return Results.BadRequest("Colours look like #1a2b3c.");
+            tag.Color = color;
+            await db.SaveChangesAsync();
+            return Results.Ok(new { tag.Id, tag.Color });
+        });
 
         // creates a tag without putting it on anything; an existing tag of the same name (any case) is returned as it is
         secured.MapPost("/tags", async (TagNameInput input, HttpContext ctx, AppDb db) =>

@@ -8,6 +8,8 @@ public class Tag
 {
     public int Id { get; set; }
     public string Name { get; set; } = "";
+    /// <summary>Colour as #rrggbb, or empty to let the site pick one from the name.</summary>
+    public string Color { get; set; } = "";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -34,6 +36,22 @@ public static class Tags
     {
         var t = Regex.Replace((s ?? "").Trim().TrimStart('#').Trim(), @"\s+", " ");
         return t.Length > MaxLength ? t[..MaxLength] : t;
+    }
+
+    /// <summary>A colour the admin picked: #rrggbb in lower case, or empty. Anything else is rejected (null).</summary>
+    public static string? CleanColor(string? s)
+    {
+        var t = (s ?? "").Trim().ToLowerInvariant();
+        return t.Length == 0 || Regex.IsMatch(t, "^#[0-9a-f]{6}$") ? t : null;
+    }
+
+    /// <summary>The colours the admin set for these tag names, keyed by lower-case name. Tags left on automatic are not listed.</summary>
+    public static async Task<Dictionary<string, string>> ColorsAsync(AppDb db, IEnumerable<string> names)
+    {
+        var lower = names.Select(n => n.ToLower()).Distinct().ToList();
+        if (lower.Count == 0) return new();
+        var rows = await db.Tags.AsNoTracking().Where(t => t.Color != "" && lower.Contains(t.Name.ToLower())).Select(t => new { t.Name, t.Color }).ToListAsync();
+        return rows.ToDictionary(r => r.Name.ToLowerInvariant(), r => r.Color);
     }
 
     /// <summary>The tag names of each photo in the list, sorted.</summary>

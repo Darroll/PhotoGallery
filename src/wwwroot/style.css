@@ -362,7 +362,7 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 /* tag editor: chips, a + button, and an add box with suggestions */
 .tag-editor { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; }
 .tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.tag-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg); font-size: 13px; }
+.tag-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; border: 1px solid var(--tag-c, var(--line)); background: color-mix(in srgb, var(--tag-c, transparent) 16%, transparent); border-radius: 999px; color: var(--fg); font-size: 13px; }
 .tag-x { border: 0; background: none; color: var(--muted); padding: 0 4px; cursor: pointer; font-size: 15px; line-height: 1; }
 .tag-plus { border: 1px dashed var(--line); background: none; color: var(--fg); border-radius: 999px; width: 28px; height: 26px; cursor: pointer; font-size: 16px; line-height: 1; }
 .tag-add { position: relative; flex: 1 1 100%; }
@@ -432,9 +432,19 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .tag-actions { margin: 0; justify-content: flex-end; }
 .tag-actions button, .tag-actions .btn { padding: 4px 10px; font-size: 13px; }
 .tag-cloud { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 14px 4px; line-height: 1.3; }
-.cloud-tag { border: 0; background: none; color: var(--accent); padding: 2px 4px; cursor: pointer; font-family: inherit; }
-.cloud-tag:hover { text-decoration: underline; }
-.cloud-tag.unused { color: var(--muted); }
+.cloud-tag { border: 1px solid var(--tag-c); background: color-mix(in srgb, var(--tag-c) 16%, transparent); color: var(--fg); border-radius: 999px; padding: 1px 10px; cursor: pointer; font-family: inherit; }
+.cloud-tag:hover { background: color-mix(in srgb, var(--tag-c) 30%, transparent); }
+.cloud-tag.unused { opacity: .6; }
 .tag-editor.open .tag-suggest { position: static; display: flex; flex-wrap: wrap; gap: 6px; max-height: 96px; margin-top: 8px; border: 0; background: none; box-shadow: none; }
 .tag-editor.open .tag-option { width: auto; border: 1px dashed var(--line); border-radius: 999px; padding: 2px 10px; font-size: 13px; }
 .tag-editor.open .tag-suggest[hidden] { display: none; }
+
+/* coloured tags */
+.tag-line { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0; }
+.card .meta .tag-line { justify-content: center; }
+.tag-pill { display: inline-block; padding: 1px 9px; border: 1px solid var(--tag-c); border-radius: 999px; background: color-mix(in srgb, var(--tag-c) 16%, transparent); color: var(--fg); font-size: 12px; line-height: 1.5; }
+.tag-pill.tag-name { font-size: 14px; font-weight: 600; }
+#lightbox .tag-pill { color: #eee; }
+.swatch { width: 24px; height: 24px; padding: 0; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
+.swatch.on { border-color: var(--fg); }
+.tag-actions input[type=color] { width: 32px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: none; cursor: pointer; }
