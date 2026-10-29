@@ -12,16 +12,20 @@ Self-hosted photo galleries for Unraid, written in ASP.NET Core 9 (SQLite + libv
 | Resolutions, no quality loss | Downloads at configured long-edge sizes (`SIZES`) as **lossless PNG, lossless WebP or LZW TIFF**, or the **byte-identical original**. On-screen viewing uses WebP q88. |
 | RAW download | RAW files are paired with the processed image by name (per-gallery: same folder, any folder, or `IMG_1234-Edit.png` style prefix), or linked by hand in the admin page. RAW-only frames are hidden from viewers until they click *Show RAW-only photos*. Per-gallery switch `Allow RAW download`. RAW-only files are supported when `exiftool` is present (it is in the Docker image). |
 | ZIP | Whole gallery as ZIP (original or chosen size, optional RAW folder), streamed. |
-| Watermarks | Configured in Admin -> Settings: none, text or transparent PNG, with position, opacity, size and live preview. Per gallery: on screen and/or on downloads. |
+| Watermarks | Configured in Admin -> Settings -> Watermark: none, text or transparent PNG, with position, opacity, size and live preview. Per gallery: on screen and/or on downloads. |
 | Expiring links, download limits | Share links with expiry date and max downloads; revocable. A ZIP counts as one download. |
 | Guest uploads | Per gallery. Always moderated: nothing shows until you approve it. Stored in `/data`, never in your library. |
 
 ### Admin pages
 
-- `/admin`: create galleries from library folders; list of galleries with cover, status chips and a Settings link.
+The admin area has a menu on the left and the page in the middle (a scrolling strip across the top on a phone).
+
+- `/admin` **Overview**: the landing page. A banner shows overall health (green, amber or red) above colour-coded checks: photo library reachable, free disk space, thumbnails, gallery folders present, galleries expired or expiring within 7 days, guest uploads and caption suggestions waiting for you, email alert delivery (failed or stuck mail), wrong gallery passwords in the last 24 hours, whether `ADMIN_PASSWORD` is set, visitor activity and automatic captions. Green is fine, amber needs a look soon, red needs action, grey is switched off on purpose. Each check links to the page where you fix it. It refreshes every minute (`GET /api/admin/health`). Full statistics are not shown here.
+- `/admin/galleries`: create galleries from library folders; list of galleries with cover, status chips and a Settings link.
 - `/admin/galleries/<id>`: per-gallery settings in collapsible sections (General, Access & sharing, Downloads, Watermark & uploads, RAW files - collapsed by default) with a single Save button and an unsaved-changes warning.
 - Per-gallery options include photo order (capture time / name / date added, reversible), event date and location, auto-expire date, offered download sizes and formats, and the curated-only default.
-- `/admin/settings`: site-wide watermark (none / text / PNG) with live preview, the order of galleries on the home page (event date, name, date created or manual with up/down arrows on the admin list), and the thumbnail cache.
+- `/admin/stats`: visitor statistics (see below).
+- `/admin/settings/...`: one page per topic: *Site and appearance* (site name, theme, the order of galleries on the home page), *Watermark* (none / text / PNG with live preview), *Caption suggestions*, *Tags*, *Groups*, *License*, *Visitor tracking*, *Email alerts* and *Thumbnail cache*.
 
 ### Photo pages and browser history
 
@@ -175,7 +179,7 @@ PHOTO_LIBRARY=/path/to/photos DATA_DIR=./data ADMIN_PASSWORD=dev dotnet run
 dotnet test tests/PhotoGallery.Tests
 ```
 
-The suite (178 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
+The suite (180 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
 
 Add a test whenever you add or fix a feature. `AppFactory` in `tests/PhotoGallery.Tests` boots the app; pass extra environment-style settings to a subclass to test other configurations (see `SsoFactory`).
 

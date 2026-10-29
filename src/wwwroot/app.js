@@ -104,9 +104,10 @@ async function route(force = false) {
   galleryView = null; closeLightbox(); app.replaceChildren();
   document.title = site.title;
   if (parts[0] === 'admin' && parts[1] === 'stats') return viewStats(app);
-  if (parts[0] === 'admin' && parts[1] === 'settings') return viewSettings(app);
+  if (parts[0] === 'admin' && parts[1] === 'settings') return viewSettings(app, parts[2]);
   if (parts[0] === 'admin' && parts[1] === 'galleries' && parts[2]) return viewGallerySettings(app, Number(parts[2]));
-  if (parts[0] === 'admin') return viewAdmin(app);
+  if (parts[0] === 'admin' && parts[1] === 'galleries') return viewAdmin(app);
+  if (parts[0] === 'admin') return viewOverview(app);
   if (parts[0] === 'license') return viewLicense(app);
   if (parts[0] === 'search') return viewSearch(app);
   if (parts[0] === 'expired') document.title = 'Link unavailable - ' + site.title;
@@ -831,21 +832,89 @@ function closeLightbox() {
 }
 
 // ---------- admin ----------
-async function viewAdmin(app) {
-  document.title = 'Admin - ' + site.title;
+// Every admin page is drawn inside a shell: a menu on the left, the page in the middle.
+const adminNav = [
+  { href: '/admin', key: 'overview', label: 'Overview' },
+  { href: '/admin/galleries', key: 'galleries', label: 'Galleries' },
+  { href: '/admin/stats', key: 'stats', label: 'Statistics' },
+  { heading: 'Settings' },
+  { href: '/admin/settings', key: 'settings/general', label: 'Site and appearance' },
+  { href: '/admin/settings/watermark', key: 'settings/watermark', label: 'Watermark' },
+  { href: '/admin/settings/review', key: 'settings/review', label: 'Caption suggestions' },
+  { href: '/admin/settings/tags', key: 'settings/tags', label: 'Tags' },
+  { href: '/admin/settings/groups', key: 'settings/groups', label: 'Groups' },
+  { href: '/admin/settings/license', key: 'settings/license', label: 'License' },
+  { href: '/admin/settings/visitor-stats', key: 'settings/visitor-stats', label: 'Visitor tracking' },
+  { href: '/admin/settings/email', key: 'settings/email', label: 'Email alerts' },
+  { href: '/admin/settings/cache', key: 'settings/cache', label: 'Thumbnail cache' }];
+
+// Signs in the admin if needed, then draws the shell and returns the middle column (null when the sign-in page was shown instead).
+async function adminPage(app, key, title) {
   const me = await api('/api/admin/me');
-  if (!me.data || !me.data.admin) return adminLogin(app);
+  if (!me.data || !me.data.admin) { await adminLogin(app); return null; }
+  const nav = h('nav', { class: 'admin-nav', 'aria-label': 'Admin' },
+    adminNav.map(n => n.heading ? h('div', { class: 'nav-heading', text: n.heading })
+      : h('a', { href: n.href, class: n.key === key ? 'on' : '', 'aria-current': n.key === key ? 'page' : false, text: n.label })),
+    h('div', { class: 'nav-foot' },
+      h('a', { href: '/', text: 'View site' }),
+      h('button', { text: 'Log out', onclick: async () => { await api('/api/admin/logout', { method: 'POST' }); route(); } })));
+  const main = h('div', { class: 'admin-main' }, title ? h('h1', { text: title }) : null);
+  app.append(h('div', { class: 'admin-shell' }, nav, main));
+  return main;
+}
+
+const healthHeadline = { ok: 'Everything looks healthy', warn: 'A few things need your attention', bad: 'Something is wrong and needs action' };
+const fmtUptime = (s) => s >= 86400 ? plural(Math.floor(s / 86400), 'day') : s >= 3600 ? plural(Math.floor(s / 3600), 'hour') : plural(Math.max(1, Math.floor(s / 60)), 'minute');
+
+// The landing page: a quick read on whether the app is healthy. Detail lives under Statistics and Settings.
+async function viewOverview(app) {
+  document.title = 'Admin - ' + site.title;
+  const main = await adminPage(app, 'overview', 'Overview');
+  if (!main) return;
+  const body = h('div');
+  main.append(body);
+  let timer;
+  const load = async () => {
+    const r = await api('/api/admin/health');
+    if (!body.isConnected) return;
+    if (!r.ok) { body.replaceChildren(h('p', { class: 'err', text: 'Could not load the health checks.' })); return; }
+    const d = r.data;
+    const attention = d.checks.filter(c => c.status === 'warn' || c.status === 'bad').length;
+    const tile = (n, label) => h('div', { class: 'tile' }, h('div', { class: 'tile-n', text: String(n) }), h('div', { class: 'muted', text: label }));
+    const groups = [...new Set(d.checks.map(c => c.group))];
+    body.replaceChildren(
+      h('div', { class: 'health-banner ' + d.overall },
+        h('span', { class: 'dot big ' + d.overall }),
+        h('div', {}, h('strong', { text: healthHeadline[d.overall] }),
+          h('div', { class: 'muted', text: attention ? `${plural(attention, 'check')} to look at, ${d.checks.length - attention} fine.` : `All ${d.checks.length} checks passed.` })),
+        h('span', { class: 'grow' }),
+        h('button', { text: 'Refresh', onclick: load })),
+      h('div', { class: 'tiles' }, tile(d.counts.galleries, 'Galleries'), tile(d.counts.photos, 'Photos'), tile(d.counts.subscribers, 'Subscribers'),
+        tile(fmtUptime(d.uptimeSeconds), 'Running for'), tile('v' + d.version, d.commit && d.commit !== 'dev' ? d.commit : 'Development build')),
+      ...groups.map(grp => h('div', {}, h('h2', { text: grp }),
+        h('div', { class: 'checks' }, d.checks.filter(c => c.group === grp).map(c => h('div', { class: 'check ' + c.status },
+          h('div', { class: 'check-head' }, h('span', { class: 'dot ' + c.status }), h('strong', { text: c.label }), h('span', { class: 'grow' }), h('span', { class: 'check-val ' + c.status, text: c.value })),
+          h('div', { class: 'muted', text: c.detail }),
+          c.link ? h('a', { href: c.link, text: c.status === 'ok' || c.status === 'off' ? 'Open' : 'Fix or review' }) : null))))),
+      h('p', { class: 'muted', text: 'Green is fine, amber needs a look soon, red needs action, grey is switched off on purpose. Updates every minute.' }));
+    clearTimeout(timer);
+    timer = setTimeout(() => { if (body.isConnected) load(); }, 60000);
+  };
+  body.append(h('p', { class: 'muted', text: 'Checking...' }));
+  load();
+}
+
+async function viewAdmin(app) {
+  document.title = 'Galleries - ' + site.title;
+  const main = await adminPage(app, 'galleries', 'Galleries');
+  if (!main) return;
   const [gals, folders, homeOrder] = await Promise.all([api('/api/admin/galleries'), api('/api/admin/folders'), api('/api/admin/settings/home')]);
-  app.append(h('div', { class: 'toolbar' }, h('h1', { text: 'Admin' }), h('span', { class: 'grow' }),
-    h('a', { class: 'btn', href: '/admin/stats', text: 'Statistics' }),
-    h('a', { class: 'btn', href: '/admin/settings', text: 'Site settings' }),
-    h('button', { text: 'Log out', onclick: async () => { await api('/api/admin/logout', { method: 'POST' }); route(); } })));
-  app.append(newGalleryPanel((folders.data || []).filter(f => !f.galleryId).map(f => f.path)));
+  main.append(newGalleryPanel((folders.data || []).filter(f => !f.galleryId).map(f => f.path)));
   const list = gals.data || [];
-  app.append(h('h2', { text: `Galleries (${list.length})` }));
-  if (!list.length) return app.append(h('p', { class: 'muted', text: 'No galleries yet. Create one from a folder above.' }));
+  main.append(h('h2', { text: `Galleries (${list.length})` }));
+  if (!list.length) return main.append(h('p', { class: 'muted', text: 'No galleries yet. Create one from a folder above.' }));
   const manual = (homeOrder.data && homeOrder.data.order) === 'manual';
-  app.append(h('div', { class: 'gal-list' }, list.map((g, i) => galleryRow(g, manual ? { first: i === 0, last: i === list.length - 1 } : null))));
+  main.append(h('div', { class: 'gal-list' }, list.map((g, i) => galleryRow(g, manual ? { first: i === 0, last: i === list.length - 1 } : null))));
 }
 
 const visShort = { 0: 'Public', 1: 'Unlisted', 2: 'Protected' };
@@ -919,21 +988,27 @@ function newGalleryPanel(folders) {
       } }), out));
 }
 
-async function viewSettings(app) {
+async function viewSettings(app, section) {
   document.title = 'Site settings - ' + site.title;
-  const me = await api('/api/admin/me');
-  if (!me.data || !me.data.admin) return adminLogin(app);
+  const titles = { general: 'Site and appearance', watermark: 'Watermark', review: 'Caption suggestions', tags: 'Tags', groups: 'Groups', license: 'License', 'visitor-stats': 'Visitor tracking', email: 'Email alerts', cache: 'Thumbnail cache' };
+  if (!titles[section]) section = 'general';
+  const main = await adminPage(app, 'settings/' + section, titles[section]);
+  if (!main) return;
+  if (section === 'watermark') return watermarkSection(main);
+  if (section === 'general') { main.append(siteNamePanel(), await themePanel(), homePanel()); return; }
+  if (section === 'review') return main.append(await captionReviewPanel());
+  if (section === 'tags') return main.append(await tagPanel());
+  if (section === 'groups') return main.append(await groupsPanel());
+  if (section === 'license') return main.append(await licensePanel());
+  if (section === 'visitor-stats') return main.append(statsSettingsPanel());
+  if (section === 'email') return main.append(emailPanel());
+  main.append(cachePanel());
+}
+
+async function watermarkSection(app) {
   const r = await api('/api/admin/settings');
   const w = r.data.watermark;
   let hasPng = r.data.hasPng;
-  app.append(h('div', { class: 'toolbar' }, h('h1', { text: 'Settings' }), h('span', { class: 'grow' }), h('a', { class: 'btn', href: '/admin', text: 'Back to admin' })));
-  app.append(siteNamePanel());
-  app.append(await themePanel());
-  app.append(await captionReviewPanel());
-  app.append(await tagPanel());
-  app.append(await groupsPanel());
-  app.append(await licensePanel());
-
   const modeSel = h('select', {}, [['none', 'None'], ['text', 'Text'], ['png', 'PNG image']].map(([v, t]) => h('option', { value: v, text: t, selected: v === w.mode })));
   const text = h('input', { type: 'text', value: w.text || '', placeholder: '(c) Your Name', maxlength: 80 });
   const pos = h('select', {}, ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'].map(v => h('option', { value: v, text: v, selected: v === w.position })));
@@ -983,10 +1058,6 @@ async function viewSettings(app) {
     } }), msg),
     h('p', { class: 'muted', text: 'Preview (not saved until you click Save):' }), preview));
   refresh();
-  app.append(homePanel());
-  app.append(statsSettingsPanel());
-  app.append(emailPanel());
-  app.append(cachePanel());
 }
 
 const orderLabels = [
@@ -1365,8 +1436,8 @@ const toLocalInput = (iso) => {
 };
 
 async function viewGallerySettings(app, id) {
-  const me = await api('/api/admin/me');
-  if (!me.data || !me.data.admin) return adminLogin(app);
+  app = await adminPage(app, 'galleries');
+  if (!app) return;
   const gals = await api('/api/admin/galleries');
   const g = (gals.data || []).find(x => x.id === id);
   if (g) { const gt = await api(`/api/admin/galleries/${id}/tags`); if (gt.ok) g.tags = gt.data; }
@@ -1377,7 +1448,7 @@ async function viewGallerySettings(app, id) {
     g.groupIds = invited.ok ? invited.data : [];
   }
   if (!g) document.title = 'Gallery not found - ' + site.title;
-  if (!g) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Gallery not found' }), h('a', { class: 'btn', href: '/admin', text: 'Back to admin' })));
+  if (!g) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Gallery not found' }), h('a', { class: 'btn', href: '/admin/galleries', text: 'Back to galleries' })));
   document.title = g.title + ' settings - ' + site.title;
 
   let dirty = false;
@@ -1442,7 +1513,7 @@ async function viewGallerySettings(app, id) {
       field('Thumbnails', thumbControl(g), 'Built automatically in the background after each scan. Rebuild after fixing or replacing photos.'),
       field('Delete', h('button', { class: 'danger', text: 'Delete gallery...', onclick: async () => {
         if (!confirm('Remove this gallery from the site? Your original photo files are NOT deleted.')) return;
-        dirty = false; await api('/api/admin/galleries/' + g.id, { method: 'DELETE' }); go('/admin');
+        dirty = false; await api('/api/admin/galleries/' + g.id, { method: 'DELETE' }); go('/admin/galleries');
       } }))));
 
   // --- Access & sharing ---
@@ -1487,7 +1558,7 @@ async function viewGallerySettings(app, id) {
       field('On screen', h('label', {}, wmView, ' Watermark photos shown in the gallery'), 'Style is set in Site settings.'),
       field('Downloads', h('label', {}, wmDl, ' Watermark sized downloads'), 'This also blocks original and RAW downloads, which cannot carry a watermark.'),
       field('Guest uploads', h('label', {}, guestUp, ' Let visitors upload photos'), 'Uploads stay hidden until you approve them.')),
-    h('p', {}, h('a', { href: '/admin/settings', text: 'Open site settings (watermark style)' })), pendingManager(g));
+    h('p', {}, h('a', { href: '/admin/settings/watermark', text: 'Open site settings (watermark style)' })), pendingManager(g));
 
   const favSection = section('Favorites', 'Photos visitors hearted', false, favoritesManager(g));
 
@@ -1527,7 +1598,7 @@ async function viewGallerySettings(app, id) {
   };
 
   app.append(
-    h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/admin', text: '\u2190 All galleries' }), h('h1', { text: g.title }), h('span', { class: 'grow' }),
+    h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/admin/galleries', text: '\u2190 All galleries' }), h('h1', { text: g.title }), h('span', { class: 'grow' }),
       h('a', { class: 'btn', href: '/admin/stats?gallery=' + g.id, text: 'Statistics' }),
       h('a', { class: 'btn', href: '/g/' + encodeURIComponent(g.slug), text: 'View gallery' })),
     h('p', { class: 'muted counts', text: countsLine(g) }),
@@ -1674,8 +1745,8 @@ const kindLabels = { view_gallery: 'Viewed gallery', view_photo: 'Viewed photo',
 
 async function viewStats(app) {
   document.title = 'Statistics - ' + site.title;
-  const me = await api('/api/admin/me');
-  if (!me.data || !me.data.admin) return adminLogin(app);
+  app = await adminPage(app, 'stats');
+  if (!app) return;
   const qs = new URLSearchParams(location.search);
   const state = { days: Number(qs.get('days') ?? 30), gallery: qs.get('gallery') || '', who: qs.get('who') || 'visitors', kind: '', skip: 0, view: qs.get('view') || 'overview', ip: qs.get('visitor') || (qs.get('ip') ? 'ip:' + qs.get('ip') : ''), group: qs.get('group') || 'cookie', sort: qs.get('sort') || 'recent' };
   const galleries = (await api('/api/admin/galleries')).data || [];
@@ -1839,7 +1910,7 @@ async function viewStats(app) {
 
   rangeSel.onchange = () => { state.days = Number(rangeSel.value); load(); };
   galSel.onchange = () => { state.gallery = galSel.value; load(); };
-  app.append(h('div', { class: 'toolbar' }, h('a', { class: 'btn', href: '/admin', text: '\u2190 Admin' }), h('h1', { text: 'Statistics' }), h('span', { class: 'grow' }), rangeSel, galSel, h('a', { class: 'btn', href: '/admin/settings', text: 'Settings' })),
+  app.append(h('div', { class: 'toolbar' }, h('h1', { text: 'Statistics' }), h('span', { class: 'grow' }), rangeSel, galSel, h('a', { class: 'btn', href: '/admin/settings/visitor-stats', text: 'Tracking settings' })),
     viewTabs, tabs, body);
   load();
 }

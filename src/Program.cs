@@ -155,6 +155,7 @@ app.MapGet("/healthz", () => Results.Ok("ok"));
 PublicApi.Map(app);
 AdminApi.Map(app);
 StatsApi.Map(app);
+HealthApi.Map(app);
 AuthApi.Map(app);
 SubscribeApi.Map(app);
 CaptionApi.Map(app);

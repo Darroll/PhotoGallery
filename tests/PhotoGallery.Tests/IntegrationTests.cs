@@ -93,6 +93,7 @@ public class AdminAuthTests(AppFactory app) : IClassFixture<AppFactory>
     [InlineData("/api/admin/settings/license")]
     [InlineData("/api/admin/settings/email")]
     [InlineData("/api/admin/cache")]
+    [InlineData("/api/admin/health")]
     public async Task Admin_endpoints_reject_anonymous_visitors(string path)
     {
         Assert.Equal(HttpStatusCode.Unauthorized, (await app.NewClient().GetAsync(path)).StatusCode);
