@@ -463,5 +463,11 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 #lightbox .tag-add-btn { color: #ccc; border-color: #666; background: none; }
 .lb-caption .tag-line { justify-content: center; }
 
-.home-status { justify-content: center; }
 .chip.v1, .chip.v3 { color: var(--accent); border-color: var(--accent); }
+
+/* admin: visibility level and a settings shortcut next to a gallery */
+.admin-status { align-items: center; }
+.card .meta .admin-status { justify-content: center; }
+.chip-link { font: inherit; font-size: 12px; padding: 1px 9px; border-radius: 999px; border: 1px solid var(--line); background: none; color: var(--fg); text-decoration: none; cursor: pointer; display: inline-block; }
+.chip-link:hover { border-color: var(--accent); }
+.chip.v2 { color: var(--accent); border-color: var(--accent); }

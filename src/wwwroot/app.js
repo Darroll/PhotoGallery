@@ -303,15 +303,20 @@ async function viewHome(app) {
   app.append(h('div', { class: 'cards' }, r.data.map(g =>
     h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
       g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
-      h('div', { class: 'meta' }, h('b', { text: g.title }), g.eventDate || g.location ? h('span', { class: 'muted', text: eventLine(g) }) : null, h('span', { class: 'muted', text: plural(g.count, 'photo') }), homeStatus(g), tagChips(g))))));
+      h('div', { class: 'meta' }, h('b', { text: g.title }), g.eventDate || g.location ? h('span', { class: 'muted', text: eventLine(g) }) : null, h('span', { class: 'muted', text: plural(g.count, 'photo') }), adminStatus(g, me && me.admin, true), tagChips(g))))));
 }
 
-// Only the admin is sent galleries that visitors cannot see on the home page, so this marks them (nothing for an ordinary public gallery).
-function homeStatus(g) {
-  if (!g.visibility && !g.expired) return null;
-  return h('div', { class: 'chips home-status' },
-    g.visibility ? h('span', { class: 'chip v' + g.visibility, text: visShort[g.visibility] + ' (hidden from visitors)' }) : null,
-    g.expired ? h('span', { class: 'chip warn', text: 'Expired' }) : null);
+// Admin only: the gallery's visibility level (and whether it has expired) with a shortcut to its settings.
+// On a card, which is itself a link, the shortcut is a button; elsewhere it is an ordinary link.
+function adminStatus(g, isAdmin, inCard) {
+  if (!isAdmin || g.id == null) return null;
+  const href = '/admin/galleries/' + g.id;
+  const open = inCard
+    ? h('button', { type: 'button', class: 'chip-link', text: '\u2699 Settings', title: 'Open this gallery\'s settings', onclick: (e) => { e.preventDefault(); e.stopPropagation(); go(href); } })
+    : h('a', { class: 'chip-link', href, text: '\u2699 Gallery settings', title: 'Open this gallery\'s settings' });
+  return h('div', { class: 'chips admin-status' },
+    h('span', { class: 'chip v' + g.visibility, text: visShort[g.visibility] || 'Unknown', title: visLabels[g.visibility] || '' }),
+    g.expired ? h('span', { class: 'chip warn', text: 'Expired' }) : null, open);
 }
 
 // ---------- gallery ----------
@@ -366,6 +371,8 @@ async function viewGallery(app, slug) {
   favs = new Set(G.favorites || []);
   document.title = G.title;
   app.append(h('h1', { class: 'g-title', text: G.title }));
+  const status = adminStatus(G, G.admin, false);
+  if (status) app.append(status);
   if (G.eventDate || G.location) app.append(h('p', { class: 'muted', text: eventLine(G) }));
   const headerTags = tagLine(G.tags, galleryTagEdit(G));
   if (headerTags) app.append(headerTags);
