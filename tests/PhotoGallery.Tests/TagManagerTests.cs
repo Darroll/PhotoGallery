@@ -146,6 +146,30 @@ public class TagManagerTests(AppFactory app) : IClassFixture<AppFactory>
     }
 
     [Fact]
+    public async Task The_admin_sees_every_gallery_on_the_home_list_and_visitors_only_public_ones()
+    {
+        var admin = await app.AdminAsync();
+        var anon = app.NewClient();
+        var made = new Dictionary<string, int>();
+        foreach (var (name, vis) in new[] { ("Public", 0), ("Unlisted", 1), ("Protected", 2), ("People", 3) })
+        {
+            var title = Unique(name + " home ");
+            var r = await admin.PostAsJsonAsync("/api/admin/galleries", new { title, folder = app.NewFolder(1), visibility = vis, password = vis == 2 ? "pw-for-test" : null });
+            Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+            made[title] = vis;
+        }
+        var adminList = (await (await admin.GetAsync("/api/galleries")).ReadAsync()).EnumerateArray().ToList();
+        var anonList = (await (await anon.GetAsync("/api/galleries")).ReadAsync()).EnumerateArray().Select(g => g.GetProperty("title").GetString()).ToList();
+        foreach (var (title, vis) in made)
+        {
+            var row = adminList.FirstOrDefault(g => g.GetProperty("title").GetString() == title);
+            Assert.True(row.ValueKind == System.Text.Json.JsonValueKind.Object, $"admin should see {title}");
+            Assert.Equal(vis, row.GetProperty("visibility").GetInt32());
+            Assert.Equal(vis == 0, anonList.Contains(title));
+        }
+    }
+
+    [Fact]
     public async Task Tag_management_needs_the_admin()
     {
         var anon = app.NewClient();

@@ -297,13 +297,21 @@ async function viewSearch(app) {
 async function viewHome(app) {
   const [r, colors] = await Promise.all([api('/api/galleries'), api('/api/tag-colors')]);
   if (colors.ok) learnTagColors(colors.data);
-  app.append(h('h1', { text: site.title }), h('p', { class: 'sub', text: 'Public galleries' }));
+  app.append(h('h1', { text: site.title }), h('p', { class: 'sub', text: me && me.admin ? 'All galleries, including ones visitors cannot see' : 'Public galleries' }));
   app.append(searchForm({}));
   if (!r.ok || !r.data.length) return app.append(h('p', { class: 'muted', text: 'No public galleries yet. Private galleries are reached through their share link.' }));
   app.append(h('div', { class: 'cards' }, r.data.map(g =>
     h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
       g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
-      h('div', { class: 'meta' }, h('b', { text: g.title }), g.eventDate || g.location ? h('span', { class: 'muted', text: eventLine(g) }) : null, h('span', { class: 'muted', text: plural(g.count, 'photo') }), tagChips(g))))));
+      h('div', { class: 'meta' }, h('b', { text: g.title }), g.eventDate || g.location ? h('span', { class: 'muted', text: eventLine(g) }) : null, h('span', { class: 'muted', text: plural(g.count, 'photo') }), homeStatus(g), tagChips(g))))));
+}
+
+// Only the admin is sent galleries that visitors cannot see on the home page, so this marks them (nothing for an ordinary public gallery).
+function homeStatus(g) {
+  if (!g.visibility && !g.expired) return null;
+  return h('div', { class: 'chips home-status' },
+    g.visibility ? h('span', { class: 'chip v' + g.visibility, text: visShort[g.visibility] + ' (hidden from visitors)' }) : null,
+    g.expired ? h('span', { class: 'chip warn', text: 'Expired' }) : null);
 }
 
 // ---------- gallery ----------
@@ -1040,7 +1048,7 @@ async function viewAdmin(app) {
   main.append(h('div', { class: 'gal-list' }, list.map((g, i) => galleryRow(g, manual ? { first: i === 0, last: i === list.length - 1 } : null))));
 }
 
-const visShort = { 0: 'Public', 1: 'Unlisted', 2: 'Protected' };
+const visShort = { 0: 'Public', 1: 'Unlisted', 2: 'Protected', 3: 'Specific people' };
 function galleryRow(g, move) {
   const settingsHref = '/admin/galleries/' + g.id;
   const expired = g.expiresAt && new Date(/Z$/.test(g.expiresAt) ? g.expiresAt : g.expiresAt + 'Z') <= new Date();

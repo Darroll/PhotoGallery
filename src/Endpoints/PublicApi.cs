@@ -46,16 +46,19 @@ public static class PublicApi
             return Results.NoContent();
         });
 
-        app.MapGet("/api/galleries", async (AppDb db, SettingsService settings) =>
+        // The home page list. Visitors get public, unexpired galleries; the admin gets every gallery whatever its visibility or expiry.
+        app.MapGet("/api/galleries", async (HttpContext ctx, AppDb db, SettingsService settings) =>
         {
             var now = DateTime.UtcNow;
-            var rows = await db.Galleries.Where(g => g.Visibility == Visibility.Public && (g.ExpiresAt == null || g.ExpiresAt > now))
+            var admin = AccessService.IsAdmin(ctx);
+            var rows = await db.Galleries.Where(g => admin || (g.Visibility == Visibility.Public && (g.ExpiresAt == null || g.ExpiresAt > now)))
                 .Select(g => new { g, count = g.Photos.Count(p => p.Approved) }).ToListAsync();
             var counts = rows.ToDictionary(r => r.g.Id, r => r.count);
             var galleryTags = await Tags.NamesByGalleryAsync(db, rows.Select(r => r.g.Id).ToList());
             var list = GalleryRules.OrderGalleries(rows.Select(r => r.g), settings.Home.Order).Select(g => new
             {
                 g.Id, g.Slug, g.Title, g.Description, g.Location, eventDate = g.EventDate, cover = g.CoverPhotoId, count = counts[g.Id],
+                g.Visibility, expired = g.ExpiresAt != null && g.ExpiresAt <= now,
                 tags = galleryTags.TryGetValue(g.Id, out var gt) ? gt : new List<string>()
             });
             return Results.Ok(list);

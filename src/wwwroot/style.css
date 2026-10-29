@@ -462,3 +462,6 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .tag-add-btn:hover { border-color: var(--accent); color: var(--fg); }
 #lightbox .tag-add-btn { color: #ccc; border-color: #666; background: none; }
 .lb-caption .tag-line { justify-content: center; }
+
+.home-status { justify-content: center; }
+.chip.v1, .chip.v3 { color: var(--accent); border-color: var(--accent); }
