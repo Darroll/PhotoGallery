@@ -107,6 +107,7 @@ public static class PublicApi
                 watermarkView = g.WatermarkView,
                 watermarkDownload = g.WatermarkDownload,
                 admin,
+                expired = g.ExpiresAt != null && g.ExpiresAt <= DateTime.UtcNow,
                 link = a.Link == null ? null : new
                 {
                     expires = a.Link.ExpiresAt,

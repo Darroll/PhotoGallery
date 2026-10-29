@@ -870,7 +870,7 @@ function openLightbox(index, play, mode = 'push') {
           if (r.ok) { G.cover = p.id; toast('Gallery cover updated'); lb.sync(); } else toast('Could not set cover');
         } })
       : null;
-    adminRow.replaceChildren(coverBtn || '', unlink || '');
+    adminRow.replaceChildren(...[adminStatus(G, G.admin, false), coverBtn, unlink].filter(Boolean));
   };
   favA.el.onclick = () => toggleFav(cur());
   selA.el.onclick = () => toggleSel(cur());

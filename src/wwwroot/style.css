@@ -471,3 +471,8 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .chip-link { font: inherit; font-size: 12px; padding: 1px 9px; border-radius: 999px; border: 1px solid var(--line); background: none; color: var(--fg); text-decoration: none; cursor: pointer; display: inline-block; }
 .chip-link:hover { border-color: var(--accent); }
 .chip.v2 { color: var(--accent); border-color: var(--accent); }
+#lightbox .admin-status .chip { color: #ccc; border-color: #666; }
+#lightbox .admin-status .chip.v0 { color: #6ff0a0; border-color: #6ff0a0; }
+#lightbox .admin-status .chip.v1, #lightbox .admin-status .chip.v2, #lightbox .admin-status .chip.v3 { color: #8db4ff; border-color: #8db4ff; }
+#lightbox .admin-status .chip.warn { color: #e0a83a; border-color: #e0a83a; }
+#lightbox .chip-link { color: #eee; border-color: #666; background: none; }
