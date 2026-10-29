@@ -18,11 +18,13 @@ public class UserFactory : AppFactory
         builder.ConfigureServices(s => s.AddTransient<IStartupFilter, TestUserFilter>());
     }
 
-    /// <summary>A browser session of the account with this provider id.</summary>
-    public HttpClient AsUser(string sub)
+    /// <summary>A browser session of the account with this provider id. An email (and whether the provider verified it) is sent as the sign-in email.</summary>
+    public HttpClient AsUser(string sub, string? email = null, bool verified = true)
     {
         var c = NewClient();
         c.DefaultRequestHeaders.Add("X-Test-Sub", sub);
+        if (email != null) c.DefaultRequestHeaders.Add("X-Test-Email", email);
+        if (!verified) c.DefaultRequestHeaders.Add("X-Test-Unverified", "1");
         return c;
     }
 
@@ -33,8 +35,16 @@ public class UserFactory : AppFactory
             app.Use(async (ctx, n) =>
             {
                 if (ctx.Request.Headers.TryGetValue("X-Test-Sub", out var sub))
-                    ctx.User = new ClaimsPrincipal(new ClaimsIdentity(
-                        [new Claim(ClaimTypes.NameIdentifier, sub.ToString()), new Claim(ClaimTypes.Name, "Test " + sub)], "test"));
+                {
+                    var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, sub.ToString()), new(ClaimTypes.Name, "Test " + sub) };
+                    if (ctx.Request.Headers.TryGetValue("X-Test-Email", out var email))
+                    {
+                        claims.Add(new Claim(ClaimTypes.Email, email.ToString()));
+                        // the real sign-in only adds this claim when the provider has verified the address
+                        if (!ctx.Request.Headers.ContainsKey("X-Test-Unverified")) claims.Add(new Claim("email_verified", "true"));
+                    }
+                    ctx.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "test"));
+                }
                 await n();
             });
             next(app);

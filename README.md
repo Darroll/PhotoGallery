@@ -7,7 +7,7 @@ Self-hosted photo galleries for Unraid, written in ASP.NET Core 9 (SQLite + libv
 | Need | How it works |
 |---|---|
 | Multiple galleries | Each gallery points at a folder under the photo library (read-only mount). Rescan any time. |
-| Public / private | **Public** (listed on home page), **Unlisted** (anyone with the URL), **Protected** (password and/or share link). |
+| Public / private | **Public** (listed on home page), **Unlisted** (anyone with the URL), **Protected** (password and/or share link), **Specific people** (only the invited email addresses, after single sign-on). |
 | Slideshow | Fullscreen lightbox with play/pause, 3-12 s interval, keyboard (space, arrows, F, Esc) and swipe. |
 | Resolutions, no quality loss | Downloads at configured long-edge sizes (`SIZES`) as **lossless PNG, lossless WebP or LZW TIFF**, or the **byte-identical original**. On-screen viewing uses WebP q88. |
 | RAW download | RAW files are paired with the processed image by name (per-gallery: same folder, any folder, or `IMG_1234-Edit.png` style prefix), or linked by hand in the admin page. RAW-only frames are hidden from viewers until they click *Show RAW-only photos*. Per-gallery switch `Allow RAW download`. RAW-only files are supported when `exiftool` is present (it is in the Docker image). |
@@ -68,7 +68,7 @@ Grid thumbnails and viewing images are built in the background after every scan 
 
 - Admin: one password (`ADMIN_PASSWORD`), HttpOnly SameSite=Strict cookie, rate-limited login, custom header required on all write calls.
 - Viewers: gallery access is an encrypted, expiring cookie (ASP.NET Data Protection, keys persisted in `/data/keys`). Changing a gallery's password or visibility invalidates existing cookies.
-- Protected photos are never served without a valid grant (images, downloads and ZIPs all check).
+- Protected photos are never served without a valid grant (images, downloads and ZIPs all check). Specific-people galleries are checked on every request against the signed-in, verified email address, so removing someone takes effect at once.
 - Upload: extension allow-list, size limit, content verified by libvips before acceptance, per-IP rate limit, pending cap.
 - Strict CSP, `nosniff`, no framing. Run it only behind SWAG/HTTPS and do not publish the container port to the internet.
 
@@ -119,7 +119,7 @@ Do on your side:
 
 **Link previews.** A shared gallery link shows its name and cover in chat apps and social feeds. Public and unlisted galleries reveal their name and a picture; a protected gallery shows only the site name, so its title and photos stay private. Expired galleries show only the site name.
 
-**Subscriptions.** Visitors can subscribe on the home page to emails about new public galleries and new photos. Each subscriber confirms by a link first (double opt-in), and every email has an unsubscribe link. Unlisted and protected galleries are never announced. Subscriptions need the site address (Admin -> Settings -> Email alerts) and can be turned off there, where you also see how many people are confirmed.
+**Subscriptions.** Visitors can subscribe on the home page to emails about new public galleries and new photos. Each subscriber confirms by a link first (double opt-in), and every email has an unsubscribe link. Unlisted, protected and specific-people galleries are never announced. Subscriptions need the site address (Admin -> Settings -> Email alerts) and can be turned off there, where you also see how many people are confirmed.
 
 **Details.** The ⓘ Details button in the viewer lists the metadata of every file behind a photo: the processed image and its RAW, if it has one. With exiftool installed on the server you get the full set (camera, lens, settings, dates); without it, the image library's own fields are shown. Where a photo was taken (GPS) is shown only to the admin.
 
@@ -127,7 +127,7 @@ Do on your side:
 
 *Automatic captions* need a vision model you run yourself. Set `CAPTION_URL` to an Ollama server (for example `http://192.168.2.5:11434`) and optionally `CAPTION_MODEL` (default `llava`). The server writes captions for photos that have none, a few at a time in the background, and gives up on a photo after three tries. Photos are sent only to that address. Leave `CAPTION_URL` empty and nothing leaves the server. Run the model on a machine with enough memory: a vision model on the Unraid server itself can exhaust its RAM.
 
-**Search and tags.** The search box on the home page (and `/search`) finds public photos by file name, caption, alt text, tags, gallery title, place, and date taken. Protected, unlisted and expired galleries are never searched. The search box has a "Search in" choice: galleries and photos (the default), galleries only, or photos only.
+**Search and tags.** The search box on the home page (and `/search`) finds public photos by file name, caption, alt text, tags, gallery title, place, and date taken. Protected, specific-people, unlisted and expired galleries are never searched. The search box has a "Search in" choice: galleries and photos (the default), galleries only, or photos only.
 Tags are labels you choose, about anything (Admin -> Settings -> Tags). Add them to a photo from its Edit sheet in the viewer, or to a whole gallery from its Tags field in gallery settings. In either place, click **+** and type: the box suggests tags already in use, Enter or a comma adds the tag, and the **×** on a chip removes it. Visitors see tags under photos and galleries (and on the home page), and can search by them. A gallery tag counts for every photo in that gallery, and the search page has a tag filter.
 
 ## Themes
@@ -173,7 +173,7 @@ PHOTO_LIBRARY=/path/to/photos DATA_DIR=./data ADMIN_PASSWORD=dev dotnet run
 dotnet test tests/PhotoGallery.Tests
 ```
 
-The suite (164 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
+The suite (170 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
 
 Add a test whenever you add or fix a feature. `AppFactory` in `tests/PhotoGallery.Tests` boots the app; pass extra environment-style settings to a subclass to test other configurations (see `SsoFactory`).
 

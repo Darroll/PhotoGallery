@@ -35,6 +35,7 @@ public static class Schema
         AddColumn(db, "Galleries", "AllowedSizes", "TEXT NOT NULL DEFAULT ''");
         AddColumn(db, "Galleries", "AllowedFormats", "TEXT NOT NULL DEFAULT ''");
         AddColumn(db, "Galleries", "ExpiresAt", "TEXT NULL");
+        AddColumn(db, "Galleries", "AllowedEmails", "TEXT NOT NULL DEFAULT ''");
         db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""EmailOutbox"" (
             ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_EmailOutbox"" PRIMARY KEY AUTOINCREMENT,
             ""CreatedAt"" TEXT NOT NULL, ""ToAddr"" TEXT NOT NULL, ""Subject"" TEXT NOT NULL, ""Body"" TEXT NOT NULL,

@@ -68,9 +68,11 @@ public static class PublicApi
             var a = await access.CheckAsync(ctx, g);
             if (a.Expired) return Results.Json(new { expired = true, title = g.Title }, statusCode: 410);
             if (!a.Allowed)
-                return a.NeedsPassword
-                    ? Results.Json(new { needsPassword = true, title = g.Title }, statusCode: 401)
-                    : Results.StatusCode(403);
+            {
+                if (a.NeedsPassword) return Results.Json(new { needsPassword = true, title = g.Title }, statusCode: 401);
+                if (a.NeedsSignIn) return Results.Json(new { needsSignIn = true, title = g.Title }, statusCode: 401);
+                return Results.StatusCode(403);
+            }
 
             activity.Record(ctx, "view_gallery", g.Id);
             var admin = a.Admin;

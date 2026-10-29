@@ -22,7 +22,7 @@ public static class LinkPreview
         if (parts.Length >= 2 && parts[0] == "g")
         {
             var g = await db.Galleries.AsNoTracking().FirstOrDefaultAsync(x => x.Slug == parts[1]);
-            if (g != null && g.Visibility != Visibility.Protected && !GalleryRules.IsExpired(g))
+            if (g != null && g.Visibility is Visibility.Public or Visibility.Unlisted && !GalleryRules.IsExpired(g))
             {
                 title = $"{g.Title} · {site}";
                 description = !string.IsNullOrWhiteSpace(g.Description) ? g.Description : EventLine(g);

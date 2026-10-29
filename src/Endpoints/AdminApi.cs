@@ -11,6 +11,7 @@ public static class AdminApi
     record LoginRequest(string? Password, string? Username = null);
 
     static string Clip(string? s) => new string((s ?? "").Where(c => !char.IsControl(c)).Take(40).ToArray());
+    record PeopleInput(List<string>? Emails);
     record GalleryInput(string? Title, string? Description, string? Folder, string? Slug, Visibility? Visibility,
         string? Password, bool? AllowDownload, bool? AllowRaw, bool? AllowZip, bool? AllowGuestUpload,
         bool? WatermarkView, bool? WatermarkDownload, RawMatch? RawMatchMode,
@@ -355,6 +356,27 @@ public static class AdminApi
             g.CoverPhotoId = input.PhotoId;
             await db.SaveChangesAsync();
             return Results.NoContent();
+        });
+
+        // --- people allowed into a Restricted gallery (email addresses, which may not have signed in yet) ---
+        secured.MapGet("/galleries/{id:int}/people", async (int id, AppDb db) =>
+        {
+            var g = await db.Galleries.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+            return g == null ? Results.NotFound() : Results.Ok(GalleryPeople.Parse(g.AllowedEmails));
+        });
+
+        // replaces the whole list
+        secured.MapPut("/galleries/{id:int}/people", async (int id, PeopleInput input, HttpContext ctx, AppDb db) =>
+        {
+            if (ctx.Request.Headers["X-Requested-With"] != "pg") return Results.BadRequest("missing header");
+            var g = await db.Galleries.FirstOrDefaultAsync(x => x.Id == id);
+            if (g == null) return Results.NotFound();
+            var list = GalleryPeople.Clean(input.Emails);
+            if (list == null) return Results.BadRequest("One of the addresses is not a valid email address.");
+            if (list.Count > GalleryPeople.Max) return Results.BadRequest($"Up to {GalleryPeople.Max} addresses.");
+            g.AllowedEmails = string.Join('\n', list);
+            await db.SaveChangesAsync();
+            return Results.Ok(list);
         });
 
         // --- share links ---

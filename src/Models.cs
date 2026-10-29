@@ -2,7 +2,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PhotoGallery;
 
-public enum Visibility { Public = 0, Unlisted = 1, Protected = 2 }
+/// <summary>Who can open a gallery. Restricted galleries open only for the listed, verified sign-in emails (and the admin).</summary>
+public enum Visibility { Public = 0, Unlisted = 1, Protected = 2, Restricted = 3 }
 
 /// <summary>Order of photos inside a gallery.</summary>
 public enum GallerySort { Taken = 0, Name = 1, Added = 2 }
@@ -20,6 +21,8 @@ public class Gallery
     public string Folder { get; set; } = "";
     public Visibility Visibility { get; set; } = Visibility.Protected;
     public string? PasswordHash { get; set; }
+    /// <summary>For Restricted galleries: the email addresses allowed in, one per line, lower case.</summary>
+    public string AllowedEmails { get; set; } = "";
     /// <summary>Changes whenever the password changes; invalidates old access cookies.</summary>
     public string AccessStamp { get; set; } = Guid.NewGuid().ToString("N");
     public RawMatch RawMatchMode { get; set; } = RawMatch.Anywhere;

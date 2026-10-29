@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PhotoGallery;
 
-public record AccessInfo(bool Allowed, bool Admin, ShareLink? Link, bool NeedsPassword, bool Expired = false);
+public record AccessInfo(bool Allowed, bool Admin, ShareLink? Link, bool NeedsPassword, bool Expired = false, bool NeedsSignIn = false);
 
 public class AccessService(IDataProtectionProvider dpp, AppDb db)
 {
@@ -21,6 +21,12 @@ public class AccessService(IDataProtectionProvider dpp, AppDb db)
     {
         if (IsAdmin(ctx)) return new(true, true, null, false);
         if (GalleryRules.IsExpired(g)) return new(false, false, null, false, true);
+        // people only: no password or share link opens these; anonymous visitors are asked to sign in
+        if (g.Visibility == Visibility.Restricted)
+        {
+            if (GalleryPeople.Allows(g, ctx.User)) return new(true, false, null, false);
+            return new(false, false, null, false, false, NeedsSignIn: ctx.User.Identity?.IsAuthenticated != true);
+        }
         if (g.Visibility != Visibility.Protected) return new(true, false, null, false);
 
         if (ctx.Request.Cookies.TryGetValue(CookieName(g.Id), out var raw) && !string.IsNullOrEmpty(raw))

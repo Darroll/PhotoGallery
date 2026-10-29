@@ -260,9 +260,18 @@ function playVideo(l) {
 }
 function toggleSel(p) { sel.has(p.id) ? sel.delete(p.id) : sel.add(p.id); G.refresh && G.refresh(); }
 
+// A Specific people gallery: visitors must sign in with an address the photographer listed.
+function signInPrompt(app, title) {
+  document.title = (title || 'Gallery') + ' - ' + site.title;
+  const link = me && me.sso ? h('a', { class: 'btn primary', href: '/auth/login?next=' + encodeURIComponent(location.pathname), text: 'Sign in' }) : null;
+  app.append(h('div', { class: 'center' }, h('h1', { text: title || 'Private gallery' }),
+    h('p', { class: 'sub', text: 'This gallery is only for invited people. Sign in with the email address you were invited on.' }), link));
+}
+
 async function viewGallery(app, slug) {
   const r = await api('/api/g/' + encodeURIComponent(slug));
   if (r.status === 401 && r.data && r.data.needsPassword) return passwordPrompt(app, slug, r.data.title);
+  if (r.status === 401 && r.data && r.data.needsSignIn) return signInPrompt(app, r.data.title);
   if (r.status === 410) document.title = ((r.data && r.data.title) || 'Gallery') + ' - Closed';
   if (r.status === 410) return app.append(h('div', { class: 'center' }, h('h1', { text: (r.data && r.data.title) || 'Gallery closed' }), h('p', { class: 'sub', text: 'This gallery is no longer available.' })));
   if (!r.ok) document.title = 'Not available - ' + site.title;
@@ -888,7 +897,7 @@ async function adminLogin(app) {
   (user || input).focus();
 }
 
-const visLabels = { 0: 'Public (listed on home page)', 1: 'Unlisted (anyone with the link)', 2: 'Protected (password or share link)' };
+const visLabels = { 0: 'Public (listed on home page)', 1: 'Unlisted (anyone with the link)', 2: 'Protected (password or share link)', 3: 'Specific people (listed sign-in emails)' };
 
 function checkRow(label, checked) {
   const box = h('input', { type: 'checkbox', checked });
@@ -1276,6 +1285,7 @@ async function viewGallerySettings(app, id) {
   const gals = await api('/api/admin/galleries');
   const g = (gals.data || []).find(x => x.id === id);
   if (g) { const gt = await api(`/api/admin/galleries/${id}/tags`); if (gt.ok) g.tags = gt.data; }
+  if (g) { const pp = await api(`/api/admin/galleries/${id}/people`); g.people = pp.ok ? pp.data : []; }
   if (!g) document.title = 'Gallery not found - ' + site.title;
   if (!g) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Gallery not found' }), h('a', { class: 'btn', href: '/admin', text: 'Back to admin' })));
   document.title = g.title + ' settings - ' + site.title;
@@ -1349,9 +1359,12 @@ async function viewGallerySettings(app, id) {
   const vis = track(h('select', {}, Object.entries(visLabels).map(([v, t]) => h('option', { value: v, text: t, selected: Number(v) === g.visibility }))));
   const pw = track(h('input', { type: 'password', placeholder: g.hasPassword ? 'Password set (type to change, - to remove)' : 'No password', autocomplete: 'new-password' }));
   const expires = track(h('input', { type: 'datetime-local', value: toLocalInput(g.expiresAt) }));
+  const peopleBox = track(h('textarea', { rows: 4, placeholder: 'name@example.com, one per line', 'aria-label': 'Invited email addresses' }));
+  peopleBox.value = (g.people || []).join('\n');
   const access = section('Access & sharing', 'Who can open it, passwords, links', true,
     h('div', { class: 'form1' },
-      field('Visibility', vis, 'Public shows on the home page. Unlisted needs the link. Protected needs a password or a share link.'),
+      field('Visibility', vis, 'Public shows on the home page. Unlisted needs the link. Protected needs a password or a share link. Specific people opens only for the invited addresses below.'),
+      field('Invited emails', peopleBox, 'Used with Specific people. Add addresses before those people have signed in. They sign in with this address, and their provider must have verified it. Needs single sign-on to be set up.'),
       field('Password', pw),
       field('Auto-expire', h('div', { class: 'row' }, expires, h('button', { text: 'Clear', title: 'Keep the gallery open indefinitely', onclick: () => { expires.value = ''; touch(); } })), expiredNote(g, 'After this time the gallery closes for everyone but you. Nothing is deleted. Clear it to keep the gallery open.'))),
     h('h3', { text: 'Share links' }), linksManager(g));
@@ -1409,6 +1422,10 @@ async function viewGallerySettings(app, id) {
     if (pw.value) body.password = pw.value === '-' ? '' : pw.value;
     const r = await api('/api/admin/galleries/' + g.id, { method: 'PUT', body });
     if (r.ok) await api(`/api/admin/galleries/${g.id}/tags`, { method: 'PUT', body: { names: tagsInput.names() } });
+    if (r.ok) {
+      const pr = await api(`/api/admin/galleries/${g.id}/people`, { method: 'PUT', body: { emails: peopleBox.value.split(/[\n,]+/) } });
+      if (!pr.ok) toast(typeof pr.data === 'string' ? pr.data : 'Could not save the invited emails');
+    }
     if (r.ok) { dirty = false; toast('Saved'); route(); }
     else status.textContent = typeof r.data === 'string' ? r.data : 'Save failed';
   };
