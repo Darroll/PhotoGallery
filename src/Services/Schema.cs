@@ -69,6 +69,14 @@ public static class Schema
             ""PhotoId"" INTEGER NOT NULL, ""TagId"" INTEGER NOT NULL, CONSTRAINT ""PK_PhotoTags"" PRIMARY KEY (""PhotoId"", ""TagId""))");
         db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""GalleryTags"" (
             ""GalleryId"" INTEGER NOT NULL, ""TagId"" INTEGER NOT NULL, CONSTRAINT ""PK_GalleryTags"" PRIMARY KEY (""GalleryId"", ""TagId""))");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""PeopleGroups"" (
+            ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_PeopleGroups"" PRIMARY KEY AUTOINCREMENT,
+            ""Name"" TEXT NOT NULL, ""CreatedAt"" TEXT NOT NULL)");
+        db.Database.ExecuteSqlRaw(@"CREATE UNIQUE INDEX IF NOT EXISTS ""IX_PeopleGroups_Name"" ON ""PeopleGroups"" (""Name"" COLLATE NOCASE)");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""GroupMembers"" (
+            ""GroupId"" INTEGER NOT NULL, ""Email"" TEXT NOT NULL, CONSTRAINT ""PK_GroupMembers"" PRIMARY KEY (""GroupId"", ""Email""))");
+        db.Database.ExecuteSqlRaw(@"CREATE TABLE IF NOT EXISTS ""GalleryGroups"" (
+            ""GalleryId"" INTEGER NOT NULL, ""GroupId"" INTEGER NOT NULL, CONSTRAINT ""PK_GalleryGroups"" PRIMARY KEY (""GalleryId"", ""GroupId""))");
     }
 
     static void AddColumn(AppDb db, string table, string column, string definition)

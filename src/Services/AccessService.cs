@@ -24,7 +24,7 @@ public class AccessService(IDataProtectionProvider dpp, AppDb db)
         // people only: no password or share link opens these; anonymous visitors are asked to sign in
         if (g.Visibility == Visibility.Restricted)
         {
-            if (GalleryPeople.Allows(g, ctx.User)) return new(true, false, null, false);
+            if (await GalleryPeople.AllowsAsync(db, g, ctx.User)) return new(true, false, null, false);
             return new(false, false, null, false, false, NeedsSignIn: ctx.User.Identity?.IsAuthenticated != true);
         }
         if (g.Visibility != Visibility.Protected) return new(true, false, null, false);

@@ -336,6 +336,8 @@ public static class AdminApi
             }
             await db.Favorites.Where(f => f.GalleryId == id).ExecuteDeleteAsync();
             await db.FavoriteOwners.Where(o => o.GalleryId == id).ExecuteDeleteAsync();
+            await db.GalleryTags.Where(t => t.GalleryId == id).ExecuteDeleteAsync();
+            await db.GalleryGroups.Where(x => x.GalleryId == id).ExecuteDeleteAsync();
             db.Galleries.Remove(g);
             await db.SaveChangesAsync();
             return Results.NoContent();

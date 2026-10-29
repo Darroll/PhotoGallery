@@ -159,6 +159,7 @@ AuthApi.Map(app);
 SubscribeApi.Map(app);
 CaptionApi.Map(app);
 SearchApi.Map(app);
+GroupApi.Map(app);
 
 app.Run();
 

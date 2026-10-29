@@ -163,6 +163,9 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<PhotoTag> PhotoTags => Set<PhotoTag>();
     public DbSet<GalleryTag> GalleryTags => Set<GalleryTag>();
+    public DbSet<PeopleGroup> PeopleGroups => Set<PeopleGroup>();
+    public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+    public DbSet<GalleryGroup> GalleryGroups => Set<GalleryGroup>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -175,6 +178,8 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<AppUser>().HasKey(u => u.Sub);
         b.Entity<PhotoTag>().HasKey(x => new { x.PhotoId, x.TagId });
         b.Entity<GalleryTag>().HasKey(x => new { x.GalleryId, x.TagId });
+        b.Entity<GroupMember>().HasKey(x => new { x.GroupId, x.Email });
+        b.Entity<GalleryGroup>().HasKey(x => new { x.GalleryId, x.GroupId });
         b.Entity<Visit>().HasIndex(v => v.Time);
         b.Entity<Visit>().HasIndex(v => new { v.GalleryId, v.Time });
         b.Entity<Photo>().HasOne(p => p.Gallery).WithMany(g => g.Photos).HasForeignKey(p => p.GalleryId).OnDelete(DeleteBehavior.Cascade);

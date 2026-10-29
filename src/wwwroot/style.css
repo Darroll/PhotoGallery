@@ -353,6 +353,12 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .sheet-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; color: var(--muted); font-size: 13px; }
 .sheet-field input, .sheet-field textarea { width: 100%; }
 
+/* groups of people */
+.group-card { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 10px; margin: 8px 0; }
+.group-card summary { cursor: pointer; }
+.group-pick { display: block; margin: 4px 0; }
+.group-person { align-items: center; gap: 10px; }
+
 /* tag editor: chips, a + button, and an add box with suggestions */
 .tag-editor { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; }
 .tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }

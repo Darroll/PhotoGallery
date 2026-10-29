@@ -931,6 +931,7 @@ async function viewSettings(app) {
   app.append(await themePanel());
   app.append(await captionReviewPanel());
   app.append(await tagPanel());
+  app.append(await groupsPanel());
   app.append(await licensePanel());
 
   const modeSel = h('select', {}, [['none', 'None'], ['text', 'Text'], ['png', 'PNG image']].map(([v, t]) => h('option', { value: v, text: t, selected: v === w.mode })));
@@ -1041,6 +1042,90 @@ async function tagPanel() {
   return h('div', { class: 'panel' }, h('h3', { text: 'Tags' }),
     h('p', { class: 'muted', text: 'Tags are labels you choose, about anything. Add them to a photo from its Edit sheet in the viewer. Visitors see them under photos and can search by them.' }),
     rows.length ? rows : h('p', { class: 'muted', text: 'No tags yet.' }));
+}
+
+// Groups: named lists of email addresses kept here, not in the identity provider. Invite a group to a Specific people gallery
+// from that gallery's settings. A person can be in several groups, and changes apply to access right away.
+async function groupsPanel() {
+  const body = h('div');
+  const panel = h('div', { class: 'panel' }, h('h3', { text: 'Groups' }),
+    h('p', { class: 'muted', text: 'A group is a named list of email addresses, such as Family or Team parents. Invite a group to a Specific people gallery from that gallery\'s settings. A person can be in several groups, and changes apply right away.' }), body);
+  const errText = (res) => typeof res.data === 'string' && res.data ? res.data : 'That did not work. Try again.';
+  const emailsOf = (text) => text.split(/[\s,;]+/).filter(Boolean);
+
+  const render = async () => {
+    const [gr, pr] = await Promise.all([api('/api/admin/groups'), api('/api/admin/people')]);
+    if (!gr.ok || !pr.ok) { body.replaceChildren(h('p', { class: 'err', text: 'Could not load groups.' })); return; }
+    const groups = gr.data, people = pr.data;
+    const nameOf = new Map(groups.map(g => [g.id, g.name]));
+    const groupsOf = new Map(people.map(p => [p.email, p.groupIds]));
+
+    const createMsg = h('span', { class: 'muted' });
+    const newName = h('input', { type: 'text', maxlength: 60, placeholder: 'New group name', 'aria-label': 'New group name' });
+    const create = async () => {
+      const res = await api('/api/admin/groups', { method: 'POST', body: { name: newName.value, emails: [] } });
+      if (res.ok) render(); else createMsg.textContent = errText(res);
+    };
+    newName.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); create(); } });
+
+    const cards = groups.map(g => {
+      const msg = h('span', { class: 'muted' });
+      const name = h('input', { type: 'text', maxlength: 60, value: g.name, 'aria-label': 'Group name' });
+      const members = h('textarea', { rows: 5, placeholder: 'name@example.com, one per line', 'aria-label': 'Members of ' + g.name });
+      let ready = false;   // the member list is fetched when the card is first opened; never save an unloaded (empty) list
+      const count = `${g.members} member${g.members === 1 ? '' : 's'}, ${g.galleries} galler${g.galleries === 1 ? 'y' : 'ies'}`;
+      const card = h('details', { class: 'group-card' }, h('summary', {}, h('b', { text: g.name }), h('span', { class: 'muted', text: ' ' + count })));
+      card.addEventListener('toggle', async () => {
+        if (!card.open || ready) return;
+        const res = await api(`/api/admin/groups/${g.id}`);
+        if (res.ok) { members.value = res.data.emails.join('\n'); ready = true; }
+      });
+      card.append(h('div', { class: 'form1' },
+        field('Name', name),
+        field('Members', members, 'One email address per line. A person can also be in other groups.'),
+        h('div', { class: 'row' },
+          h('button', { class: 'primary', type: 'button', text: 'Save group', onclick: async () => {
+            const payload = ready ? { name: name.value, emails: emailsOf(members.value) } : { name: name.value };
+            const res = await api(`/api/admin/groups/${g.id}`, { method: 'PUT', body: payload });
+            if (res.ok) render(); else msg.textContent = errText(res);
+          } }),
+          h('button', { class: 'danger', type: 'button', text: 'Delete group...', onclick: async () => {
+            if (!confirm(`Delete the group "${g.name}"? It is removed from every gallery it was invited to. The people stay in their other groups.`)) return;
+            const res = await api(`/api/admin/groups/${g.id}`, { method: 'DELETE' });
+            if (res.ok) render(); else msg.textContent = errText(res);
+          } }), msg)));
+      return card;
+    });
+
+    // one person, any number of groups
+    const personMsg = h('span', { class: 'muted' });
+    const email = h('input', { type: 'email', maxlength: 200, placeholder: 'person@example.com', 'aria-label': 'Email address' });
+    const boxes = groups.map(g => ({ id: g.id, name: g.name, box: h('input', { type: 'checkbox' }) }));
+    const setChecks = (ids) => boxes.forEach(b => { b.box.checked = ids.includes(b.id); });
+    email.addEventListener('input', () => { const ids = groupsOf.get(email.value.trim().toLowerCase()); if (ids) setChecks(ids); });
+    const savePerson = async () => {
+      const res = await api('/api/admin/people/groups', { method: 'PUT', body: { email: email.value, groupIds: boxes.filter(b => b.box.checked).map(b => b.id) } });
+      if (res.ok) render(); else personMsg.textContent = errText(res);
+    };
+    const rows = people.map(p => h('div', { class: 'row group-person' },
+      h('span', { text: p.email }),
+      h('span', { class: 'muted', text: p.groupIds.map(i => nameOf.get(i)).filter(Boolean).join(', ') }),
+      h('button', { type: 'button', text: 'Edit', onclick: () => { email.value = p.email; setChecks(p.groupIds); email.focus(); } })));
+
+    body.replaceChildren(h('div', {},
+      h('div', { class: 'row' }, newName, h('button', { class: 'primary', type: 'button', text: 'Create group', onclick: create }), createMsg),
+      cards.length ? cards : h('p', { class: 'muted', text: 'No groups yet.' }),
+      h('h4', { text: 'People' }),
+      h('p', { class: 'muted', text: 'Put one person in as many groups as you like: tick every group they belong to. Type an address that is already listed to see and change its groups.' }),
+      groups.length
+        ? h('div', { class: 'form1' }, field('Email', email),
+            field('Groups', h('div', {}, boxes.map(b => h('label', { class: 'group-pick' }, b.box, ' ' + b.name)))),
+            h('div', { class: 'row' }, h('button', { class: 'primary', type: 'button', text: 'Save person', onclick: savePerson }), personMsg))
+        : h('p', { class: 'muted', text: 'Create a group first.' }),
+      rows.length ? rows : h('p', { class: 'muted', text: 'Nobody is in a group yet.' })));
+  };
+  await render();
+  return panel;
 }
 
 async function themePanel() {
@@ -1286,6 +1371,11 @@ async function viewGallerySettings(app, id) {
   const g = (gals.data || []).find(x => x.id === id);
   if (g) { const gt = await api(`/api/admin/galleries/${id}/tags`); if (gt.ok) g.tags = gt.data; }
   if (g) { const pp = await api(`/api/admin/galleries/${id}/people`); g.people = pp.ok ? pp.data : []; }
+  if (g) {
+    const [allGroups, invited] = await Promise.all([api('/api/admin/groups'), api(`/api/admin/galleries/${id}/groups`)]);
+    g.allGroups = allGroups.ok ? allGroups.data : [];
+    g.groupIds = invited.ok ? invited.data : [];
+  }
   if (!g) document.title = 'Gallery not found - ' + site.title;
   if (!g) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Gallery not found' }), h('a', { class: 'btn', href: '/admin', text: 'Back to admin' })));
   document.title = g.title + ' settings - ' + site.title;
@@ -1361,10 +1451,15 @@ async function viewGallerySettings(app, id) {
   const expires = track(h('input', { type: 'datetime-local', value: toLocalInput(g.expiresAt) }));
   const peopleBox = track(h('textarea', { rows: 4, placeholder: 'name@example.com, one per line', 'aria-label': 'Invited email addresses' }));
   peopleBox.value = (g.people || []).join('\n');
+  const groupBoxes = (g.allGroups || []).map(gr => ({ id: gr.id, name: gr.name, box: track(h('input', { type: 'checkbox', checked: (g.groupIds || []).includes(gr.id) })) }));
+  const groupsPick = groupBoxes.length
+    ? h('div', {}, groupBoxes.map(b => h('label', { class: 'group-pick' }, b.box, ' ' + b.name)))
+    : h('span', { class: 'muted', text: 'No groups yet. Create them in the Groups section of the admin settings.' });
   const access = section('Access & sharing', 'Who can open it, passwords, links', true,
     h('div', { class: 'form1' },
       field('Visibility', vis, 'Public shows on the home page. Unlisted needs the link. Protected needs a password or a share link. Specific people opens only for the invited addresses below.'),
       field('Invited emails', peopleBox, 'Used with Specific people. Add addresses before those people have signed in. They sign in with this address, and their provider must have verified it. Needs single sign-on to be set up.'),
+      field('Invited groups', groupsPick, 'Everyone in a ticked group can open this gallery when Specific people is selected. Manage groups in the Groups section of the admin settings.'),
       field('Password', pw),
       field('Auto-expire', h('div', { class: 'row' }, expires, h('button', { text: 'Clear', title: 'Keep the gallery open indefinitely', onclick: () => { expires.value = ''; touch(); } })), expiredNote(g, 'After this time the gallery closes for everyone but you. Nothing is deleted. Clear it to keep the gallery open.'))),
     h('h3', { text: 'Share links' }), linksManager(g));
@@ -1425,6 +1520,7 @@ async function viewGallerySettings(app, id) {
     if (r.ok) {
       const pr = await api(`/api/admin/galleries/${g.id}/people`, { method: 'PUT', body: { emails: peopleBox.value.split(/[\n,]+/) } });
       if (!pr.ok) toast(typeof pr.data === 'string' ? pr.data : 'Could not save the invited emails');
+      if (groupBoxes.length) await api(`/api/admin/galleries/${g.id}/groups`, { method: 'PUT', body: { ids: groupBoxes.filter(b => b.box.checked).map(b => b.id) } });
     }
     if (r.ok) { dirty = false; toast('Saved'); route(); }
     else status.textContent = typeof r.data === 'string' ? r.data : 'Save failed';
