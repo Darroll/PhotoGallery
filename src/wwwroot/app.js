@@ -219,9 +219,13 @@ function renderHeader() {
       themePicker()));
 }
 
-function eventLine(g) {
+// On gallery cards the date and the location each get their own line.
+const eventLines = (g) => eventParts(g).map(t => h('span', { class: 'muted', text: t }));
+function eventLine(g) { return eventParts(g).join(' · '); }
+// The date and the place of a gallery as separate pieces (either may be missing).
+function eventParts(g) {
   const d = g.eventDate ? new Date(/Z$|[+-]\d\d:\d\d$/.test(g.eventDate) ? g.eventDate : g.eventDate + 'Z').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }) : '';
-  return [d, g.location].filter(Boolean).join(' \u00B7 ');
+  return [d, g.location].filter(Boolean);
 }
 
 // ---------- home ----------
@@ -285,7 +289,7 @@ async function viewSearch(app) {
   if (galleries.length) app.append(h('h2', { text: 'Galleries' }), h('div', { class: 'cards' }, galleries.map(g =>
     h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
       g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
-      h('div', { class: 'meta' }, h('b', { text: g.title }), h('span', { class: 'muted', text: eventLine(g) }), tagChips(g))))));
+      h('div', { class: 'meta' }, h('b', { text: g.title }), eventLines(g), tagChips(g))))));
   if (photos.length) app.append(h('h2', { text: 'Photos' }), h('div', { class: 'photo-cards' }, photos.map(p =>
     h('a', { class: 'photo-card', href: `/g/${encodeURIComponent(p.slug)}/p/${p.id}` },
       h('img', { loading: 'lazy', src: `/img/${p.id}/thumb`, alt: p.altText || p.name }),
@@ -303,7 +307,7 @@ async function viewHome(app) {
   app.append(h('div', { class: 'cards' }, r.data.map(g =>
     h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
       g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
-      h('div', { class: 'meta' }, h('b', { text: g.title }), g.eventDate || g.location ? h('span', { class: 'muted', text: eventLine(g) }) : null, h('span', { class: 'muted', text: plural(g.count, 'photo') }), adminStatus(g, me && me.admin, true), tagChips(g))))));
+      h('div', { class: 'meta' }, h('b', { text: g.title }), eventLines(g), h('span', { class: 'muted', text: plural(g.count, 'photo') }), adminStatus(g, me && me.admin, true), tagChips(g))))));
 }
 
 // Admin only: the gallery's visibility level (and whether it has expired) with a shortcut to its settings.
