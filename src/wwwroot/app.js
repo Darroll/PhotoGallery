@@ -195,7 +195,8 @@ function go(path) { if (path !== location.pathname) history.pushState(null, '', 
 function renderFooter() {
   const f = $('#foot'); if (!f) return;
   const ver = h('span', { text: `v${site.version || '?'}${site.commit && site.commit !== 'dev' ? ' \u00B7 ' + site.commit : ''}`, title: site.built ? `Built ${site.built}` : 'Development build' });
-  f.replaceChildren(...[license.enabled ? h('a', { class: 'foot-link', href: '/license', text: license.title || 'License' }) : null, license.enabled ? ' \u00B7 ' : null, ver].filter(Boolean));
+  const right = h('div', { class: 'foot-info' }, ...[license.enabled ? h('a', { class: 'foot-link', href: '/license', text: license.title || 'License' }) : null, license.enabled ? ' \u00B7 ' : null, ver].filter(Boolean));
+  f.replaceChildren(...[site.subscribe ? subscribeForm() : null, right].filter(Boolean));
 }
 
 async function viewLicense(app) {
@@ -232,8 +233,9 @@ function subscribeForm() {
     if (r.ok) { email.value = ''; msg.textContent = 'Check your inbox and click the link to confirm.'; }
     else msg.textContent = typeof r.data === 'string' ? r.data : 'Could not subscribe. Try again.';
   };
-  return h('div', { class: 'panel subscribe' }, h('strong', { text: 'Get an email when new galleries and photos are added' }),
-    h('div', { class: 'row' }, email, h('button', { class: 'primary', text: 'Subscribe', onclick: go }), msg));
+  return h('form', { class: 'foot-subscribe', onsubmit: (e) => { e.preventDefault(); go(); } },
+    h('label', { class: 'foot-subscribe-label', text: 'Email me about new galleries and photos', title: 'Get an email when new galleries and photos are added' }, ),
+    email, h('button', { class: 'primary', type: 'submit', text: 'Subscribe' }), msg);
 }
 
 // Search: the form is reused on the home page and the results page; the query lives in the address so results can be shared.
@@ -256,8 +258,19 @@ function searchForm(v) {
     const qs = p.toString();
     go('/search' + (qs ? '?' + qs : ''));
   };
+  // the filters stay folded away until asked for, unless the search already uses one
+  const active = [v.where, v.tag, v.from, v.to, v.scope && v.scope !== 'all' ? v.scope : ''].filter(Boolean).length;
+  const filters = h('div', { class: 'search-filters', id: 'search-filters' }, scope, where, tag, h('label', { class: 'muted' }, 'From ', from), h('label', { class: 'muted' }, 'To ', to));
+  const toggle = h('button', { type: 'button', class: 'filters-toggle', 'aria-controls': 'search-filters' });
+  const setOpen = (open) => {
+    filters.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.textContent = (open ? 'Filters \u25B4' : 'Filters \u25BE') + (active ? ` (${active})` : '');
+  };
+  toggle.onclick = () => setOpen(filters.hidden);
+  setOpen(active > 0);
   return h('form', { class: 'search-form', onsubmit: (e) => { e.preventDefault(); submit(); } },
-    q, scope, where, tag, h('label', { class: 'muted' }, 'From ', from), h('label', { class: 'muted' }, 'To ', to), h('button', { class: 'primary', type: 'submit', text: 'Search' }));
+    h('div', { class: 'search-main' }, q, h('button', { class: 'primary', type: 'submit', text: 'Search' }), toggle), filters);
 }
 
 async function viewSearch(app) {
@@ -286,7 +299,6 @@ async function viewHome(app) {
   if (colors.ok) learnTagColors(colors.data);
   app.append(h('h1', { text: site.title }), h('p', { class: 'sub', text: 'Public galleries' }));
   app.append(searchForm({}));
-  if (site.subscribe) app.append(subscribeForm());
   if (!r.ok || !r.data.length) return app.append(h('p', { class: 'muted', text: 'No public galleries yet. Private galleries are reached through their share link.' }));
   app.append(h('div', { class: 'cards' }, r.data.map(g =>
     h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
