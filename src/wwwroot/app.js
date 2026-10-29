@@ -590,25 +590,17 @@ function openDownloadSheet(opts = {}) {
 }
 
 // Details of a photo: each file behind it (the image and its RAW, if any) with the metadata that file carries.
-async function openInfoSheet(photo) {
-  closeSheet();
-  if (!photo) return;
+// Returns the nodes for the panel that sits beside the image in the viewer, or null when they cannot be loaded.
+async function photoDetails(photo) {
   const r = await api(`/api/g/${encodeURIComponent(G.slug)}/photo/${photo.id}/info`);
-  if (!r.ok) { toast('Details are not available for this photo'); return; }
+  if (!r.ok) return null;
   const d = r.data;
   const table = (fields) => h('table', { class: 'info-table' }, Object.entries(fields).map(([k, v]) => h('tr', {}, h('th', { text: k }), h('td', { text: String(v) }))));
   const version = (v) => h('div', { class: 'info-version' }, h('h4', { text: `${v.role}: ${v.file}` }),
     Object.entries(v.groups).map(([g, fields]) => h('details', { open: g === 'File' || g === 'EXIF' }, h('summary', { text: g }), table(fields))));
-  const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } },
-    h('div', { class: 'sheet info-sheet', role: 'dialog', 'aria-label': 'Photo details' },
-      h('div', { class: 'sheet-grab' }), h('h3', { text: d.name }),
-      captionBlock(photo),
-      d.versions.length ? d.versions.map(version) : h('p', { class: 'muted', text: 'No details could be read for this photo.' }),
-      h('p', { class: 'muted', text: 'Where the photo was taken is not shown to visitors.' }),
-      h('div', { class: 'row sheet-actions' }, h('button', { text: 'Close', onclick: closeSheet }))));
-  sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
-  document.addEventListener('keydown', sheet._key, true);
-  document.body.append(sheet);
+  return [captionBlock(photo),
+    ...(d.versions.length ? d.versions.map(version) : [h('p', { class: 'muted', text: 'No details could be read for this photo.' })]),
+    h('p', { class: 'muted', text: 'Where the photo was taken is not shown to visitors.' })];
 }
 
 // Gallery tags as a line of #labels (empty when the gallery has none).
@@ -810,13 +802,14 @@ function openLightbox(index, play, mode = 'push') {
   const fsBtn = h('button', { class: 'lb-small', text: 'Fullscreen' });
   const adminRow = h('div', { class: 'lb-admin' });
   const stage = h('div', { class: 'stage' }, prev, img, next);
+  const details = h('aside', { class: 'lb-details hidden', 'aria-label': 'Photo details' });
   const actions = h('div', { class: 'lb-actions' }, favA.el, selA.el);
   if (G.allowDownload) actions.append(dlA.el);
   actions.append(infoA.el);
   actions.append(playA.el);
   root.append(
     h('div', { class: 'lb-top' }, h('div', { class: 'lb-info' }, title, counter), closeBtn),
-    stage,
+    h('div', { class: 'lb-main' }, stage, details),
     h('div', { class: 'lb-bottom' }, captionEl, actions, h('div', { class: 'lb-extra' }, speed, fsBtn), adminRow));
   lb = { i: index, timer: null, idle: null, playing: false, lastSeen: null };
 
@@ -857,7 +850,7 @@ function openLightbox(index, play, mode = 'push') {
     title.textContent = p.name;
     lb.drawCaption(); img.alt = p.altText || p.name;
     document.title = photoTitle(p); counter.textContent = `${lb.i + 1} / ${list.length}`;
-    lb.sync();
+    lb.sync(); lb.drawDetails();
     const n = list[(lb.i + 1) % list.length]; new Image().src = photoUrl(n, viewKind());   // preload
   };
   lb.sync = () => {
@@ -879,7 +872,22 @@ function openLightbox(index, play, mode = 'push') {
   favA.el.onclick = () => toggleFav(cur());
   selA.el.onclick = () => toggleSel(cur());
   dlA.el.onclick = () => openDownloadSheet({ photo: cur() });
-  infoA.el.onclick = () => openInfoSheet(cur());
+  // The details open in a panel beside the photo (under it on a phone) and follow the photo as you move through the gallery.
+  const setDetails = (open) => {
+    details.classList.toggle('hidden', !open); root.classList.toggle('has-details', open); infoA.el.classList.toggle('open', open);
+    resetZoom(); lb.drawDetails();
+  };
+  lb.drawDetails = async () => {
+    const p = cur();
+    if (!p || details.classList.contains('hidden')) return;
+    const head = h('div', { class: 'lb-details-head' }, h('h3', { text: p.name }), h('button', { text: 'Close', onclick: () => setDetails(false) }));
+    details.replaceChildren(head, h('p', { class: 'muted', text: 'Loading...' }));
+    const body = await photoDetails(p);
+    if (!lb || cur() !== p || details.classList.contains('hidden')) return;   // moved on while it loaded
+    details.replaceChildren(head, ...(body || [h('p', { class: 'muted', text: 'Details are not available for this photo.' })]));
+    details.scrollTop = 0;
+  };
+  infoA.el.onclick = () => setDetails(details.classList.contains('hidden'));
 
   const stop = () => { lb.playing = false; clearInterval(lb.timer); playA.i.textContent = '▶'; playA.l.textContent = 'Play'; };
   const start = () => { lb.playing = true; playA.i.textContent = '❚❚'; playA.l.textContent = 'Pause'; clearInterval(lb.timer); lb.timer = setInterval(() => show(lb.i + 1), Number(speed.value) * 1000); };

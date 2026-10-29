@@ -350,6 +350,20 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .info-version details { margin: 4px 0; }
 .info-version summary { cursor: pointer; font-size: 13px; color: var(--muted); }
 
+/* details panel beside the photo in the viewer */
+#lightbox .lb-main { flex: 1; display: flex; min-height: 0; }
+#lightbox .lb-details { flex: 0 0 360px; overflow: auto; background: #141414; border-left: 1px solid #333; color: #eee; padding: 70px 16px 170px; user-select: text; touch-action: pan-y; }
+#lightbox .lb-details.hidden { display: none; }
+#lightbox .lb-details .muted, #lightbox .lb-details .info-table th, #lightbox .lb-details summary { color: #aaa; }
+#lightbox .lb-details-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+#lightbox .lb-details-head h3 { margin: 0; font-size: 16px; word-break: break-word; }
+#lightbox .lb-act.open { color: #8db4ff; border-color: #8db4ff; }
+#lightbox.has-details .lb-bottom { right: 360px; }
+@media (max-width: 700px) {
+  #lightbox .lb-details { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; flex: none; max-height: 45%; border-left: 0; border-top: 1px solid #333; padding: 14px 14px 24px; }
+  #lightbox.has-details .lb-bottom { right: 0; }
+}
+
 /* captions and alt text */
 .lb-caption { color: #eee; text-align: center; padding: 4px 12px; font-size: 14px; max-width: 900px; margin: 0 auto; }
 .info-caption { margin-bottom: 8px; }
