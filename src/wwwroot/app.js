@@ -506,6 +506,65 @@ function tagChips(g) {
   return g.tags && g.tags.length ? h('span', { class: 'muted', text: g.tags.map(t => '#' + t).join(' ') }) : null;
 }
 
+// Tag chips with a + button. Typing offers the tags already on the site; Enter or a comma adds the typed tag,
+// Backspace on an empty box removes the last chip. names() returns the current list.
+function tagEditor(initial, onChange) {
+  let names = [...new Set(initial)];
+  let known = [];
+  const clean = (s) => String(s || '').trim().replace(/^#+/, '').replace(/\s+/g, ' ').slice(0, 40).trim();
+  const has = (n) => names.some(x => x.toLowerCase() === n.toLowerCase());
+  const chips = h('div', { class: 'tag-chips' });
+  const addBox = h('input', { type: 'text', maxlength: 40, placeholder: 'Type a tag', 'aria-label': 'New tag', autocomplete: 'off' });
+  const list = h('div', { class: 'tag-suggest', role: 'listbox' });
+  const addRow = h('div', { class: 'tag-add' }, addBox, list);
+  addRow.hidden = true;
+  const draw = () => {
+    chips.replaceChildren(...names.map(n => h('span', { class: 'tag-chip' }, '#' + n,
+      h('button', { type: 'button', class: 'tag-x', 'aria-label': 'Remove ' + n, text: '×', onclick: () => { names = names.filter(x => x !== n); draw(); emit(); } }))));
+  };
+  const emit = () => { if (onChange) onChange(); };
+  const suggest = () => {
+    const q = clean(addBox.value).toLowerCase();
+    const pool = known.map(t => t.name).filter(n => !has(n) && (!q || n.toLowerCase().includes(q)));
+    list.replaceChildren(...pool.slice(0, 8).map(n => h('button', { type: 'button', class: 'tag-option', text: n,
+      // mousedown keeps focus in the box so the list stays open until the tag is picked
+      onmousedown: (e) => { e.preventDefault(); add(n); } })));
+    list.hidden = pool.length === 0;
+  };
+  const add = (raw) => {
+    const name = clean(raw);
+    if (name && !has(name)) {
+      names.push(known.find(t => t.name.toLowerCase() === name.toLowerCase())?.name || name);
+      draw(); emit();
+    }
+    addBox.value = '';
+    suggest();
+    addBox.focus();
+  };
+  const closeAdd = () => { addRow.hidden = true; addBox.value = ''; };
+  const openAdd = async () => {
+    addRow.hidden = false;
+    addBox.focus();
+    const r = await api('/api/admin/tags');
+    if (r.ok && Array.isArray(r.data)) known = r.data;
+    suggest();
+  };
+  addBox.addEventListener('input', suggest);
+  addBox.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(addBox.value); }
+    else if (e.key === 'Backspace' && !addBox.value && names.length) { names.pop(); draw(); emit(); }
+  });
+  addBox.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== addBox) closeAdd(); }, 150));
+  draw();
+  const wrap = h('div', { class: 'tag-editor' }, chips,
+    h('button', { type: 'button', class: 'tag-plus', title: 'Add a tag', 'aria-label': 'Add a tag', text: '+', onclick: openAdd }), addRow);
+  wrap.names = () => {
+    const pending = clean(addBox.value);
+    return pending && !has(pending) ? [...names, pending] : [...names];
+  };
+  return wrap;
+}
+
 function captionBlock(photo) {
   return h('div', { class: 'info-caption' }, h('h4', { text: 'Caption and description' }),
     h('p', { text: photo.caption || 'No caption yet.' }),
@@ -521,7 +580,7 @@ function captionSheet(photo) {
   const caption = h('input', { type: 'text', maxlength: 120, value: photo.caption || '', 'aria-label': 'Caption' });
   const alt = h('textarea', { rows: 3, maxlength: 300, 'aria-label': 'Alt text' });
   alt.value = photo.altText || '';
-  const tags = isAdmin ? h('input', { type: 'text', maxlength: 400, 'aria-label': 'Tags', value: (photo.tags || []).join(', ') }) : null;
+  const tags = isAdmin ? tagEditor(photo.tags || []) : null;
   const msg = h('span', { class: 'muted' });
   const note = isAdmin ? 'Your changes apply straight away.'
     : signedIn ? 'Your suggestion goes to the photographer, who approves it before it appears.'
@@ -530,7 +589,7 @@ function captionSheet(photo) {
     const r = await api(`/api/g/${encodeURIComponent(G.slug)}/photo/${photo.id}/suggest`, { method: 'POST', body: { caption: caption.value, alt: alt.value } });
     if (r.status === 401) { msg.textContent = 'Sign in to suggest a change.'; return; }
     if (!r.ok) { msg.textContent = 'Could not save. Try again.'; return; }
-    if (tags) { const tr = await api(`/api/admin/photos/${photo.id}/tags`, { method: 'PUT', body: { names: tags.value.split(',') } }); if (tr.ok) photo.tags = tr.data; }
+    if (tags) { const tr = await api(`/api/admin/photos/${photo.id}/tags`, { method: 'PUT', body: { names: tags.names() } }); if (tr.ok) photo.tags = tr.data; }
     if (r.data && r.data.applied) { photo.caption = r.data.caption; photo.altText = r.data.alt; closeSheet(); toast('Saved'); return; }
     msg.textContent = r.data && r.data.suggested ? 'Thanks. The photographer will review it.' : 'Nothing new to suggest.';
   };
@@ -539,7 +598,7 @@ function captionSheet(photo) {
       h('div', { class: 'sheet-grab' }), h('h3', { text: isAdmin ? 'Edit caption' : 'Suggest a caption' }),
       h('label', { class: 'sheet-field' }, 'Caption', caption),
       h('label', { class: 'sheet-field' }, 'Alt text (describes the photo for screen readers)', alt),
-      tags ? h('label', { class: 'sheet-field' }, 'Tags (comma separated)', tags) : null,
+      tags ? h('div', { class: 'sheet-field' }, h('span', { text: 'Tags' }), tags) : null,
       h('p', { class: 'muted', text: note }), msg,
       h('div', { class: 'row sheet-actions' }, h('button', { class: 'primary', text: isAdmin ? 'Save' : 'Send suggestion', onclick: submit }), h('button', { text: 'Close', onclick: closeSheet }))));
   sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
@@ -1263,11 +1322,11 @@ async function viewGallerySettings(app, id) {
   (g.footageLinks || []).forEach(addLinkRow);
   const footage = h('div', {}, linkRows, h('button', { text: '+ Add link', onclick: () => { addLinkRow(); touch(); } }));
   const collectLinks = () => [...linkRows.children].map(r => ({ label: r.children[0].value.trim(), url: r.children[1].value.trim() })).filter(l => l.url);
-  const tagsInput = track(h('input', { type: 'text', value: (g.tags || []).join(', '), placeholder: 'e.g. wedding, portraits' }));
+  const tagsInput = tagEditor(g.tags || [], touch);
   const general = section('General', 'Name, date, order, cover', true,
     h('div', { class: 'form1' },
       field('Title', title), field('URL name', slug, `Gallery address: /g/${g.slug}`), field('Description', desc),
-      field('Event date', eventDate), field('Location', location_), field('Tags', tagsInput, 'Labels that help visitors find this gallery in search. Separate with commas.'),
+      field('Event date', eventDate), field('Location', location_), field('Tags', tagsInput, 'Click + to add a label that helps visitors find this gallery in search. Start typing to pick one already in use.'),
       field('Videos and links', footage, 'Paste YouTube links to show the recordings together on the gallery page (leave the title empty to use the video\'s own title). Other links appear as buttons. Only http and https links are kept, up to 30.'),
       field('Photo order', h('div', { class: 'row' }, sortMode, h('label', {}, sortDesc, ' Reverse (newest / Z-A first)'))),
       field('Cover image', h('div', {}, h('div', { class: 'row' }, coverImg, coverBtn), pickerBox)),
@@ -1346,7 +1405,7 @@ async function viewGallerySettings(app, id) {
     };
     if (pw.value) body.password = pw.value === '-' ? '' : pw.value;
     const r = await api('/api/admin/galleries/' + g.id, { method: 'PUT', body });
-    if (r.ok) await api(`/api/admin/galleries/${g.id}/tags`, { method: 'PUT', body: { names: tagsInput.value.split(',') } });
+    if (r.ok) await api(`/api/admin/galleries/${g.id}/tags`, { method: 'PUT', body: { names: tagsInput.names() } });
     if (r.ok) { dirty = false; toast('Saved'); route(); }
     else status.textContent = typeof r.data === 'string' ? r.data : 'Save failed';
   };

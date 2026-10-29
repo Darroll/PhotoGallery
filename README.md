@@ -128,7 +128,7 @@ Do on your side:
 *Automatic captions* need a vision model you run yourself. Set `CAPTION_URL` to an Ollama server (for example `http://192.168.2.5:11434`) and optionally `CAPTION_MODEL` (default `llava`). The server writes captions for photos that have none, a few at a time in the background, and gives up on a photo after three tries. Photos are sent only to that address. Leave `CAPTION_URL` empty and nothing leaves the server. Run the model on a machine with enough memory: a vision model on the Unraid server itself can exhaust its RAM.
 
 **Search and tags.** The search box on the home page (and `/search`) finds public photos by file name, caption, alt text, tags, gallery title, place, and date taken. Protected, unlisted and expired galleries are never searched.
-Tags are labels you choose, about anything (Admin -> Settings -> Tags). Add them to a photo from its Edit sheet in the viewer, or to a whole gallery from its Tags field in gallery settings. Visitors see tags under photos and galleries (and on the home page), and can search by them. A gallery tag counts for every photo in that gallery, and the search page has a tag filter.
+Tags are labels you choose, about anything (Admin -> Settings -> Tags). Add them to a photo from its Edit sheet in the viewer, or to a whole gallery from its Tags field in gallery settings. In either place, click **+** and type: the box suggests tags already in use, Enter or a comma adds the tag, and the **×** on a chip removes it. Visitors see tags under photos and galleries (and on the home page), and can search by them. A gallery tag counts for every photo in that gallery, and the search page has a tag filter.
 
 ## Themes
 
