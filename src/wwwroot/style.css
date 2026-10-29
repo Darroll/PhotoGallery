@@ -420,3 +420,21 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .check-val { font-weight: 650; font-size: 14px; }
 .check-val.ok { color: var(--ok); } .check-val.warn { color: var(--warn); } .check-val.bad { color: var(--danger); } .check-val.off { color: var(--muted); }
 .check a { font-size: 13px; align-self: flex-start; }
+
+/* tag manager */
+.tag-tools { margin-top: 12px; }
+.tag-tools input[type=search] { min-width: 180px; font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 7px 12px; }
+.tabs.tight { margin-bottom: 0; }
+.tag-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+.tag-name { font-weight: 600; }
+.tag-count { white-space: nowrap; }
+.tag-row .grow { flex: 1; }
+.tag-actions { margin: 0; justify-content: flex-end; }
+.tag-actions button, .tag-actions .btn { padding: 4px 10px; font-size: 13px; }
+.tag-cloud { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 14px 4px; line-height: 1.3; }
+.cloud-tag { border: 0; background: none; color: var(--accent); padding: 2px 4px; cursor: pointer; font-family: inherit; }
+.cloud-tag:hover { text-decoration: underline; }
+.cloud-tag.unused { color: var(--muted); }
+.tag-editor.open .tag-suggest { position: static; display: flex; flex-wrap: wrap; gap: 6px; max-height: 96px; margin-top: 8px; border: 0; background: none; box-shadow: none; }
+.tag-editor.open .tag-option { width: auto; border: 1px dashed var(--line); border-radius: 999px; padding: 2px 10px; font-size: 13px; }
+.tag-editor.open .tag-suggest[hidden] { display: none; }

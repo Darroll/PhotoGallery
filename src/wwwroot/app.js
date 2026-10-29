@@ -320,6 +320,7 @@ async function viewGallery(app, slug) {
     h('button', { text: 'Select all', onclick: () => { G.list.forEach(p => sel.add(p.id)); G.refresh(); } }),
     h('button', { text: 'Clear', onclick: () => { sel.clear(); G.refresh(); } }),
     h('span', { class: 'grow' }),
+    G.admin ? h('button', { text: 'Tag…', onclick: () => bulkTagSheet() }) : null,
     h('button', { class: 'primary', text: 'Download…', onclick: () => openDownloadSheet({ scope: 'selected' }) }),
     h('button', { text: 'Done', onclick: () => { selectMode = false; sel.clear(); fill(); } }));
 
@@ -521,7 +522,7 @@ function tagChips(g) {
 
 // Tag chips with a + button. Typing offers the tags already on the site; Enter or a comma adds the typed tag,
 // Backspace on an empty box removes the last chip. names() returns the current list.
-function tagEditor(initial, onChange) {
+function tagEditor(initial, onChange, opts = {}) {
   let names = [...new Set(initial)];
   let known = [];
   const clean = (s) => String(s || '').trim().replace(/^#+/, '').replace(/\s+/g, ' ').slice(0, 40).trim();
@@ -538,7 +539,7 @@ function tagEditor(initial, onChange) {
   const emit = () => { if (onChange) onChange(); };
   const suggest = () => {
     const q = clean(addBox.value).toLowerCase();
-    const pool = known.map(t => t.name).filter(n => !has(n) && (!q || n.toLowerCase().includes(q)));
+    const pool = [...known].sort((a, b) => (b.photos + b.galleries) - (a.photos + a.galleries) || a.name.localeCompare(b.name)).map(t => t.name).filter(n => !has(n) && (!q || n.toLowerCase().includes(q)));
     list.replaceChildren(...pool.slice(0, 8).map(n => h('button', { type: 'button', class: 'tag-option', text: n,
       // mousedown keeps focus in the box so the list stays open until the tag is picked
       onmousedown: (e) => { e.preventDefault(); add(n); } })));
@@ -567,10 +568,11 @@ function tagEditor(initial, onChange) {
     if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(addBox.value); }
     else if (e.key === 'Backspace' && !addBox.value && names.length) { names.pop(); draw(); emit(); }
   });
-  addBox.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== addBox) closeAdd(); }, 150));
+  addBox.addEventListener('blur', () => setTimeout(() => { if (!opts.open && document.activeElement !== addBox) closeAdd(); }, 150));
   draw();
-  const wrap = h('div', { class: 'tag-editor' }, chips,
-    h('button', { type: 'button', class: 'tag-plus', title: 'Add a tag', 'aria-label': 'Add a tag', text: '+', onclick: openAdd }), addRow);
+  const wrap = h('div', { class: 'tag-editor' + (opts.open ? ' open' : '') }, chips,
+    opts.open ? null : h('button', { type: 'button', class: 'tag-plus', title: 'Add a tag', 'aria-label': 'Add a tag', text: '+', onclick: openAdd }), addRow);
+  if (opts.open) openAdd();
   wrap.names = () => {
     const pending = clean(addBox.value);
     return pending && !has(pending) ? [...names, pending] : [...names];
@@ -614,6 +616,39 @@ function captionSheet(photo) {
       tags ? h('div', { class: 'sheet-field' }, h('span', { text: 'Tags' }), tags) : null,
       h('p', { class: 'muted', text: note }), msg,
       h('div', { class: 'row sheet-actions' }, h('button', { class: 'primary', text: isAdmin ? 'Save' : 'Send suggestion', onclick: submit }), h('button', { text: 'Close', onclick: closeSheet }))));
+  sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
+  document.addEventListener('keydown', sheet._key, true);
+  document.body.append(sheet);
+}
+
+// Admin: add tags to, or take tags off, every selected photo at once. Other tags on those photos are left alone.
+function bulkTagSheet() {
+  closeSheet();
+  const ids = [...sel];
+  if (!ids.length) { toast('Tick some photos first'); return; }
+  const add = tagEditor([], null, { open: true });
+  const remove = tagEditor([], null, { open: true });
+  const msg = h('span', { class: 'muted' });
+  const submit = async () => {
+    const a = add.names(), r = remove.names();
+    if (!a.length && !r.length) { msg.textContent = 'Pick a tag to add or remove.'; return; }
+    const res = await api('/api/admin/photos/tags', { method: 'POST', body: { photoIds: ids, add: a, remove: r } });
+    if (!res.ok) { msg.textContent = 'Could not save. Try again.'; return; }
+    const lower = (x) => x.toLowerCase();
+    for (const p of G.photos) if (ids.includes(p.id)) {
+      const cur = (p.tags || []).filter(t => !r.some(x => lower(x) === lower(t)));
+      for (const t of a) if (!cur.some(x => lower(x) === lower(t))) cur.push(t);
+      p.tags = cur.sort();
+    }
+    closeSheet(); toast(`Tags updated on ${plural(res.data.photos, 'photo')}`);
+  };
+  const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } },
+    h('div', { class: 'sheet', role: 'dialog', 'aria-label': 'Tag photos' },
+      h('div', { class: 'sheet-grab' }), h('h3', { text: `Tag ${plural(ids.length, 'photo')}` }),
+      h('div', { class: 'sheet-field' }, h('span', { text: 'Add these tags' }), add),
+      h('div', { class: 'sheet-field' }, h('span', { text: 'Remove these tags' }), remove),
+      h('p', { class: 'muted', text: 'Type a tag and press Enter. A new name creates the tag. Other tags on the photos stay as they are.' }), msg,
+      h('div', { class: 'row sheet-actions' }, h('button', { class: 'primary', text: 'Apply', onclick: submit }), h('button', { text: 'Close', onclick: closeSheet }))));
   sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
   document.addEventListener('keydown', sheet._key, true);
   document.body.append(sheet);
@@ -1097,22 +1132,100 @@ async function captionReviewPanel() {
     items.length ? items : h('p', { class: 'muted', text: 'Nothing waiting for review.' }));
 }
 
-// Global tags: any label you choose. Visitors see them and can search them. Deleting a tag takes it off every photo.
+// Global tags: any label you choose. Visitors see them and can search them. Create, rename, merge and delete them here;
+// put them on photos from the viewer's Edit sheet, or on many photos at once with Select in a gallery.
 async function tagPanel() {
-  const r = await api('/api/admin/tags');
-  if (!r.ok) return h('div', { class: 'panel' }, h('h3', { text: 'Tags' }), h('p', { class: 'err', text: 'Could not load tags.' }));
-  const rows = r.data.map(t => {
-    const row = h('div', { class: 'row' }, h('span', { text: '#' + t.name }), h('span', { class: 'muted', text: `${t.photos} photo${t.photos === 1 ? '' : 's'}` }));
-    row.append(h('button', { text: 'Delete', onclick: async () => {
-      if (!confirm(`Remove the tag "${t.name}" from every photo?`)) return;
-      const res = await api(`/api/admin/tags/${t.id}`, { method: 'DELETE' });
-      if (res.ok) row.remove();
-    } }));
-    return row;
-  });
+  const msg = h('span', { class: 'muted' });
+  const listBox = h('div');
+  let tags = [], view = 'list', sort = 'name', filter = '';
+  const used = (t) => t.photos + t.galleries;
+  const counts = (t) => [t.photos ? plural(t.photos, 'photo') : null, t.galleries ? (t.galleries === 1 ? '1 gallery' : t.galleries + ' galleries') : null].filter(Boolean).join(' \u00B7 ') || 'not used yet';
+  const errText = (res) => typeof res.data === 'string' && res.data ? res.data : 'That did not work. Try again.';
+
+  const load = async () => {
+    const r = await api('/api/admin/tags');
+    if (!r.ok) { listBox.replaceChildren(h('p', { class: 'err', text: 'Could not load tags.' })); return; }
+    tags = r.data; draw();
+  };
+
+  const newBox = h('input', { type: 'text', maxlength: 40, placeholder: 'New tag, e.g. Sunset', 'aria-label': 'New tag name' });
+  const create = async () => {
+    const r = await api('/api/admin/tags', { method: 'POST', body: { name: newBox.value } });
+    if (!r.ok) { msg.textContent = errText(r); return; }
+    msg.textContent = r.data.created ? `Created #${r.data.name}` : `#${r.data.name} already exists`;
+    newBox.value = ''; newBox.focus(); load();
+  };
+  newBox.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); create(); } });
+
+  const search = h('input', { type: 'search', placeholder: 'Filter tags', 'aria-label': 'Filter tags' });
+  search.addEventListener('input', () => { filter = search.value.trim().toLowerCase(); draw(); });
+  const sortSel = h('select', { 'aria-label': 'Sort tags' }, [['name', 'A to Z'], ['used', 'Most used'], ['unused', 'Unused first']].map(([v, t]) => h('option', { value: v, text: t })));
+  sortSel.onchange = () => { sort = sortSel.value; draw(); };
+  const viewBtns = h('div', { class: 'tabs tight' });
+  const drawViewBtns = () => viewBtns.replaceChildren(...[['list', 'List'], ['cloud', 'Cloud']].map(([v, t]) =>
+    h('button', { class: 'tab' + (view === v ? ' on' : ''), text: t, onclick: () => { view = v; draw(); } })));
+
+  const row = (t) => {
+    const actions = h('div', { class: 'row tag-actions' });
+    const nameEl = h('span', { class: 'tag-name', text: '#' + t.name });
+    const reset = () => { nameEl.hidden = false; showButtons(); };
+    const showButtons = () => actions.replaceChildren(
+      h('button', { text: 'Rename', onclick: () => {
+        const input = h('input', { type: 'text', maxlength: 40, value: t.name, 'aria-label': 'New name' });
+        nameEl.hidden = true;
+        const save = async () => {
+          const r = await api(`/api/admin/tags/${t.id}`, { method: 'PUT', body: { name: input.value } });
+          if (!r.ok) { msg.textContent = errText(r); return; }
+          msg.textContent = `Renamed to #${r.data.name}`; load();
+        };
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') save(); else if (e.key === 'Escape') reset(); });
+        actions.replaceChildren(input, h('button', { class: 'primary', text: 'Save', onclick: save }), h('button', { text: 'Cancel', onclick: reset }));
+        input.focus(); input.select();
+      } }),
+      tags.length > 1 ? h('button', { text: 'Merge into...', onclick: () => {
+        const sel = h('select', { 'aria-label': 'Merge into' }, tags.filter(x => x.id !== t.id).map(x => h('option', { value: x.id, text: '#' + x.name })));
+        actions.replaceChildren(h('span', { class: 'muted', text: `Move everything tagged #${t.name} onto` }), sel,
+          h('button', { class: 'primary', text: 'Merge', onclick: async () => {
+            const r = await api(`/api/admin/tags/${t.id}/merge`, { method: 'POST', body: { intoId: Number(sel.value) } });
+            if (!r.ok) { msg.textContent = errText(r); return; }
+            msg.textContent = `Merged #${t.name} into #${r.data.into}`; load();
+          } }), h('button', { text: 'Cancel', onclick: reset }));
+      } }) : null,
+      h('a', { class: 'btn', href: '/search?tag=' + encodeURIComponent(t.name), title: 'Search for this tag (public galleries only)', text: 'Search' }),
+      h('button', { class: 'danger', text: 'Delete', onclick: async () => {
+        if (!confirm(used(t) ? `Delete the tag "${t.name}"? It is removed from ${counts(t)}.` : `Delete the tag "${t.name}"?`)) return;
+        const r = await api(`/api/admin/tags/${t.id}`, { method: 'DELETE' });
+        if (r.ok) { msg.textContent = `Deleted #${t.name}`; load(); }
+      } }));
+    showButtons();
+    return h('div', { class: 'tag-row' }, nameEl, h('span', { class: 'muted tag-count', text: counts(t) }), used(t) ? null : h('span', { class: 'chip warn', text: 'unused' }), h('span', { class: 'grow' }), actions);
+  };
+
+  function draw() {
+    drawViewBtns();
+    let shown = tags.filter(t => !filter || t.name.toLowerCase().includes(filter));
+    shown = [...shown].sort(sort === 'used' ? (a, b) => used(b) - used(a) || a.name.localeCompare(b.name)
+      : sort === 'unused' ? (a, b) => (used(a) === 0 ? 0 : 1) - (used(b) === 0 ? 0 : 1) || a.name.localeCompare(b.name)
+      : (a, b) => a.name.localeCompare(b.name));
+    if (!tags.length) { listBox.replaceChildren(h('p', { class: 'muted', text: 'No tags yet. Create one above, or add tags from a photo\'s Edit sheet.' })); return; }
+    if (!shown.length) { listBox.replaceChildren(h('p', { class: 'muted', text: 'No tag matches that filter.' })); return; }
+    if (view === 'cloud') {
+      const max = Math.max(1, ...tags.map(used));
+      listBox.replaceChildren(h('div', { class: 'tag-cloud' }, shown.map(t => {
+        const b = h('button', { class: 'cloud-tag' + (used(t) ? '' : ' unused'), text: '#' + t.name, title: counts(t),
+          onclick: () => { view = 'list'; search.value = t.name; filter = t.name.toLowerCase(); draw(); } });
+        b.style.fontSize = (13 + Math.round(17 * used(t) / max)) + 'px';
+        return b;
+      })), h('p', { class: 'muted', text: 'Bigger means used on more photos and galleries. Click a tag to manage it.' }));
+    } else listBox.replaceChildren(...shown.map(row));
+  }
+
+  load();
   return h('div', { class: 'panel' }, h('h3', { text: 'Tags' }),
-    h('p', { class: 'muted', text: 'Tags are labels you choose, about anything. Add them to a photo from its Edit sheet in the viewer. Visitors see them under photos and can search by them.' }),
-    rows.length ? rows : h('p', { class: 'muted', text: 'No tags yet.' }));
+    h('p', { class: 'muted', text: 'Tags are labels you choose, about anything. Visitors see them under photos and galleries and can search by them. Put them on one photo from its Edit sheet in the viewer, on a whole gallery from its settings, or on many photos at once: open a gallery, click Select, tick photos and click Tag.' }),
+    h('div', { class: 'row' }, newBox, h('button', { class: 'primary', text: 'Create tag', onclick: create }), msg),
+    h('div', { class: 'row tag-tools' }, search, sortSel, h('span', { class: 'grow' }), viewBtns),
+    listBox);
 }
 
 // Groups: named lists of email addresses kept here, not in the identity provider. Invite a group to a Specific people gallery
