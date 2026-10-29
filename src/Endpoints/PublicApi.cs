@@ -55,7 +55,7 @@ public static class PublicApi
             var galleryTags = await Tags.NamesByGalleryAsync(db, rows.Select(r => r.g.Id).ToList());
             var list = GalleryRules.OrderGalleries(rows.Select(r => r.g), settings.Home.Order).Select(g => new
             {
-                g.Slug, g.Title, g.Description, g.Location, eventDate = g.EventDate, cover = g.CoverPhotoId, count = counts[g.Id],
+                g.Id, g.Slug, g.Title, g.Description, g.Location, eventDate = g.EventDate, cover = g.CoverPhotoId, count = counts[g.Id],
                 tags = galleryTags.TryGetValue(g.Id, out var gt) ? gt : new List<string>()
             });
             return Results.Ok(list);

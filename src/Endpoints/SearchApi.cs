@@ -84,7 +84,7 @@ public static class SearchApi
                 .Where(g => (term.Length > 0 && (Hit(g.Title) || Hit(g.Description) || TagsOf(galleryTags, g.Id).Any(x => Hit(x))))
                     || (place.Length > 0 && g.Location.Contains(place, StringComparison.OrdinalIgnoreCase))
                     || (tagName.Length > 0 && TagsOf(galleryTags, g.Id).Any(x => x.Equals(tagName, StringComparison.OrdinalIgnoreCase))))
-                .Take(12).Select(g => (object)new { g.Slug, g.Title, location = g.Location, eventDate = g.EventDate, cover = g.CoverPhotoId, tags = TagsOf(galleryTags, g.Id) }).ToList();
+                .Take(12).Select(g => (object)new { g.Id, g.Slug, g.Title, location = g.Location, eventDate = g.EventDate, cover = g.CoverPhotoId, tags = TagsOf(galleryTags, g.Id) }).ToList();
 
             return Results.Ok(new { galleries = matchedGalleries, photos = hits });
         });

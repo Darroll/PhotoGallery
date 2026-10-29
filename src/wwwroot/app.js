@@ -98,7 +98,50 @@ function tagPill(name, extra) {
   el.style.setProperty('--tag-c', tagColor(name));
   return el;
 }
-function tagLine(names) { return names && names.length ? h('div', { class: 'tag-line' }, names.map(n => tagPill(n))) : null; }
+// A row of tag pills. With `edit` ({ title, url, onSaved }) the admin also gets a + that opens a small editor, so tags can be added
+// right where they are shown: on a gallery card, a search result, the gallery page, the photo viewer. url is the PUT endpoint that replaces the tags.
+function tagLine(names, edit) {
+  const canEdit = !!(edit && ((me && me.admin) || (G && G.admin)));
+  if (!(names && names.length) && !canEdit) return null;
+  let current = [...(names || [])];
+  const el = h('div', { class: 'tag-line' });
+  const draw = () => el.replaceChildren(...current.map(n => tagPill(n)), canEdit ? h('button', {
+    type: 'button', class: 'tag-add-btn', text: current.length ? '+' : '+ Tag', title: 'Add or change tags', 'aria-label': 'Add or change tags',
+    // the + often sits inside a card that is a link, so it must not follow it
+    onclick: (e) => {
+      e.preventDefault(); e.stopPropagation();
+      tagEditSheet(edit.title, current, async (list) => {
+        const r = await api(edit.url, { method: 'PUT', body: { names: list } });
+        if (!r.ok || !Array.isArray(r.data)) return false;
+        current = r.data; draw(); if (edit.onSaved) edit.onSaved(r.data);
+        return true;
+      });
+    } }) : null);
+  draw();
+  return el;
+}
+const galleryTagEdit = (g) => g && g.id != null ? { title: 'Tags for ' + g.title, url: `/api/admin/galleries/${g.id}/tags`, onSaved: (t) => { g.tags = t; } } : null;
+const photoTagEdit = (p) => ({ title: 'Tags for ' + (p.name || 'this photo'), url: `/api/admin/photos/${p.id}/tags`, onSaved: (t) => { p.tags = t; } });
+
+// Admin: a small editor for one gallery's or photo's tags. save(names) returns true when it worked.
+function tagEditSheet(title, names, save) {
+  closeSheet();
+  const editor = tagEditor(names, null, { open: true });
+  const msg = h('span', { class: 'muted' });
+  const submit = async () => {
+    if (!await save(editor.names())) { msg.textContent = 'Could not save. Try again.'; return; }
+    closeSheet(); toast('Tags saved');
+  };
+  const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } },
+    h('div', { class: 'sheet', role: 'dialog', 'aria-label': 'Edit tags' },
+      h('div', { class: 'sheet-grab' }), h('h3', { text: title }),
+      h('div', { class: 'sheet-field' }, h('span', { text: 'Tags' }), editor),
+      h('p', { class: 'muted', text: 'Type a tag and press Enter, or click a suggestion. Click x on a tag to remove it.' }), msg,
+      h('div', { class: 'row sheet-actions' }, h('button', { class: 'primary', text: 'Save', onclick: submit }), h('button', { text: 'Close', onclick: closeSheet }))));
+  sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
+  document.addEventListener('keydown', sheet._key, true);
+  document.body.append(sheet);
+}
 const fmtDate = (s) => s ? new Date(/Z$|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z').toLocaleString() : '';
 
 // ---------- routing ----------
@@ -234,7 +277,7 @@ async function viewSearch(app) {
       h('img', { loading: 'lazy', src: `/img/${p.id}/thumb`, alt: p.altText || p.name }),
       h('div', { class: 'pc-name', text: p.caption || p.name, title: p.name }),
       h('div', { class: 'muted', text: [p.gallery, p.takenAt ? new Date(p.takenAt + (/Z$/.test(p.takenAt) ? '' : 'Z')).toLocaleDateString() : ''].filter(Boolean).join(' \u00B7 ') }),
-      tagLine(p.tags)))));
+      tagLine(p.tags, photoTagEdit(p))))));
 }
 
 async function viewHome(app) {
@@ -303,7 +346,8 @@ async function viewGallery(app, slug) {
   document.title = G.title;
   app.append(h('h1', { class: 'g-title', text: G.title }));
   if (G.eventDate || G.location) app.append(h('p', { class: 'muted', text: eventLine(G) }));
-  if (G.tags && G.tags.length) app.append(tagLine(G.tags));
+  const headerTags = tagLine(G.tags, galleryTagEdit(G));
+  if (headerTags) app.append(headerTags);
   if (G.description) app.append(h('p', { class: 'sub', text: G.description }));
   const vids = (G.links || []).filter(l => l.videoId), others = (G.links || []).filter(l => !l.videoId);
   if (vids.length) app.append(h('h2', { class: 'vid-head', text: vids.length === 1 ? 'Video' : 'Videos' }), h('div', { class: 'videos' }, vids.map(l =>
@@ -537,7 +581,7 @@ async function openInfoSheet(photo) {
 
 // Gallery tags as a line of #labels (empty when the gallery has none).
 function tagChips(g) {
-  return tagLine(g.tags);
+  return tagLine(g.tags, galleryTagEdit(g));
 }
 
 // Tag chips with a + button. Typing offers the tags already on the site; Enter or a comma adds the typed tag,
@@ -608,7 +652,7 @@ function captionBlock(photo) {
   return h('div', { class: 'info-caption' }, h('h4', { text: 'Caption and description' }),
     h('p', { text: photo.caption || 'No caption yet.' }),
     h('p', { class: 'muted', text: photo.altText ? `Alt text: ${photo.altText}` : 'No alt text yet.' }),
-    photo.tags && photo.tags.length ? h('div', {}, h('span', { class: 'muted', text: 'Tags: ' }), tagLine(photo.tags)) : h('p', { class: 'muted', text: 'No tags yet.' }),
+    h('div', {}, h('span', { class: 'muted', text: 'Tags' }), tagLine(photo.tags, { ...photoTagEdit(photo), onSaved: (t) => { photo.tags = t; if (lb && lb.drawCaption) lb.drawCaption(); } }) || h('span', { class: 'muted', text: ': none yet.' })),
     h('button', { text: me && me.admin ? 'Edit' : 'Suggest a change', onclick: () => captionSheet(photo) }));
 }
 
@@ -764,6 +808,13 @@ function openLightbox(index, play, mode = 'push') {
   };
   const centre = (e) => { const r = stage.getBoundingClientRect(); return [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2]; };
 
+  // the caption and tags under the photo; the admin also gets a + to add tags without leaving the viewer
+  lb.drawCaption = () => {
+    const p = cur(); if (!p) return;
+    const tags = tagLine(p.tags, photoTagEdit(p));
+    captionEl.replaceChildren(...[p.caption ? h('div', { text: p.caption }) : null, tags].filter(Boolean));
+    captionEl.classList.toggle('hidden', !p.caption && !tags);
+  };
   const show = (i, updateUrl = true) => {
     lb.i = (i + list.length) % list.length;
     const p = cur();
@@ -772,8 +823,7 @@ function openLightbox(index, play, mode = 'push') {
     img.src = photoUrl(p, viewKind());
     if (p.id !== lb.lastSeen) { lb.lastSeen = p.id; fetch(`/api/g/${encodeURIComponent(G.slug)}/viewed/${p.id}`, { method: 'POST', headers: { 'X-Requested-With': 'pg' }, credentials: 'same-origin', keepalive: true }).catch(() => {}); }
     title.textContent = p.name;
-    const capText = [p.caption, (p.tags || []).length ? 'tags' : ''].filter(Boolean).join('');
-    captionEl.replaceChildren(...[p.caption ? h('span', { text: p.caption + '   ' }) : null, ...(p.tags || []).map(t => tagPill(t))].filter(Boolean)); captionEl.classList.toggle('hidden', !capText); img.alt = p.altText || p.name;
+    lb.drawCaption(); img.alt = p.altText || p.name;
     document.title = photoTitle(p); counter.textContent = `${lb.i + 1} / ${list.length}`;
     lb.sync();
     const n = list[(lb.i + 1) % list.length]; new Image().src = photoUrl(n, viewKind());   // preload
@@ -909,8 +959,9 @@ const adminNav = [
 
 // Signs in the admin if needed, then draws the shell and returns the middle column (null when the sign-in page was shown instead).
 async function adminPage(app, key, title) {
-  const me = await api('/api/admin/me');
-  if (!me.data || !me.data.admin) { await adminLogin(app); return null; }
+  const meRes = await api('/api/admin/me');
+  if (!meRes.data || !meRes.data.admin) { await adminLogin(app); return null; }
+  if (me) me.admin = true;
   const nav = h('nav', { class: 'admin-nav', 'aria-label': 'Admin' },
     adminNav.map(n => n.heading ? h('div', { class: 'nav-heading', text: n.heading })
       : h('a', { href: n.href, class: n.key === key ? 'on' : '', 'aria-current': n.key === key ? 'page' : false, text: n.label })),
@@ -1003,8 +1054,9 @@ function galleryRow(g, move) {
 
 async function adminLogin(app) {
   document.title = 'Admin sign in - ' + site.title;
-  const me = await api('/api/admin/me');
-  const info = me.data || {};
+  const meRes = await api('/api/admin/me');
+  if (me) me.admin = false;
+  const info = meRes.data || {};
   const sso = h('a', { class: 'btn primary', href: '/auth/login?next=' + encodeURIComponent('/admin'), text: 'Sign in with SSO' });
   const note = info.signedInAs ? h('p', { class: 'muted', text: `You are signed in as ${info.signedInAs}, but this account is not an admin.` }) : null;
   if (info.passwordLogin === false) {

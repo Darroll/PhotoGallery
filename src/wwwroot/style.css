@@ -448,3 +448,9 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .swatch { width: 24px; height: 24px; padding: 0; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
 .swatch.on { border-color: var(--fg); }
 .tag-actions input[type=color] { width: 32px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: none; cursor: pointer; }
+
+/* the admin's + next to tags */
+.tag-add-btn { border: 1px dashed var(--line); background: none; color: var(--muted); border-radius: 999px; padding: 0 9px; font-size: 12px; line-height: 1.6; cursor: pointer; }
+.tag-add-btn:hover { border-color: var(--accent); color: var(--fg); }
+#lightbox .tag-add-btn { color: #ccc; border-color: #666; background: none; }
+.lb-caption .tag-line { justify-content: center; }

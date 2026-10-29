@@ -129,6 +129,23 @@ public class TagManagerTests(AppFactory app) : IClassFixture<AppFactory>
     }
 
     [Fact]
+    public async Task Home_and_search_give_each_gallery_an_id_so_the_admin_can_tag_it_in_place()
+    {
+        var admin = await app.AdminAsync();
+        var anon = app.NewClient();
+        var title = Unique("Inline tag gallery ");
+        var r = await admin.PostAsJsonAsync("/api/admin/galleries", new { title, folder = app.NewFolder(1), visibility = 0 });
+        var id = (await r.ReadAsync()).GetProperty("gallery").GetProperty("id").GetInt32();
+
+        var home = await (await anon.GetAsync("/api/galleries")).ReadAsync();
+        Assert.Contains(home.EnumerateArray(), g => g.GetProperty("title").GetString() == title && g.GetProperty("id").GetInt32() == id);
+
+        await admin.PutAsJsonAsync($"/api/admin/galleries/{id}/tags", new { names = new[] { "Inline" } });
+        var found = await (await anon.GetAsync("/api/search?tag=inline&scope=galleries")).ReadAsync();
+        Assert.Contains(found.GetProperty("galleries").EnumerateArray(), g => g.GetProperty("id").GetInt32() == id);
+    }
+
+    [Fact]
     public async Task Tag_management_needs_the_admin()
     {
         var anon = app.NewClient();
