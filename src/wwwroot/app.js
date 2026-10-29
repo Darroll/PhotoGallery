@@ -105,7 +105,8 @@ function tagLine(names, edit) {
   if (!(names && names.length) && !canEdit) return null;
   let current = [...(names || [])];
   const el = h('div', { class: 'tag-line' });
-  const draw = () => el.replaceChildren(...current.map(n => tagPill(n)), canEdit ? h('button', {
+  // replaceChildren turns a null into the text "null", so the button is only passed when there is one
+  const draw = () => el.replaceChildren(...current.map(n => tagPill(n)), ...(canEdit ? [h('button', {
     type: 'button', class: 'tag-add-btn', text: current.length ? '+' : '+ Tag', title: 'Add or change tags', 'aria-label': 'Add or change tags',
     // the + often sits inside a card that is a link, so it must not follow it
     onclick: (e) => {
@@ -116,7 +117,7 @@ function tagLine(names, edit) {
         current = r.data; draw(); if (edit.onSaved) edit.onSaved(r.data);
         return true;
       });
-    } }) : null);
+    } })] : []));
   draw();
   return el;
 }
@@ -194,7 +195,7 @@ function go(path) { if (path !== location.pathname) history.pushState(null, '', 
 function renderFooter() {
   const f = $('#foot'); if (!f) return;
   const ver = h('span', { text: `v${site.version || '?'}${site.commit && site.commit !== 'dev' ? ' \u00B7 ' + site.commit : ''}`, title: site.built ? `Built ${site.built}` : 'Development build' });
-  f.replaceChildren(license.enabled ? h('a', { class: 'foot-link', href: '/license', text: license.title || 'License' }) : null, license.enabled ? ' \u00B7 ' : null, ver);
+  f.replaceChildren(...[license.enabled ? h('a', { class: 'foot-link', href: '/license', text: license.title || 'License' }) : null, license.enabled ? ' \u00B7 ' : null, ver].filter(Boolean));
 }
 
 async function viewLicense(app) {
