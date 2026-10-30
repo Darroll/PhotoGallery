@@ -2,6 +2,8 @@
 
 Self-hosted photo galleries for Unraid, written in ASP.NET Core 9 (SQLite + libvips). No viewer accounts; one admin.
 
+What is planned next, and the principles behind it, is in [ROADMAP.md](ROADMAP.md).
+
 ## Features
 
 | Need | How it works |
