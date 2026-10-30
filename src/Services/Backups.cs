@@ -142,7 +142,7 @@ public class BackupService(IServiceScopeFactory scopes, AppConfig cfg, ILogger<B
 
             var live = Path.Combine(cfg.DataDir, "photogallery.db");
             await using (var from = new SqliteConnection($"Data Source={source};Mode=ReadOnly;Pooling=False"))
-            await using (var to = new SqliteConnection($"Data Source={live};Pooling=False"))
+            await using (var to = new SqliteConnection($"Data Source={live};Pooling=False;Default Timeout=30"))
             {
                 await from.OpenAsync(ct);
                 await to.OpenAsync(ct);
