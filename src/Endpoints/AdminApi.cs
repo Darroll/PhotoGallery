@@ -522,6 +522,17 @@ public static class AdminApi
             return Results.Ok(new { galleries = ids.Count });
         });
 
+        // fetch the current YouTube preview image again for every video in the gallery
+        secured.MapPost("/galleries/{id:int}/video-thumbnails/refresh", async (int id, AppDb db, AppConfig cfg) =>
+        {
+            var g = await db.Galleries.FirstOrDefaultAsync(x => x.Id == id);
+            if (g == null) return Results.NotFound();
+            var ids = GalleryRules.Links(g).Select(l => GalleryRules.YouTubeId(l.Url)).Where(v => v != null).Select(v => v!).Distinct().ToList();
+            var refreshed = 0;
+            foreach (var vid in ids) if (await VideoThumbs.RefreshAsync(cfg, vid)) refreshed++;
+            return Results.Ok(new { videos = ids.Count, refreshed });
+        });
+
         secured.MapGet("/galleries/{id:int}/thumbnails", async (int id, ThumbnailService thumbs, CacheService cache) =>
         {
             var s = thumbs.Status(id);

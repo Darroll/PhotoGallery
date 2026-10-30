@@ -1739,14 +1739,21 @@ async function viewGallerySettings(app, id) {
     linkRows.append(row);
   };
   (g.footageLinks || []).forEach(addLinkRow);
-  const footage = h('div', {}, linkRows, h('button', { text: '+ Add link', onclick: () => { addLinkRow(); touch(); } }));
+  const videoMsg = h('span', { class: 'muted' });
+  const footage = h('div', {}, linkRows, h('div', { class: 'row' },
+    h('button', { text: '+ Add link', onclick: () => { addLinkRow(); touch(); } }),
+    h('button', { text: 'Refresh video thumbnails', title: 'Fetch the current preview image from YouTube again for every saved video in this gallery', onclick: async () => {
+      videoMsg.textContent = 'Refreshing...';
+      const r = await api(`/api/admin/galleries/${g.id}/video-thumbnails/refresh`, { method: 'POST' });
+      videoMsg.textContent = !r.ok ? 'Could not refresh' : r.data.videos === 0 ? 'No YouTube videos saved in this gallery' : `Refreshed ${r.data.refreshed} of ${r.data.videos}. Reload the gallery page to see them.`;
+    } }), videoMsg));
   const collectLinks = () => [...linkRows.children].map(r => ({ label: r.children[0].value.trim(), url: r.children[1].value.trim() })).filter(l => l.url);
   const tagsInput = tagEditor(g.tags || [], touch);
   const general = section('General', 'Name, date, order, cover', true,
     h('div', { class: 'form1' },
       field('Title', title), field('URL name', slug, `Gallery address: /g/${g.slug}`), field('Description', desc),
       field('Event date', eventDate), field('Location', location_), field('Tags', tagsInput, 'Click + to add a label that helps visitors find this gallery in search. Start typing to pick one already in use.'),
-      field('Videos and links', footage, 'Paste YouTube links to show the recordings together on the gallery page (leave the title empty to use the video\'s own title). Other links appear as buttons. Only http and https links are kept, up to 30.'),
+      field('Videos and links', footage, 'Paste YouTube links to show the recordings together on the gallery page (leave the title empty to use the video\'s own title). Preview images are re-checked on YouTube every 12 hours; use Refresh video thumbnails to update them now. Other links appear as buttons. Only http and https links are kept, up to 30.'),
       field('Photo order', h('div', { class: 'row' }, sortMode, h('label', {}, sortDesc, ' Reverse (newest / Z-A first)'))),
       field('Cover image', h('div', {}, h('div', { class: 'row' }, coverImg, coverBtn), pickerBox)),
       field('Library folder', folderSelect, 'Which library folder this gallery shows. Changing it rescans the gallery and resets the cover.'),

@@ -203,24 +203,20 @@ public static class PublicApi
         });
 
         // single-photo download: ?size=original | <px>  &fmt=png|webp|tif
-        // YouTube preview images are fetched once by the server and cached, so visitors never contact YouTube until they press play
-        app.MapGet("/vthumb/{vid}", async (string vid, AppDb db, AppConfig cfg) =>
+        // YouTube preview images are fetched by the server and cached, so visitors never contact YouTube until they press play.
+        // A cached image older than 12 hours is fetched again, so a thumbnail changed on YouTube shows up here too.
+        app.MapGet("/vthumb/{vid}", async (string vid, HttpContext ctx, AppDb db, AppConfig cfg) =>
         {
             if (!System.Text.RegularExpressions.Regex.IsMatch(vid, "^[A-Za-z0-9_-]{11}$")) return Results.NotFound();
-            var file = Path.Combine(cfg.DataDir, "cache", "vthumb", vid + ".jpg");
+            var file = VideoThumbs.PathFor(cfg, vid);
             if (!File.Exists(file))
             {
                 if (!await db.Galleries.AnyAsync(x => x.FootageLinks.Contains(vid))) return Results.NotFound();
-                try
-                {
-                    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-                    var bytes = await http.GetByteArrayAsync($"https://i.ytimg.com/vi/{vid}/hqdefault.jpg");
-                    Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-                    await File.WriteAllBytesAsync(file, bytes);
-                }
-                catch { return Results.NotFound(); }
+                if (!await VideoThumbs.RefreshAsync(cfg, vid)) return Results.NotFound();
             }
-            return Results.File(file, "image/jpeg");
+            else if (VideoThumbs.NeedsRefresh(file)) await VideoThumbs.RefreshAsync(cfg, vid);
+            ctx.Response.Headers.CacheControl = "public, no-cache"; // browsers re-check, and get a 304 while nothing changed
+            return Results.File(file, "image/jpeg", lastModified: File.GetLastWriteTimeUtc(file));
         });
 
         app.MapGet("/dl/{id:int}", async (int id, string? size, string? fmt, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity, SettingsService settings) =>
