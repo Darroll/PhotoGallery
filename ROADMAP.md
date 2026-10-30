@@ -49,8 +49,7 @@ Ordered so each step uses what the one before it built, and the quick wins come 
 - [ ] **Who a like belongs to (decided, Q10).** An anonymous like is tied to the visitor's IP address: one like per IP per photo, so clearing cookies does not allow a second one (IPv6 addresses are grouped by their /64 network). A signed-in user has one like per photo whatever IP they use, so the same person on two networks still counts once, and two signed-in people on one IP count twice. If a visitor signs in after liking anonymously from the same browser, the anonymous like becomes their signed-in like and is not counted twice. Known trade-off: people sharing one IP (a household) share a single anonymous like, and signing in avoids that. The IP is stored with the like and never displayed, and is covered by the privacy tools in section 6.
 - [ ] **Most-liked view.** A "Most liked" sort and a top-liked strip on each gallery.
 - [ ] **Likes only, never negatives.** No thumbs down, no dislike counts. A visitor can quietly remove their own like.
-- [ ] **My likes page.** A visitor sees and downloads their own liked photos in one place. *proposed*
-- [ ] **Download the most-liked photos** as a ZIP (admin, and optionally visitors). *proposed*
+- [ ] **My likes page, with download.** A visitor sees their own liked photos in one place and downloads them (all, or ticked ones) as a ZIP, in the size and format they choose, with the RAW files if the gallery allows it. Gallery download rules still apply: license acceptance, watermark, share-link limits. Anonymous likes follow the visitor's IP (see above); signed-in likes follow the person across devices. (decided)
 - [ ] **Per-gallery switches** for likes, like counts and comments.
 - [ ] Liking must still work in protected and specific-people galleries, and the counts there are visible only to people who can open the gallery.
 
