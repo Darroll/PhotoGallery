@@ -31,84 +31,89 @@ An item is finished only when it has: tests, a database migration if the model c
 
 ## Order of work
 
-Each item is rated for **effort** and **complexity**, and ordered by three rules: (1) quick, low-risk wins first; (2) protect the data before it becomes irreplaceable, so backups and file-rename safety come before comments exist; (3) a step comes after whatever it depends on.
+Work is **grouped by feature area, and a group is finished before the next one starts**: all link work, then all favorite (like) work, then all comment work, and so on. Inside a group the steps run in dependency order, quick and low-risk steps first. Between groups, two rules decide the order: quick wins come first, and the data is protected before it becomes irreplaceable (backups and file-rename safety come before comments exist).
 
 - **Effort** (rough size of one build, test and release cycle): **S** under half a day, **M** about a day, **L** two to three days, **XL** about a week.
 - **Complexity** (risk of getting it wrong): **Low** routine; **Med** several parts or a database change; **High** security, privacy, data loss or tricky edge cases, so it gets extra tests and a careful review.
 - Estimates are for planning only and will be corrected as work proves them wrong.
 
-### Phase 1: quick wins, visible at once
+### Group A: Links and videos (about 2 to 3 days)
 
-| # | Work | Effort | Complexity | Depends on | Why here |
-|---|---|---|---|---|---|
-| 1 | Link categories: Video above, External below the gallery, migrate existing links | S | Low | none | Smallest change with a visible result; sets up the link work |
-| 2 | Like counts on the heart: IP-or-user dedupe, per-gallery switches, move existing favorites across | M | Med | none | Core of the social side; later steps build on it. Needs a new table and the IP/sign-in rules |
-| 3 | Most-liked sort and top-liked strip | S | Low | 2 | Pure display once counts exist |
-| 4 | My likes page with ZIP download | M | Med | 2 | Reuses the ZIP and license code; the idea you liked most |
+| # | Work | Effort | Complexity | Depends on |
+|---|---|---|---|---|
+| 1 | Link categories: Video above, External below the gallery; migrate existing links | S | Low | none |
+| 2 | Link previews with safe fetching and cached pictures (External cards) | M | High | 1 |
+| 3 | Links list: order, notes, open in new tab; link health check | S | Low | 1, 2 |
 
-### Phase 2: links, and protect the data
+### Group B: Favorites and likes (about 3 to 4 days)
 
-| # | Work | Effort | Complexity | Depends on | Why here |
-|---|---|---|---|---|---|
-| 5 | Link previews with safe fetching and cached pictures | M | High | 1 | Makes External cards work; fetching other sites needs network safety checks |
-| 6 | Links list: order, notes, open in new tab; link health check | S | Low | 1, 5 | Finishes the links area |
-| 7 | Off-server backup copy and restore from the admin page | M | High | none | Restore can destroy data if wrong; must be done before comments are stored |
-| 8 | Keep likes, tags and captions when files are renamed or moved | L | High | none | Comments will hang off photos too, so fix identity first |
-| 9 | Hardening checks and scheduled cache cleanup on the Overview page | S | Low | none | Cheap safety net, fits any gap in the week |
+| # | Work | Effort | Complexity | Depends on |
+|---|---|---|---|---|
+| 4 | Like counts on the heart: one per IP or signed-in user, per-gallery switches, move existing favorites across | M | Med | none |
+| 5 | Most-liked sort and top-liked strip | S | Low | 4 |
+| 6 | My likes page with ZIP download of the visitor's own liked photos | M | Med | 4 |
 
-### Phase 3: comments
+### Group C: Protect the data (about 4 to 5 days)
 
-| # | Work | Effort | Complexity | Depends on | Why here |
-|---|---|---|---|---|---|
-| 10 | Guided single sign-on step and "test sign-in" button, plus the Keycloak how-to | M | Med | none | Comments need it working, and non-technical admins need help getting there |
-| 11 | Comments core: post, show display name, flat replies, admin reply, edit or delete own for 15 minutes, per photo and gallery switches, rate limit | L | High | 2, 10 | The main social feature; identity, abuse and privacy edge cases |
-| 12 | Moderation, comment log (who, what, when, where; IP stored not shown), block a person | L | High | 11 | Must ship with or straight after 11, never later |
-| 13 | Privacy tools: export or delete one person's data, privacy notice, delete-gallery cleanup | M | Med | 2, 11 | Likes and comments hold emails and IPs; ship with comments |
-| 14 | Gallery message (thank-you note to the photographer) | S | Low | 11 | Reuses the comment pieces |
-| 15 | Email setup helper: presets, test button, plain errors | M | Med | none | Digests and invites are useless if email is hard to set up |
-| 16 | New-comment email, as a daily digest | S | Low | 11, 15 | Uses the existing alert system |
-| 17 | Inbox: uploads, caption suggestions, comments, failed mail, dead links in one place | M | Med | 6, 11 | Needs the things it collects to exist |
+Comments and likes will be content nobody can recreate, so this comes before them.
 
-### Phase 4: sharing with family
+| # | Work | Effort | Complexity | Depends on |
+|---|---|---|---|---|
+| 7 | Off-server backup copy, and restore from the admin page (safety copy first) | M | High | none |
+| 8 | Keep likes, tags and captions when files are renamed or moved | L | High | none |
 
-| # | Work | Effort | Complexity | Depends on | Why here |
-|---|---|---|---|---|---|
-| 18 | Share button: link, ready-to-send message, QR code, printable QR card | M | Low | none | Big ease-of-use gain for little risk |
-| 19 | Invite by email, family groups in the invite flow, "new photos" email | L | High | 15, 18, Q6 | Personal links and access rules; waits for Q6 |
+### Group D: Email (about 1 day)
 
-### Phase 5: easy setup and administration
+A short group of its own because comment digests, invites and subscriptions all depend on it.
 
-| # | Work | Effort | Complexity | Depends on | Why here |
-|---|---|---|---|---|---|
-| 20 | Settings in the app instead of container variables (container value wins, shown locked) | M | Med | none | Prerequisite for the wizard and simple mode |
-| 21 | First-run setup wizard (password, folder, site name, first gallery; optional email, sign-in, backups) | L | Med | 10, 15, 20 | Walks through everything built above, so it comes after it |
-| 22 | Simple and advanced mode; create a gallery from a folder in one step | M | Med | 20 | Needs the final list of settings to decide what is "simple" |
-| 23 | Plain-language Unraid template, install guide with screenshots, getting-started checklist, "is my site reachable?" check | M | Low | 21 | Written once the setup flow is final |
-| 24 | Sample gallery, built-in help on each admin page, update notice | M | Low | 22 | Polish for new users |
+| # | Work | Effort | Complexity | Depends on |
+|---|---|---|---|---|
+| 9 | Email setup helper: presets, send-a-test button, plain-language errors | M | Med | none |
 
-### Phase 6: housekeeping, then ideas
+### Group E: Comments (about 8 to 10 days)
 
-| # | Work | Effort | Complexity | Depends on | Why here |
-|---|---|---|---|---|---|
-| 25 | Admin audit log (who changed what) | M | Med | 12 | Reuses the comment log design |
-| 26 | Accessibility pass on every page and theme | L | Med | 22 | Best done once the screens stop changing; new screens are already held to it by the definition of done |
-| 27 | "Later / ideas" (map, memories, photo of the week, keepsake page, phone-app install, translations) | each M to L | varies | | Chosen one at a time when the above is done |
-| 28 | Other install routes (Q4) | M | Med | 23 | After the Unraid path is polished |
+Everything to do with comments, finished together. Steps 11 and 12 must never ship apart.
 
-### Rough totals
+| # | Work | Effort | Complexity | Depends on |
+|---|---|---|---|---|
+| 10 | Guided single sign-on step, "test sign-in" button and Keycloak how-to | M | Med | none |
+| 11 | Comments core: post, display name, flat replies, admin reply, edit or delete own for 15 minutes, switches per photo and gallery, rate limit | L | High | 4, 10 |
+| 12 | Moderation, comment log (who, what, when, where; IP stored not shown), block a person | L | High | 11 |
+| 13 | Gallery message (thank-you note to the photographer) | S | Low | 11 |
+| 14 | New-comment email, as a daily digest | S | Low | 9, 11 |
+| 15 | Privacy tools: export or delete one person's data (likes and comments), privacy notice, delete-gallery cleanup | M | Med | 4, 11 |
 
-| Phase | Approximate size |
-|---|---|
-| 1 Quick wins | 3 to 4 days |
-| 2 Links, protect the data | 5 to 6 days |
-| 3 Comments | 10 to 12 days |
-| 4 Sharing | 4 to 5 days |
-| 5 Easy setup | 7 to 9 days |
-| 6 Housekeeping | 5 to 6 days |
+### Group F: Sharing with family (about 4 to 5 days)
 
-Highest risk, so most careful: #5 (fetching other sites), #7 (restore), #8 (file identity), #11 and #12 (comments and the log), #19 (invites and access).
+| # | Work | Effort | Complexity | Depends on |
+|---|---|---|---|---|
+| 16 | Share button: link, ready-to-send message, QR code, printable QR card | M | Low | none |
+| 17 | Invite by email, family groups in the invite flow, "new photos" email | L | High | 9, 16, Q6 |
 
-If time is short, the smallest set that delivers the vision is **#1 to #4, #7, #10 to #12, #18**: link categories, likes with counts, downloadable liked photos, safe backups, comments with moderation and sign-in, and a one-click share.
+### Group G: Easy setup and administration (about 8 to 9 days)
+
+| # | Work | Effort | Complexity | Depends on |
+|---|---|---|---|---|
+| 18 | Inbox: uploads, caption suggestions, comments, failed mail, dead links in one place | M | Med | 3, 11 |
+| 19 | Settings in the app instead of container variables (container value wins, shown locked) | M | Med | none |
+| 20 | First-run setup wizard (password, folder, site name, first gallery; optional email, sign-in, backups) | L | Med | 9, 10, 19 |
+| 21 | Simple and advanced mode; create a gallery from a folder in one step | M | Med | 19 |
+| 22 | Plain-language Unraid template, install guide with screenshots, getting-started checklist, "is my site reachable?" check | M | Low | 20 |
+| 23 | Sample gallery, built-in help on each admin page, update notice | M | Low | 21 |
+| 24 | Hardening checks and scheduled cache cleanup on the Overview page | S | Low | none |
+
+### Group H: Housekeeping, then ideas (about 4 to 5 days, plus ideas)
+
+| # | Work | Effort | Complexity | Depends on |
+|---|---|---|---|---|
+| 25 | Admin audit log (who changed what) | M | Med | 12 |
+| 26 | Accessibility pass on every page and theme | L | Med | 21 |
+| 27 | Other install routes (Q4) | M | Med | 22 |
+| 28 | "Later / ideas" (map, memories, photo of the week, keepsake page, phone-app install, translations), chosen one at a time | M to L each | varies | |
+
+Highest risk, so most careful: #2 (fetching other sites), #7 (restore), #8 (file identity), #11 and #12 (comments and the log), #17 (invites and access).
+
+If time is short, the smallest set that delivers the vision is **#1, #4, #6, #7, #10 to #12 and #16**: link categories, likes with counts, downloadable liked photos, safe backups, comments with moderation and sign-in, and a one-click share.
 
 ## 1. Likes and feedback
 
