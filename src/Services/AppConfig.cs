@@ -27,6 +27,10 @@ public class AppConfig
     public int MaxPendingPerGallery { get; }
     public string LegacyWatermarkText { get; }
     public int RescanMinutes { get; }
+    /// <summary>Hours between database backups (0 = off), and how many daily and weekly snapshots to keep.</summary>
+    public int BackupHours { get; }
+    public int BackupDaily { get; }
+    public int BackupWeekly { get; }
     public string WatermarkImagePath => Path.Combine(DataDir, "watermark.png");
     public string SiteTitle { get; }
     public bool TrustProxy { get; }
@@ -70,6 +74,9 @@ public class AppConfig
         MaxPendingPerGallery = int.TryParse(c["MAX_PENDING_PER_GALLERY"], out var mp) ? mp : 200;
         LegacyWatermarkText = c["WATERMARK_TEXT"] ?? "";
         RescanMinutes = int.TryParse(c["RESCAN_MINUTES"], out var rm) ? rm : 15;
+        BackupHours = int.TryParse(c["BACKUP_HOURS"], out var bh) ? bh : 24;
+        BackupDaily = int.TryParse(c["BACKUP_DAILY"], out var bd) ? Math.Max(1, bd) : 7;
+        BackupWeekly = int.TryParse(c["BACKUP_WEEKLY"], out var bw) ? Math.Max(0, bw) : 4;
         SiteTitle = c["SITE_TITLE"] ?? "Photos";
         TrustProxy = !string.Equals(c["TRUST_PROXY"], "false", StringComparison.OrdinalIgnoreCase);
         var nets = new List<(System.Net.IPAddress, int)>();

@@ -23,6 +23,8 @@ builder.Services.AddHostedService<CaptionService>();
 builder.Services.AddScoped<AccessService>();
 builder.Services.AddScoped<Scanner>();
 builder.Services.AddHostedService<RescanService>();
+builder.Services.AddSingleton<BackupService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<BackupService>());
 
 builder.Services.AddDataProtection()
     .SetApplicationName("PhotoGallery")
@@ -155,6 +157,7 @@ PublicApi.Map(app);
 AdminApi.Map(app);
 StatsApi.Map(app);
 HealthApi.Map(app);
+BackupApi.Map(app);
 AuthApi.Map(app);
 SubscribeApi.Map(app);
 CaptionApi.Map(app);

@@ -114,6 +114,9 @@ Do on your side:
 | `DATA_DIR` | `/data` | DB, cache, keys, guest uploads |
 | `SIZES` | `1080,1920,2560,4096` | Offered long-edge sizes |
 | `RESCAN_MINUTES` | `15` | Auto-rescan interval (0 = off) |
+| `BACKUP_HOURS` | `24` | Hours between automatic database backups (0 = off) |
+| `BACKUP_DAILY` | `7` | Days of backups kept (the newest snapshot of each day) |
+| `BACKUP_WEEKLY` | `4` | Older weeks kept after that (the newest snapshot of each week) |
 | `SITE_TITLE` | `Photos` | Initial site name; afterwards edit it in Admin -> Site settings |
 | `MAX_UPLOAD_MB` | `100` | Per-file guest upload limit |
 | `MAX_PENDING_PER_GALLERY` | `200` | Pending upload cap |
@@ -194,6 +197,26 @@ From the dev machine, on `main` with everything committed and pushed:
 ```
 
 It runs the tests, checks that `main` matches GitHub, copies that commit to the Unraid server (`DEPLOY_HOST`, default `voltron`), builds the image there with `release.sh` and pushes it to the local registry. Then use "check for updates" / "apply update" on the container in Unraid. `SKIP_TESTS=1 ./deploy.sh` skips the test run.
+
+### Database backups
+
+The app snapshots its own database into `/data/backup` (`photogallery-<UTC date>-<time>.db`). The first snapshot is made a couple of minutes after start, then whenever the newest is older than `BACKUP_HOURS`. A snapshot is a consistent copy taken while the app runs and is integrity-checked before it is kept; the last `BACKUP_DAILY` days and `BACKUP_WEEKLY` older weeks are retained.
+
+The admin overview has a "Database backup" check (amber when overdue, red when attempts fail), and **Statistics** lists the snapshots with a "Back up now" button.
+
+The folder must be writable by the container user (`nobody`, uid 99 on Unraid). If you created it by hand as root, run `chown 99:users /mnt/user/appdata/photogallery/backup`; otherwise the overview shows the backup check in red with the error.
+
+Only the database is covered: galleries, tags, groups, statistics and settings in the database. Photos are never touched, and thumbnails are rebuilt on demand. The snapshots live on the same disk as the database, so also copy `/data/backup` somewhere off the server.
+
+To restore, stop the container, then replace the database with a snapshot and remove the leftover write-ahead files:
+
+```bash
+cd /mnt/user/appdata/photogallery
+cp backup/photogallery-<stamp>.db photogallery.db
+rm -f photogallery.db-wal photogallery.db-shm
+```
+
+Start the container again. Migrations bring an older snapshot up to date on start.
 
 ### Database schema and migrations
 

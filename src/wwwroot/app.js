@@ -2052,7 +2052,8 @@ async function viewStats(app) {
           d.countries.map(c => h('tr', {}, h('td', { text: c.country }), h('td', { text: c.visitors }), h('td', { text: c.events })))) : h('p', { class: 'muted', text: 'Country is only known while Cloudflare proxies the site.' })),
         h('div', { class: 'panel' }, h('h3', { text: 'What was downloaded' }), d.downloadsBy.length ? h('table', {}, h('tr', {}, ['Type', 'Count'].map(x => h('th', { text: x }))),
           d.downloadsBy.map(x => h('tr', {}, h('td', { text: x.detail || '-' }), h('td', { text: x.count })))) : h('p', { class: 'muted', text: 'No downloads yet.' }))),
-      activityPanel());
+      activityPanel(),
+      backupPanel());
   };
 
   const uaLabel = (ua) => {
@@ -2125,6 +2126,35 @@ async function viewStats(app) {
           d.timeline.map(e => h('tr', {}, h('td', { text: new Date(e.time).toLocaleString() }), h('td', { text: kindLabels[e.kind] || e.kind }), h('td', { text: e.gallery }), h('td', { text: [e.photo, e.detail].filter(Boolean).join(' - ') })))))));
   };
 
+  const backupPanel = () => {
+    const box = h('div', { class: 'panel' });
+    const load = async () => {
+      const r = await api('/api/admin/backups');
+      const title = h('h3', { text: 'Database backups' });
+      if (!r.ok) { box.replaceChildren(title, h('p', { class: 'err', text: 'Could not load the backup list.' })); return; }
+      const b = r.data;
+      const newest = b.snapshots[0];
+      const stale = newest && (Date.now() - new Date(newest.time).getTime()) > b.everyHours * 1.5 * 3600000;
+      const msg = h('span', { class: 'muted' });
+      const btn = h('button', { text: 'Back up now' });
+      btn.addEventListener('click', async () => {
+        btn.disabled = true; msg.textContent = 'Working...';
+        const x = await api('/api/admin/backups/run', { method: 'POST' });
+        if (x.ok) load(); else { btn.disabled = false; msg.textContent = typeof x.data === 'object' && x.data ? x.data.detail || 'Backup failed.' : 'Backup failed.'; }
+      });
+      const summary = !b.enabled ? 'Automatic backups are off (BACKUP_HOURS=0).'
+        : !newest ? 'No backup has been made yet. The first one is taken a few minutes after the app starts.'
+        : `Last backup ${ago(newest.time)} (${fmtBytes(newest.bytes)}). A snapshot is taken every ${b.everyHours} h; the last ${b.keepDaily} days and ${b.keepWeekly} older weeks are kept.`;
+      box.replaceChildren(title,
+        h('p', { class: stale || b.lastError ? 'err' : 'muted', text: b.lastError ? `The last attempt failed: ${b.lastError}` : summary }),
+        b.snapshots.length ? h('table', {}, h('tr', {}, ['Taken', 'Size', 'File'].map(x => h('th', { text: x }))),
+          b.snapshots.map(x => h('tr', {}, h('td', { text: new Date(x.time).toLocaleString() }), h('td', { text: fmtBytes(x.bytes) }), h('td', { class: 'muted', text: x.name })))) : null,
+        h('p', {}, btn, ' ', msg));
+    };
+    box.append(h('h3', { text: 'Database backups' }), h('p', { class: 'muted', text: 'Loading...' }));
+    load();
+    return box;
+  };
   const activityPanel = () => {
     const box = h('div', { class: 'panel' }, h('h3', { text: 'Recent activity' }));
     const kindSel = h('select', {}, [h('option', { value: '', text: 'All actions' }), ...Object.entries(kindLabels).map(([v, t]) => h('option', { value: v, text: t, selected: v === state.kind }))]);

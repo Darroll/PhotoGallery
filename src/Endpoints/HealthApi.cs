@@ -15,7 +15,7 @@ public static class HealthApi
     {
         var g = app.MapGroup("/api/admin/health").RequireAuthorization("Admin");
 
-        g.MapGet("", async (AppDb db, AppConfig cfg, SettingsService settings, CacheService cache, ThumbnailService thumbs) =>
+        g.MapGet("", async (AppDb db, AppConfig cfg, SettingsService settings, CacheService cache, ThumbnailService thumbs, BackupService backups) =>
         {
             var checks = new List<Check>();
             var now = DateTime.UtcNow;
@@ -35,6 +35,24 @@ public static class HealthApi
                 checks.Add(new Check("disk", "Storage", "Disk space for data and thumbnails", status, $"{fmt(free)} free", $"{pct:0}% of {fmt(total)} is free where the database and thumbnail cache live."));
             }
             catch { checks.Add(new Check("disk", "Storage", "Disk space for data and thumbnails", "off", "Unknown", "The free space could not be read.")); }
+
+            if (!backups.Enabled) checks.Add(new Check("backup", "Storage", "Database backup", "off", "Off", "BACKUP_HOURS is 0, so no snapshots are made.", "/admin/stats"));
+            else
+            {
+                var newest = backups.List().FirstOrDefault();
+                var limit = TimeSpan.FromHours(cfg.BackupHours * 1.5);
+                if (newest == null)
+                    checks.Add(backups.LastError != null
+                        ? new Check("backup", "Storage", "Database backup", "bad", "Failed", "No backup exists and the last attempt failed: " + backups.LastError, "/admin/stats")
+                        : new Check("backup", "Storage", "Database backup", "warn", "None yet", "The first backup is made a few minutes after the app starts.", "/admin/stats"));
+                else
+                {
+                    var age = now - newest.Time;
+                    var status = age <= limit ? "ok" : backups.LastError != null || age > limit * 2 ? "bad" : "warn";
+                    var detail = $"Newest snapshot {newest.Time.ToLocalTime():g}, {fmt(newest.Bytes)}." + (status == "ok" ? "" : backups.LastError != null ? " The last attempt failed: " + backups.LastError : " Backups are overdue.");
+                    checks.Add(new Check("backup", "Storage", "Database backup", status, Ago(age), detail, "/admin/stats"));
+                }
+            }
 
             int missing = 0;
             try { missing = await cache.MissingAsync(null); } catch { }
@@ -133,6 +151,8 @@ public static class HealthApi
             });
         });
     }
+
+    static string Ago(TimeSpan t) => t.TotalMinutes < 1 ? "Just now" : t.TotalHours < 1 ? $"{(int)t.TotalMinutes} min ago" : t.TotalHours < 48 ? $"{(int)t.TotalHours} h ago" : $"{(int)t.TotalDays} days ago";
 
     static string fmt(long n) => n >= 1L << 40 ? $"{n / (double)(1L << 40):0.0} TB" : n >= 1L << 30 ? $"{n / (double)(1L << 30):0.0} GB" : $"{n / (double)(1L << 20):0} MB";
 }
