@@ -46,6 +46,10 @@ public class Gallery
     public bool AllowRaw { get; set; }
     public bool AllowZip { get; set; } = true;
     public bool AllowGuestUpload { get; set; }
+    /// <summary>Visitors may heart (like) photos. Off hides the heart everywhere.</summary>
+    public bool AllowLikes { get; set; } = true;
+    /// <summary>Show how many people liked each photo. The admin always sees the counts.</summary>
+    public bool ShowLikeCounts { get; set; } = true;
     public bool WatermarkView { get; set; }
     public bool WatermarkDownload { get; set; }
     public int? CoverPhotoId { get; set; }
@@ -91,6 +95,10 @@ public class Favorite
     public int GalleryId { get; set; }
     public int PhotoId { get; set; }
     public string VisitorId { get; set; } = "";
+    /// <summary>Who this like counts for: u:&lt;account id&gt; when signed in, otherwise ip:&lt;network&gt;. See <see cref="Likes"/>.</summary>
+    public string IdentityKey { get; set; } = "";
+    /// <summary>The address the heart was given from. Kept for the record, never shown on any page.</summary>
+    public string Ip { get; set; } = "";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -173,6 +181,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<Photo>().HasIndex(p => new { p.GalleryId, p.RelPath }).IsUnique();
         b.Entity<ShareLink>().HasIndex(l => l.Token).IsUnique();
         b.Entity<Favorite>().HasIndex(f => new { f.GalleryId, f.PhotoId, f.VisitorId }).IsUnique();
+        b.Entity<Favorite>().HasIndex(f => new { f.PhotoId, f.IdentityKey });
         b.Entity<FavoriteOwner>().HasIndex(o => new { o.GalleryId, o.VisitorId }).IsUnique();
         b.Entity<AlertState>().HasKey(a => a.Key);
         b.Entity<AppUser>().HasKey(u => u.Sub);

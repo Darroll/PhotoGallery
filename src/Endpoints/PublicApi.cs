@@ -80,6 +80,7 @@ public static class PublicApi
             activity.Record(ctx, "view_gallery", g.Id);
             var admin = a.Admin;
             var vid = ActivityLog.ReadVisitorId(ctx);
+            await Likes.AdoptAsync(db, ctx, vid);
             var favoriteIds = vid == "" ? new List<int>() : await db.Favorites.AsNoTracking().Where(f => f.GalleryId == g.Id && f.VisitorId == vid).Select(f => f.PhotoId).ToListAsync();
             var favoriteName = vid == "" ? "" : await db.FavoriteOwners.AsNoTracking().Where(o => o.GalleryId == g.Id && o.VisitorId == vid).Select(o => o.Name).FirstOrDefaultAsync() ?? "";
             var photos = await db.Photos.Where(p => p.GalleryId == g.Id && (p.Approved || admin))
@@ -88,7 +89,8 @@ public static class PublicApi
             photos = GalleryRules.Sort(photos, g, x => x.taken, x => x.Name, x => x.added);
 
             var tagNames = await Tags.NamesByPhotoAsync(db, photos.Select(x => x.Id).ToList());
-            var shaped = photos.Select(x => new { x.Id, x.w, x.h, x.Name, x.raw, x.rawOnly, x.taken, x.added, x.Approved, x.Caption, x.AltText,
+            var likeCounts = g.AllowLikes && (g.ShowLikeCounts || admin) ? await Likes.CountsAsync(db, g.Id) : new Dictionary<int, int>();
+            var shaped = photos.Select(x => new { x.Id, x.w, x.h, x.Name, x.raw, x.rawOnly, x.taken, x.added, x.Approved, x.Caption, x.AltText, likes = likeCounts.GetValueOrDefault(x.Id),
                 tags = tagNames.TryGetValue(x.Id, out var t) ? t : new List<string>() }).ToList();
 
             var gTags = (await Tags.NamesByGalleryAsync(db, new List<int> { g.Id })).GetValueOrDefault(g.Id) ?? new List<string>();
@@ -99,7 +101,7 @@ public static class PublicApi
             return Results.Ok(new
             {
                 g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId, tags = gTags, tagColors,
-                g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note, preview = previews && GalleryRules.CategoryOf(l) == "external" ? ExternalLinkPreviews.ForPage(cfg, l.Url) : null }), favorites = favoriteIds, favoriteName, sizes = GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
+                g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, allowLikes = g.AllowLikes, showLikeCounts = g.ShowLikeCounts || admin, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note, preview = previews && GalleryRules.CategoryOf(l) == "external" ? ExternalLinkPreviews.ForPage(cfg, l.Url) : null }), favorites = favoriteIds, favoriteName, sizes = GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
                 allowDownload = g.AllowDownload,
                 allowOriginal = g.AllowDownload && !locked,
                 allowRaw = g.AllowDownload && g.AllowRaw && !locked,
@@ -138,18 +140,20 @@ public static class PublicApi
             if (g == null) return Results.NotFound();
             var a = await access.CheckAsync(ctx, g);
             if (!a.Allowed) return Results.StatusCode(403);
+            if (!g.AllowLikes) return Results.StatusCode(403);
             if (!await db.Photos.AnyAsync(p => p.Id == photoId && p.GalleryId == g.Id && p.Approved)) return Results.NotFound();
             var vid = ActivityLog.EnsureVisitorId(ctx);
+            await Likes.AdoptAsync(db, ctx, vid);
             var existing = await db.Favorites.FirstOrDefaultAsync(f => f.GalleryId == g.Id && f.PhotoId == photoId && f.VisitorId == vid);
             if (input.On && existing == null)
             {
                 if (await db.Favorites.CountAsync(f => f.GalleryId == g.Id && f.VisitorId == vid) >= 2000) return Results.StatusCode(429);
-                db.Favorites.Add(new Favorite { GalleryId = g.Id, PhotoId = photoId, VisitorId = vid });
+                db.Favorites.Add(new Favorite { GalleryId = g.Id, PhotoId = photoId, VisitorId = vid, IdentityKey = Likes.IdentityKey(ctx), Ip = ActivityLog.ClientIp(ctx) });
                 activity.Record(ctx, "favorite", g.Id, photoId);
             }
             else if (!input.On && existing != null) db.Favorites.Remove(existing);
             await db.SaveChangesAsync();
-            return Results.Ok(new { count = await db.Favorites.CountAsync(f => f.GalleryId == g.Id && f.VisitorId == vid) });
+            return Results.Ok(new { count = await db.Favorites.CountAsync(f => f.GalleryId == g.Id && f.VisitorId == vid), likes = g.ShowLikeCounts || a.Admin ? await Likes.CountAsync(db, photoId) : 0 });
         }).RequireRateLimiting("viewed");
 
         app.MapPut("/api/g/{slug}/favorite-name", async (string slug, NameInput input, HttpContext ctx, AppDb db, AccessService access) =>

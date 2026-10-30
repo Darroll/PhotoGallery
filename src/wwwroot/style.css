@@ -203,7 +203,8 @@ td.ua2 { word-break: break-all; font-size: 12px; color: var(--muted); }
 .grid .ph:focus-visible { outline: 3px solid var(--accent); }
 .tile-fav { position: absolute; right: 6px; bottom: 6px; width: 34px; height: 34px; border-radius: 50%; border: 0; padding: 0;
   background: rgba(0,0,0,.45); color: #fff; font-size: 18px; line-height: 34px; cursor: pointer; opacity: 0; transition: opacity .15s; }
-.ph:hover .tile-fav, .ph:focus-within .tile-fav, .tile-fav.on { opacity: 1; }
+.tile-fav.counted { width: auto; min-width: 34px; padding: 0 10px; border-radius: 17px; font-size: 15px; }
+.ph:hover .tile-fav, .ph:focus-within .tile-fav, .tile-fav.on, .tile-fav.counted { opacity: 1; }
 .tile-fav.on { color: #ff5a6e; }
 @media (hover: none) { .tile-fav { opacity: .85; } }
 .tile-check { position: absolute; left: 6px; top: 6px; width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; background: rgba(0,0,0,.4); color: #fff; text-align: center; line-height: 22px; font-weight: 700; }

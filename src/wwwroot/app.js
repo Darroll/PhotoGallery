@@ -331,11 +331,13 @@ const viewKind = () => (innerWidth <= 700 ? 'mid' : 'view');   // phones get the
 const photoUrl = (p, kind) => `/img/${p.id}/${kind}`;
 
 async function toggleFav(p) {
+  if (G.allowLikes === false) return;
   const on = !favs.has(p.id);
   on ? favs.add(p.id) : favs.delete(p.id);
   G.refresh && G.refresh();
   const r = await api(`/api/g/${encodeURIComponent(G.slug)}/favorite/${p.id}`, { method: 'POST', body: { on } });
   if (!r.ok) { on ? favs.delete(p.id) : favs.add(p.id); G.refresh && G.refresh(); toast('Could not save that favorite'); return; }
+  if (typeof r.data.likes === 'number' && G.showLikeCounts) { p.likes = r.data.likes; G.refresh && G.refresh(); }
   if (on && favs.size === 1) toast('Saved to your favorites. The photographer can see them.');
 }
 function playVideo(l) {
@@ -404,7 +406,7 @@ async function viewGallery(app, slug) {
   const countLabel = h('span', { class: 'muted' });
   const slideBtn = h('button', { class: 'primary', text: '▶ Slideshow', onclick: () => openLightbox(0, true) });
   const selectBtn = h('button', { text: 'Select', onclick: () => { selectMode = !selectMode; if (!selectMode) sel.clear(); fill(); } });
-  const favBtn = h('button', { onclick: () => { favOnly = !favOnly; fill(); } });
+  const favBtn = G.allowLikes === false ? h('span') : h('button', { onclick: () => { favOnly = !favOnly; fill(); } });
   const curated = h('input', { type: 'checkbox', checked: G.hideRawOnly !== false });
   const curatedText = h('span');
   const rawBtn = h('label', { class: 'switch', title: 'Curated photos are the edited ones. Turn this off to also see unedited RAW frames.' }, curated, curatedText);
@@ -431,8 +433,11 @@ async function viewGallery(app, slug) {
   const updateStates = () => {
     for (const [id, t] of tiles) {
       t.el.classList.toggle('sel', sel.has(id));
+      if (!t.heart) continue;
       t.heart.classList.toggle('on', favs.has(id));
-      t.heart.textContent = favs.has(id) ? '♥' : '♡';
+      t.heart.textContent = (favs.has(id) ? '♥' : '♡') + (G.showLikeCounts && t.p.likes > 0 ? ' ' + t.p.likes : '');
+      t.heart.classList.toggle('counted', !!(G.showLikeCounts && t.p.likes > 0));
+      t.heart.title = G.showLikeCounts && t.p.likes > 0 ? plural(t.p.likes, 'like') : 'Favorite';
       t.check.textContent = sel.has(id) ? '✓' : '';
     }
     selCount.textContent = `${sel.size} selected`;
@@ -457,7 +462,7 @@ async function viewGallery(app, slug) {
     tiles.clear();
     grid.replaceChildren(...photos.map((p, i) => {
       const ratio = (p.w || 3) / (p.h || 2);
-      const heart = h('button', { class: 'tile-fav', 'aria-label': 'Favorite', onclick: (e) => { e.stopPropagation(); toggleFav(p); } });
+      const heart = G.allowLikes === false ? null : h('button', { class: 'tile-fav', 'aria-label': 'Favorite', onclick: (e) => { e.stopPropagation(); toggleFav(p); } });
       const check = h('span', { class: 'tile-check' });
       const item = h('div', { class: 'ph' + (p.approved ? '' : ' pending'), title: p.name, tabindex: 0,
         onclick: () => { if (selectMode) toggleSel(p); else openLightbox(i, false); },
@@ -467,7 +472,7 @@ async function viewGallery(app, slug) {
         p.rawOnly ? h('span', { class: 'badge', text: 'RAW' }) : null,
         selectMode ? check : null, heart);
       item.style.setProperty('--r', String(ratio));
-      tiles.set(p.id, { el: item, heart, check });
+      tiles.set(p.id, { el: item, heart, check, p });
       return item;
     }));
     updateStates();
@@ -866,7 +871,8 @@ function openLightbox(index, play, mode = 'push') {
   lb.sync = () => {
     const p = cur(); if (!p) return;
     const fav = favs.has(p.id), chosen = sel.has(p.id);
-    favA.i.textContent = fav ? '♥' : '♡'; favA.l.textContent = fav ? 'Favorited' : 'Favorite'; favA.el.classList.toggle('on', fav);
+    favA.i.textContent = fav ? '♥' : '♡'; favA.l.textContent = (fav ? 'Favorited' : 'Favorite') + (G.showLikeCounts && p.likes > 0 ? ' · ' + p.likes : ''); favA.el.classList.toggle('on', fav);
+    favA.el.classList.toggle('hidden', G.allowLikes === false);
     selA.i.textContent = chosen ? '☑' : '☐'; selA.l.textContent = chosen ? 'Selected' : 'Select'; selA.el.classList.toggle('on', chosen);
     const unlink = G.admin && p.raw && !p.rawOnly
       ? h('button', { class: 'danger', text: 'Unlink RAW', onclick: async () => { if (confirm('Unlink the RAW from this photo?')) { await api(`/api/admin/photos/${p.id}/link-raw`, { method: 'DELETE' }); route(true); } } })
@@ -917,7 +923,7 @@ function openLightbox(index, play, mode = 'push') {
     else if (e.key === 'ArrowLeft') show(lb.i - 1);
     else if (e.key === ' ') { e.preventDefault(); lb.playing ? stop() : start(); }
     else if (e.key === 'f') fsBtn.click();
-    else if (e.key === 'h') toggleFav(cur());
+    else if (e.key === 'h' && G.allowLikes !== false) toggleFav(cur());
     else if (e.key === '+' || e.key === '=') zoomAt(z.s * 1.3, 0, 0, true);
     else if (e.key === '-') zoomAt(z.s / 1.3, 0, 0, true);
     else if (e.key === '0') resetZoom();
@@ -1878,6 +1884,8 @@ async function viewGallerySettings(app, id) {
   const wmView = track(h('input', { type: 'checkbox', checked: g.watermarkView }));
   const wmDl = track(h('input', { type: 'checkbox', checked: g.watermarkDownload }));
   const guestUp = track(h('input', { type: 'checkbox', checked: g.allowGuestUpload }));
+  const allowLikes = track(h('input', { type: 'checkbox', checked: g.allowLikes !== false }));
+  const showLikes = track(h('input', { type: 'checkbox', checked: g.showLikeCounts !== false }));
   const wmUp = section('Watermark & uploads', 'Branding and guest photos', true,
     h('div', { class: 'form1' },
       field('On screen', h('label', {}, wmView, ' Watermark photos shown in the gallery'), 'Style is set in Site settings.'),
@@ -1885,7 +1893,11 @@ async function viewGallerySettings(app, id) {
       field('Guest uploads', h('label', {}, guestUp, ' Let visitors upload photos'), 'Uploads stay hidden until you approve them.')),
     h('p', {}, h('a', { href: '/admin/settings/watermark', text: 'Open site settings (watermark style)' })), pendingManager(g));
 
-  const favSection = section('Favorites', 'Photos visitors hearted', false, favoritesManager(g));
+  const favSection = section('Favorites', 'Hearts, like counts and visitor lists', false,
+    h('div', { class: 'form1' },
+      field('Hearts', h('label', {}, allowLikes, ' Let visitors heart photos'), 'A heart is a like and is also saved to the visitor’s favorites list.'),
+      field('Like counts', h('label', {}, showLikes, ' Show how many people liked each photo'), 'One like counts per signed-in person, or per network address for visitors who are not signed in. You always see the counts.')),
+    favoritesManager(g));
 
   // --- RAW files (collapsed) ---
   const rawMode = track(h('select', {}, [[0, 'Same folder, same file name'], [1, 'Same file name, any folder'], [2, 'Name starts with the RAW name (IMG_1234-Edit.png)']].map(([v, t]) => h('option', { value: v, text: t, selected: v === g.rawMatchMode }))));
@@ -1907,7 +1919,7 @@ async function viewGallerySettings(app, id) {
       allowDownload: allowDl.checked, allowZip: allowZip.checked,
       allowedSizes: sizeBoxes.every(x => x.box.checked) ? '' : sizeBoxes.filter(x => x.box.checked).map(x => x.px).join(','),
       allowedFormats: fmtBoxes.every(x => x.box.checked) ? '' : fmtBoxes.filter(x => x.box.checked).map(x => x.f).join(','),
-      watermarkView: wmView.checked, watermarkDownload: wmDl.checked, allowGuestUpload: guestUp.checked,
+      watermarkView: wmView.checked, watermarkDownload: wmDl.checked, allowGuestUpload: guestUp.checked, allowLikes: allowLikes.checked, showLikeCounts: showLikes.checked,
       rawMatchMode: Number(rawMode.value), allowRaw: allowRaw.checked, hideRawOnly: hideRaw.checked, footageLinks: collectLinks()
     };
     if (pw.value) body.password = pw.value === '-' ? '' : pw.value;

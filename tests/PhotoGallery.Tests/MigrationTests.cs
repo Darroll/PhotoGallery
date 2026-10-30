@@ -62,6 +62,7 @@ public class MigrationTests : IDisposable
         using (var db = new AppDb(Opts))
         {
             db.Database.EnsureCreated();   // how every database was created before migrations
+            AsBaseline(db);
             db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" DROP COLUMN \"Preferences\"");
             db.Database.ExecuteSqlRaw("INSERT INTO \"Users\" VALUES ('old-user', 'o@example.test', 'Old', '2025-01-01', '2025-01-02')");
         }
@@ -76,10 +77,51 @@ public class MigrationTests : IDisposable
     }
 
     [Fact]
+    public void The_like_migration_keeps_existing_galleries_liking_and_gives_old_hearts_an_owner()
+    {
+        using (var db = new AppDb(Opts))
+        {
+            var migrator = Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>(db);
+            migrator.Migrate("20261029222553_InitialCreate");
+            db.Database.ExecuteSqlRaw("INSERT INTO \"Favorites\" (GalleryId, PhotoId, VisitorId, CreatedAt) VALUES (1, 7, 'visitor-aaaaaaaaaaaaaaaa', '2026-10-01')");
+            db.Database.ExecuteSqlRaw("INSERT INTO \"Favorites\" (GalleryId, PhotoId, VisitorId, CreatedAt) VALUES (1, 7, 'visitor-bbbbbbbbbbbbbbbb', '2026-10-02')");
+        }
+        using (var db = new AppDb(Opts))
+        {
+            Schema.Migrate(db);
+            var keys = db.Favorites.OrderBy(f => f.VisitorId).Select(f => f.IdentityKey).ToList();
+            Assert.Equal(["v:visitor-aaaaaaaaaaaaaaaa", "v:visitor-bbbbbbbbbbbbbbbb"], keys);   // each old browser counts once
+            var conn = db.Database.GetDbConnection();
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT name, dflt_value FROM pragma_table_info('Galleries') WHERE name IN ('AllowLikes', 'ShowLikeCounts')";
+            using var r = cmd.ExecuteReader();
+            var defaults = new Dictionary<string, string>();
+            while (r.Read()) defaults[r.GetString(0)] = r.GetString(1);
+            Assert.Equal("1", defaults["AllowLikes"]);      // existing galleries keep their hearts
+            Assert.Equal("1", defaults["ShowLikeCounts"]);
+        }
+    }
+
+    /// <summary>
+    /// EnsureCreated builds today's model, but a database from before migrations had the baseline schema. Take away what
+    /// later migrations add, so adoption can be tested the way it happens: baseline first, then the newer migrations.
+    /// Add a line here whenever a migration adds a column or an index.
+    /// </summary>
+    static void AsBaseline(AppDb db)
+    {
+        db.Database.ExecuteSqlRaw("DROP INDEX \"IX_Favorites_PhotoId_IdentityKey\"");
+        db.Database.ExecuteSqlRaw("ALTER TABLE \"Favorites\" DROP COLUMN \"IdentityKey\"");
+        db.Database.ExecuteSqlRaw("ALTER TABLE \"Favorites\" DROP COLUMN \"Ip\"");
+        db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"AllowLikes\"");
+        db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"ShowLikeCounts\"");
+    }
+
+    [Fact]
     public void An_adopted_database_and_a_new_one_end_up_with_the_same_schema()
     {
         string[] legacy, fresh;
-        using (var db = new AppDb(Opts)) { db.Database.EnsureCreated(); Schema.Migrate(db); legacy = Shape(db).ToArray(); }
+        using (var db = new AppDb(Opts)) { db.Database.EnsureCreated(); AsBaseline(db); Schema.Migrate(db); legacy = Shape(db).ToArray(); }
         File.Delete(File_);
         using (var db = new AppDb(Opts)) { Schema.Migrate(db); fresh = Shape(db).ToArray(); }
         Assert.Equal(legacy, fresh);

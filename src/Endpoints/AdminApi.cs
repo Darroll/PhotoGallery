@@ -13,7 +13,7 @@ public static class AdminApi
     static string Clip(string? s) => new string((s ?? "").Where(c => !char.IsControl(c)).Take(40).ToArray());
     record PeopleInput(List<string>? Emails);
     record GalleryInput(string? Title, string? Description, string? Folder, string? Slug, Visibility? Visibility,
-        string? Password, bool? AllowDownload, bool? AllowRaw, bool? AllowZip, bool? AllowGuestUpload,
+        string? Password, bool? AllowDownload, bool? AllowRaw, bool? AllowZip, bool? AllowGuestUpload, bool? AllowLikes, bool? ShowLikeCounts,
         bool? WatermarkView, bool? WatermarkDownload, RawMatch? RawMatchMode,
         bool? HideRawOnly, GallerySort? SortMode, bool? SortDesc, string? EventDate, string? Location,
         string? AllowedSizes, string? AllowedFormats, string? ExpiresAt, List<LinkItem>? FootageLinks);
@@ -46,7 +46,7 @@ public static class AdminApi
     {
         g.Id, g.Slug, g.Title, g.Description, g.Folder, g.Visibility,
         hasPassword = !string.IsNullOrEmpty(g.PasswordHash),
-        g.AllowDownload, g.AllowRaw, g.AllowZip, g.AllowGuestUpload, g.WatermarkView, g.WatermarkDownload,
+        g.AllowDownload, g.AllowRaw, g.AllowZip, g.AllowGuestUpload, g.AllowLikes, g.ShowLikeCounts, g.WatermarkView, g.WatermarkDownload,
         rawMatchMode = g.RawMatchMode, hideRawOnly = g.HideRawOnly, sortMode = g.SortMode, sortDesc = g.SortDesc,
         eventDate = g.EventDate, g.Location, g.AllowedSizes, g.AllowedFormats, expiresAt = g.ExpiresAt,
         footageLinks = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }), cover = g.CoverPhotoId, count, pending, rawOnly
@@ -292,6 +292,8 @@ public static class AdminApi
             if (input.AllowRaw != null) g.AllowRaw = input.AllowRaw.Value;
             if (input.AllowZip != null) g.AllowZip = input.AllowZip.Value;
             if (input.AllowGuestUpload != null) g.AllowGuestUpload = input.AllowGuestUpload.Value;
+            if (input.AllowLikes != null) g.AllowLikes = input.AllowLikes.Value;
+            if (input.ShowLikeCounts != null) g.ShowLikeCounts = input.ShowLikeCounts.Value;
             if (input.WatermarkView != null) g.WatermarkView = input.WatermarkView.Value;
             if (input.WatermarkDownload != null) g.WatermarkDownload = input.WatermarkDownload.Value;
             if (input.RawMatchMode != null) g.RawMatchMode = input.RawMatchMode.Value;

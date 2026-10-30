@@ -160,6 +160,14 @@ namespace PhotoGallery.Migrations
                     b.Property<int>("GalleryId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("IdentityKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Ip")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("PhotoId")
                         .HasColumnType("INTEGER");
 
@@ -168,6 +176,8 @@ namespace PhotoGallery.Migrations
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("PhotoId", "IdentityKey");
 
                     b.HasIndex("GalleryId", "PhotoId", "VisitorId")
                         .IsUnique();
@@ -217,6 +227,9 @@ namespace PhotoGallery.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("AllowGuestUpload")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AllowLikes")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("AllowRaw")
@@ -272,6 +285,9 @@ namespace PhotoGallery.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<int>("RawMatchMode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("ShowLikeCounts")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("Slug")
