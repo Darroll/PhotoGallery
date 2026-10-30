@@ -47,7 +47,7 @@ Every page has its own browser tab title: the site name (Admin -> Site settings)
 
 - **Select** on a gallery lets viewers tick photos and download just those as a ZIP (size, format and RAW chosen in a download sheet). The same sheet downloads a single photo, favorites, or the whole gallery.
 - **Favorites**: a heart on every photo. Favorites are stored per anonymous browser id; viewers can add their name, and the photographer reviews every list in the gallery settings (Favorites section: per-visitor lists, most favorited photos, copy file names or RAW names for Lightroom, download originals + RAW as a ZIP).
-- **Footage links**: each link on a gallery has a category. **Video** links (YouTube) show in the Videos grid above the photos; **External** links show as cards in a Links section below the gallery. Tick **Button under title** on any link to also show it as a button beside the title. Links saved before categories existed keep their old look: YouTube links are videos, other links are external with a button. Only http/https links are kept.
+- **Footage links**: each link on a gallery has a category. **Video** links (YouTube) show in the Videos grid above the photos; **External** links show as cards in a Links section below the gallery, with the page's own title and picture when it has them (see *Link previews* below). Tick **Button under title** on any link to also show it as a button beside the title. Links saved before categories existed keep their old look: YouTube links are videos, other links are external with a button. Only http/https links are kept.
 - **Mobile**: responsive layout on every page, a bottom-sheet download dialog, and a full-screen viewer with swipe, double-tap and pinch zoom, swipe-down to close and a lighter 1280px image (a sharper one loads when zoomed).
 
 ### Email alerts
@@ -57,6 +57,12 @@ Site settings has an **Email alerts** panel (relay host/port, sender, your addre
 ### Videos
 
 In a gallery's settings, **Videos and links** takes YouTube links (watch, youtu.be, shorts, live). They show as a **Videos** grid above the photos so all recordings of an event sit in one place. Leave the title empty and the video's own title is used. Preview images are fetched by the server and cached, so visitors do not contact YouTube until they press play. A cached image is checked on YouTube again after 12 hours (the old one stays if YouTube cannot be reached), and **Refresh video thumbnails** under the links list fetches the current ones straight away, for example after you change a video's thumbnail on YouTube. Each saved YouTube link in the settings shows its current thumbnail beside it; playback uses the privacy-enhanced youtube-nocookie player in a pop-up. Other links stay as buttons.
+
+### Link previews
+
+For External links the server looks up the page once and keeps its title and share picture (Open Graph / Twitter tags, or the page title) in `/data/cache/lpreview`. The picture is shrunk to a small WebP and served from the gallery's own address, so visitors never contact the other site until they click. A link whose label is left as its web address takes the page's title. Previews are re-checked after 7 days (a failed lookup is retried after 6 hours), and **Refresh thumbnails and previews** in a gallery's settings fetches them straight away.
+
+The lookup is made safe: the server only connects to public internet addresses, so a link to your router, the Unraid server or any other address on your own network is refused (and so are `localhost` and cloud metadata addresses); only ports 80 and 443, at most three redirects, 8 seconds, 512 KB of page and 3 MB of picture; the picture is re-encoded, so anything that is not really an image is dropped. Turn it off under **Admin -> Settings -> Site and appearance -> Link previews**; then nothing is fetched from those sites and External links show as plain cards.
 
 ### Thumbnails
 
@@ -186,7 +192,7 @@ PHOTO_LIBRARY=/path/to/photos DATA_DIR=./data ADMIN_PASSWORD=dev dotnet run
 dotnet test tests/PhotoGallery.Tests
 ```
 
-The suite (201 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
+The suite (223 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
 
 Add a test whenever you add or fix a feature. `AppFactory` in `tests/PhotoGallery.Tests` boots the app; pass extra environment-style settings to a subclass to test other configurations (see `SsoFactory`).
 
