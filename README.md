@@ -143,6 +143,7 @@ Do on your side:
 | `BACKUP_HOURS` | `24` | Hours between automatic database backups (0 = off) |
 | `BACKUP_DAILY` | `7` | Days of backups kept (the newest snapshot of each day) |
 | `BACKUP_WEEKLY` | `4` | Older weeks kept after that (the newest snapshot of each week) |
+| `BACKUP_COPY_DIR` | _(off)_ | A second folder (another disk, a share, a USB drive) that every snapshot is also copied to, and kept the same way |
 | `SITE_TITLE` | `Photos` | Initial site name; afterwards edit it in Admin -> Site settings |
 | `MAX_UPLOAD_MB` | `100` | Per-file guest upload limit |
 | `MAX_PENDING_PER_GALLERY` | `200` | Pending upload cap |
@@ -210,7 +211,7 @@ PHOTO_LIBRARY=/path/to/photos DATA_DIR=./data ADMIN_PASSWORD=dev dotnet run
 dotnet test tests/PhotoGallery.Tests
 ```
 
-The suite (241 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
+The suite (246 tests, a few seconds) covers password hashing, configuration rules (including the SSO / admin password behaviour), the license settings and their placeholders, settings persistence, gallery rules, and the running app end to end: admin sign-in and sign-out, SSO mode, the license API, creating and scanning galleries, protected galleries and unlock, share links and download limits, per-gallery download switches, guest-upload moderation and the security headers. The integration tests start the real app against a throw-away library and data folder, so nothing on your machine is touched. GitHub Actions runs them (plus a syntax check of `app.js` and the shell scripts) on every push and pull request.
 
 Add a test whenever you add or fix a feature. `AppFactory` in `tests/PhotoGallery.Tests` boots the app; pass extra environment-style settings to a subclass to test other configurations (see `SsoFactory`).
 
@@ -232,9 +233,20 @@ The admin overview has a "Database backup" check (amber when overdue, red when a
 
 The folder must be writable by the container user (`nobody`, uid 99 on Unraid). If you created it by hand as root, run `chown 99:users /mnt/user/appdata/photogallery/backup`; otherwise the overview shows the backup check in red with the error.
 
-Only the database is covered: galleries, tags, groups, statistics and settings in the database. Photos are never touched, and thumbnails are rebuilt on demand. The snapshots live on the same disk as the database, so also copy `/data/backup` somewhere off the server.
+Only the database is covered: galleries, tags, groups, statistics and settings in the database. Photos are never touched, and thumbnails are rebuilt on demand. The snapshots live on the same disk as the database, so keep a copy somewhere else too (below).
 
-To restore, stop the container, then replace the database with a snapshot and remove the leftover write-ahead files:
+**A copy off the server.** Two easy ways, both in **Statistics -> Database backups**:
+
+- **Download** any snapshot to your own computer (it is an ordinary SQLite file, a few MB).
+- Set `BACKUP_COPY_DIR` on the container to another disk, a network share or a USB drive (mount it into the container and give the mounted path). Each new snapshot is copied there right after it is made, and old ones are removed the same way as in `/data/backup`. If the copy fails (drive missing, folder not writable) the backup itself still succeeds and the panel shows the error in red.
+
+**Restoring.** In **Statistics -> Database backups** press **Restore** beside a snapshot, or **Restore from a file...** to pick one you downloaded earlier. You are asked to confirm; then the app
+
+1. checks the file (integrity, that it is a gallery database, and that it was not made by a newer version of the app, which is refused),
+2. saves the current state as a `before-restore-...` copy in `/data/backup` (listed under *Saved before a restore*, kept for the last five restores, and itself restorable, so a restore can always be undone),
+3. replaces the database, brings an older one up to date with the migrations, and reloads the page.
+
+It works while the app runs; nobody has to stop the container. Only the database is restored (galleries, links, likes, tags, groups, statistics, sign-in records). Photos and the `settings.json` file are not touched. If the app will not start at all, the manual way still works: stop the container, then
 
 ```bash
 cd /mnt/user/appdata/photogallery
@@ -242,7 +254,7 @@ cp backup/photogallery-<stamp>.db photogallery.db
 rm -f photogallery.db-wal photogallery.db-shm
 ```
 
-Start the container again. Migrations bring an older snapshot up to date on start.
+and start it again.
 
 ### Database schema and migrations
 

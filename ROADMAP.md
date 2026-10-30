@@ -160,7 +160,7 @@ If time is short, the smallest set that delivers the vision is **#1, #4, #6, #7,
 - [ ] **Create a gallery from a folder in one step**, with sensible defaults, then share.
 - [ ] **Inbox.** One place for everything waiting on you: guest uploads, caption suggestions, new comments, failed emails, dead links.
 - [ ] **Built-in help** on each admin page ("What does this do?").
-- [ ] **Off-server backup copy**, and **restore from a snapshot in the admin page** (with a safety copy made first).
+- [x] **Off-server backup copy** (download, or `BACKUP_COPY_DIR`), and **restore from a snapshot in the admin page** (with a safety copy made first).
 
 ## 4. Links and videos
 

@@ -2292,11 +2292,31 @@ async function viewStats(app) {
       const summary = !b.enabled ? 'Automatic backups are off (BACKUP_HOURS=0).'
         : !newest ? 'No backup has been made yet. The first one is taken a few minutes after the app starts.'
         : `Last backup ${ago(newest.time)} (${fmtBytes(newest.bytes)}). A snapshot is taken every ${b.everyHours} h; the last ${b.keepDaily} days and ${b.keepWeekly} older weeks are kept.`;
+      const done = (x, what) => { if (x.ok) { alert(`${what} The previous state was saved as ${x.data.safetyCopy}. The page will reload.`); location.reload(); } else { msg.textContent = typeof x.data === 'object' && x.data ? x.data.detail || 'Restore failed.' : 'Restore failed.'; } };
+      const restore = async (x) => {
+        if (!confirm(`Restore the backup from ${new Date(x.time).toLocaleString()}?\n\nGalleries, settings, likes and statistics go back to how they were then. Anything changed since is replaced, but the current state is saved first so this can be undone.`)) return;
+        msg.textContent = 'Restoring...';
+        done(await api('/api/admin/backups/restore', { method: 'POST', body: { name: x.name } }), 'Restored.');
+      };
+      const rows = (list) => list.map(x => h('tr', {}, h('td', { text: new Date(x.time).toLocaleString() }), h('td', { text: fmtBytes(x.bytes) }),
+        h('td', {}, h('a', { href: `/api/admin/backups/${encodeURIComponent(x.name)}/download`, download: x.name, text: 'Download' }), ' ',
+          h('button', { text: 'Restore', onclick: () => restore(x) }))));
+      const head = h('tr', {}, ['Taken', 'Size', ''].map(x => h('th', { text: x })));
+      const pick = h('input', { type: 'file', accept: '.db', style: 'display:none' });
+      pick.addEventListener('change', async () => {
+        const f = pick.files[0]; if (!f) return;
+        if (!confirm(`Restore from the file "${f.name}"?\n\nEverything in the gallery is replaced by what is in this file. The current state is saved first so this can be undone.`)) { pick.value = ''; return; }
+        msg.textContent = 'Uploading and restoring...';
+        const res = await fetch('/api/admin/backups/restore-upload', { method: 'POST', headers: { 'X-Requested-With': 'pg', 'Content-Type': 'application/octet-stream' }, body: f });
+        let data = null; try { data = await res.json(); } catch { }
+        done({ ok: res.ok, data }, 'Restored.');
+      });
       box.replaceChildren(title,
         h('p', { class: stale || b.lastError ? 'err' : 'muted', text: b.lastError ? `The last attempt failed: ${b.lastError}` : summary }),
-        b.snapshots.length ? h('table', {}, h('tr', {}, ['Taken', 'Size', 'File'].map(x => h('th', { text: x }))),
-          b.snapshots.map(x => h('tr', {}, h('td', { text: new Date(x.time).toLocaleString() }), h('td', { text: fmtBytes(x.bytes) }), h('td', { class: 'muted', text: x.name })))) : null,
-        h('p', {}, btn, ' ', msg));
+        h('p', { class: b.copyError ? 'err' : 'muted', text: b.copyError ? `Copying to ${b.copyDir} failed: ${b.copyError}` : b.copyDir ? `Every backup is also copied to ${b.copyDir}.` : 'To keep a copy off this server, download one below, or set BACKUP_COPY_DIR to another disk or share.' }),
+        b.snapshots.length ? h('table', {}, head, rows(b.snapshots)) : null,
+        b.safety.length ? h('details', {}, h('summary', { text: `Saved before a restore (${b.safety.length})` }), h('table', {}, head.cloneNode(true), rows(b.safety))) : null,
+        h('p', {}, btn, ' ', h('button', { text: 'Restore from a file...', onclick: () => pick.click() }), pick, ' ', msg));
     };
     box.append(h('h3', { text: 'Database backups' }), h('p', { class: 'muted', text: 'Loading...' }));
     load();

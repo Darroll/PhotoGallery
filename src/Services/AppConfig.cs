@@ -31,6 +31,8 @@ public class AppConfig
     public int BackupHours { get; }
     public int BackupDaily { get; }
     public int BackupWeekly { get; }
+    /// <summary>A second folder (another disk, a share, a USB drive) that every snapshot is also copied to. Empty means off.</summary>
+    public string? BackupCopyDir { get; }
     public string WatermarkImagePath => Path.Combine(DataDir, "watermark.png");
     public string SiteTitle { get; }
     public bool TrustProxy { get; }
@@ -77,6 +79,7 @@ public class AppConfig
         BackupHours = int.TryParse(c["BACKUP_HOURS"], out var bh) ? bh : 24;
         BackupDaily = int.TryParse(c["BACKUP_DAILY"], out var bd) ? Math.Max(1, bd) : 7;
         BackupWeekly = int.TryParse(c["BACKUP_WEEKLY"], out var bw) ? Math.Max(0, bw) : 4;
+        BackupCopyDir = Opt(c["BACKUP_COPY_DIR"]) is { } bc ? Path.GetFullPath(bc) : null;
         SiteTitle = c["SITE_TITLE"] ?? "Photos";
         TrustProxy = !string.Equals(c["TRUST_PROXY"], "false", StringComparison.OrdinalIgnoreCase);
         var nets = new List<(System.Net.IPAddress, int)>();
