@@ -275,9 +275,27 @@ dotnet ef migrations add <Name>
 Commit the generated files with the change. A test fails if the model and the migrations disagree. Do not add to `Schema.Upgrade`: it is frozen and exists only to bring pre-migration databases up to the baseline. Install the tool once with `dotnet tool install -g dotnet-ef`.
 
 
+## Single sign-on
+
+The gallery can sign visitors and the admin in through any OpenID Connect provider; Keycloak is the one this is written and tested for. Signed-in visitors can suggest caption changes and, later, comment; the admin can sign in without the shared password.
+
+### Set up from the admin page
+
+**Admin -> Settings -> Sign-in (SSO)** walks you through it, with no files to edit and no restart:
+
+1. The page shows what to create in Keycloak, with the exact addresses for *this* site to copy: a client named `photogallery` with client authentication on, the valid redirect URI `https://<your site>/signin-oidc`, the post-logout redirect URI `https://<your site>/signout-callback-oidc`, and a realm role (`gallery-admin` by default) given to your own user. Make sure your user has an email address with **Email verified** switched on.
+2. Enter the provider address (your Keycloak address plus `/realms/<realm>`), the client ID and the client secret (from the client's Credentials tab), and the admin role name. The secret is stored in `settings.json` in the data folder and is never sent back to the browser (leave the box empty to keep it; changing the provider or client ID clears it). An `http://` address is refused unless you tick the box for a provider on your home network.
+3. **Check the connection** looks at the provider without signing anyone in and says in plain words what is wrong: the address does not answer, there is no realm there, the provider calls itself something else, or the client ID or secret is not accepted.
+4. **Test sign-in** saves, sends you to your provider and back, and shows who signed in, whether the email counts as verified, which roles came with it, and whether you would be an admin, with the fix for each problem. A test does not change your current session or create an account.
+5. Tick **Offer sign-in to visitors** and Save. Sign-in is available at once.
+
+The admin password form stays available, so you cannot lock yourself out. **Hide the admin password form** unlocks only after a test sign-in has worked as an admin with a verified email, and changing the provider, client or admin role locks it again. If you do hide it and later need it back, set `ADMIN_PASSWORD_LOGIN=true` in the container. The Overview page shows whether sign-in is off, on, or on but never tested.
+
+If `OIDC_AUTHORITY` and `OIDC_CLIENT_ID` are set in the container (below), they win: the page shows them read-only, and you can still check and test.
+
 ## Single sign-on (container setup)
 
-The gallery can sign visitors and the admin in through any OpenID Connect provider. SSO is off until `OIDC_AUTHORITY` and `OIDC_CLIENT_ID` are both set. Setting up the provider itself (realm, users, client) is not covered here.
+The same settings can be given as environment variables instead. SSO from the container is on when `OIDC_AUTHORITY` and `OIDC_CLIENT_ID` are both set; they then override the admin page. Setting up the provider itself (realm, users, client) is covered above.
 
 You need these from your provider:
 

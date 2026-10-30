@@ -1066,6 +1066,7 @@ const adminNav = [
   { href: '/admin/settings/license', key: 'settings/license', label: 'License' },
   { href: '/admin/settings/visitor-stats', key: 'settings/visitor-stats', label: 'Visitor tracking' },
   { href: '/admin/settings/email', key: 'settings/email', label: 'Email alerts' },
+  { href: '/admin/settings/sso', key: 'settings/sso', label: 'Sign-in (SSO)' },
   { href: '/admin/settings/cache', key: 'settings/cache', label: 'Thumbnail cache' }];
 
 // Signs in the admin if needed, then draws the shell and returns the middle column (null when the sign-in page was shown instead).
@@ -1212,7 +1213,7 @@ function newGalleryPanel(folders) {
 
 async function viewSettings(app, section) {
   document.title = 'Site settings - ' + site.title;
-  const titles = { general: 'Site and appearance', watermark: 'Watermark', review: 'Caption suggestions', tags: 'Tags', groups: 'Groups', license: 'License', 'visitor-stats': 'Visitor tracking', email: 'Email alerts', cache: 'Thumbnail cache' };
+  const titles = { general: 'Site and appearance', watermark: 'Watermark', review: 'Caption suggestions', tags: 'Tags', groups: 'Groups', license: 'License', 'visitor-stats': 'Visitor tracking', email: 'Email alerts', sso: 'Sign-in (SSO)', cache: 'Thumbnail cache' };
   if (!titles[section]) section = 'general';
   const main = await adminPage(app, 'settings/' + section, titles[section]);
   if (!main) return;
@@ -1224,6 +1225,7 @@ async function viewSettings(app, section) {
   if (section === 'license') return main.append(await licensePanel());
   if (section === 'visitor-stats') return main.append(statsSettingsPanel());
   if (section === 'email') return main.append(emailPanel());
+  if (section === 'sso') return main.append(await ssoPanel());
   main.append(cachePanel());
 }
 
@@ -1632,6 +1634,103 @@ function statsSettingsPanel() {
         const r = await api('/api/admin/stats', { method: 'DELETE' });
         msg.textContent = r.ok ? `Deleted ${r.data.removed} records` : 'Failed';
       } }), msg));
+}
+
+async function ssoPanel() {
+  const r = await api('/api/admin/settings/sso');
+  if (!r.ok) return h('div', { class: 'panel' }, h('p', { class: 'err', text: 'Could not load the sign-in settings.' }));
+  let d = r.data;
+  const locked = d.fromContainer;
+  const cb = (checked) => h('input', { type: 'checkbox', checked });
+  const enabled = cb(d.enabled), allowHttp = cb(d.allowHttp), hidePw = cb(d.hidePasswordLogin);
+  const authority = h('input', { type: 'text', value: d.authority, placeholder: 'https://auth.example.com/realms/gallery', disabled: locked });
+  authority.style.width = 'min(34em, 100%)';
+  const clientId = h('input', { type: 'text', value: d.clientId, placeholder: 'photogallery', disabled: locked });
+  const secret = h('input', { type: 'password', autocomplete: 'new-password', placeholder: d.secretSet ? 'Saved (leave empty to keep it)' : '', disabled: locked });
+  const role = h('input', { type: 'text', value: d.adminRole, disabled: locked });
+  for (const x of [enabled, allowHttp]) x.disabled = locked;
+  const msg = h('span', { class: 'muted' });
+  const checkOut = h('div', {});
+  const testOut = h('div', {});
+  const current = () => ({ enabled: enabled.checked, authority: authority.value, clientId: clientId.value, clientSecret: secret.value, adminRole: role.value, allowHttp: allowHttp.checked, hidePasswordLogin: hidePw.checked });
+  const refreshHide = () => {
+    hidePw.disabled = locked || !d.testedAt || !enabled.checked;
+    if (hidePw.disabled && !locked) hidePw.checked = false;
+  };
+  refreshHide();
+  enabled.addEventListener('change', refreshHide);
+
+  const copy = (label, value) => h('div', { class: 'row' }, h('span', { text: label + ' ' }), h('code', { text: value }), ' ',
+    h('button', { text: 'Copy', onclick: async (e) => { try { await navigator.clipboard.writeText(value); e.target.textContent = 'Copied'; } catch { e.target.textContent = 'Select and copy'; } } }));
+
+  const save = async () => {
+    msg.textContent = 'Saving...';
+    const res = await api('/api/admin/settings/sso', { method: 'PUT', body: current() });
+    if (res.ok) { d = res.data; secret.value = ''; secret.placeholder = d.secretSet ? 'Saved (leave empty to keep it)' : ''; refreshHide(); msg.textContent = 'Saved'; }
+    else msg.textContent = typeof res.data === 'string' ? res.data : 'Save failed';
+    return res.ok;
+  };
+  const stepRow = (s) => h('div', { class: 'row' }, h('strong', { text: s.status === 'ok' ? 'OK  ' : s.status === 'warn' ? 'Check  ' : 'Problem  ' }), s.text);
+  const check = async () => {
+    checkOut.replaceChildren(h('p', { class: 'muted', text: 'Checking...' }));
+    const res = await api('/api/admin/settings/sso/check', { method: 'POST', body: current() });
+    checkOut.replaceChildren(...(res.ok ? res.data.steps.map(stepRow) : [h('p', { class: 'err', text: 'The check failed to run.' })]));
+  };
+
+  const showTest = async (id) => {
+    const res = await api('/api/admin/settings/sso/test-result?id=' + encodeURIComponent(id));
+    if (!res.ok) { testOut.replaceChildren(h('p', { class: 'muted', text: 'That test result has expired. Run the test sign-in again.' })); return; }
+    const t = res.data;
+    const rows = [];
+    if (!t.ok) rows.push(h('p', { class: 'err', text: t.error || 'Sign-in failed.' }));
+    else {
+      rows.push(h('p', {}, h('strong', { text: 'Signed in as ' + t.name }), t.email ? ' (' + t.email + ')' : ''));
+      rows.push(h('div', { class: 'row' }, h('strong', { text: t.emailVerified ? 'OK  ' : 'Problem  ' }),
+        t.emailVerified ? 'The provider says this email address is verified.' : 'The provider says this email address is not verified. Open the user in Keycloak and switch on "Email verified". Without it this account cannot be an admin, and later cannot comment.'));
+      rows.push(h('div', { class: 'row' }, h('strong', { text: t.adminRoleFound ? 'OK  ' : 'Problem  ' }),
+        t.adminRoleFound ? `The admin role "${t.adminRole}" came with the sign-in.`
+          : `The role "${t.adminRole}" did not come with the sign-in. In Keycloak, create a realm role with that name (Realm roles, Create role) and give it to this user (Users, the user, Role mapping, Assign role). Roles that did come: ${t.roles.length ? t.roles.join(', ') : 'none'}.`));
+      rows.push(t.isAdmin
+        ? h('p', {}, h('strong', { text: 'Everything works. ' }), 'This account would be an admin. You can now turn sign-in on and, if you like, hide the password form.')
+        : h('p', { class: 'muted', text: 'Fix the problems above and test again.' }));
+    }
+    testOut.replaceChildren(...rows);
+  };
+  const testId = new URLSearchParams(location.search).get('test');
+  if (testId) showTest(testId);
+
+  const o = d.origin;
+  const howTo = h('details', { open: !d.configured && !locked },
+    h('summary', { text: 'How to set up Keycloak for this site' }),
+    h('p', { class: 'muted', text: 'Keycloak is the program that holds your family\'s sign-ins. If you do not have one yet, install it first (the Keycloak project has a short guide for Docker); then do the following once.' }),
+    h('ol', {},
+      h('li', { text: 'Open the Keycloak admin console. Pick the realm for your family (or create one, for example "gallery"). The provider address below is your Keycloak address plus /realms/ and the realm name.' }),
+      h('li', {}, 'Go to Clients, then Create client. Type "OpenID Connect", Client ID "photogallery". Turn Client authentication ON and keep Standard flow ticked (untick Direct access grants). On the last page enter:',
+        copy('Valid redirect URI', d.redirectUri), copy('Valid post logout redirect URI', d.logoutUri), copy('Web origin', o)),
+      h('li', { text: 'Open the new client, then its Credentials tab, and copy the Client secret.' }),
+      h('li', {}, 'Go to Realm roles, Create role, and name it ', h('code', { text: d.defaultRole }), ' (or another name, entered below). Then Users, your own user, Role mapping, Assign role, and give it to yourself. Only people with this role can manage the site.'),
+      h('li', { text: 'While you are on your user, check that it has an email address and that "Email verified" is switched on. Family members need this too, to comment later.' }),
+      h('li', { text: 'Fill in the form below, press Save, then Check the connection, then Test sign-in.' })));
+
+  return h('div', { class: 'panel' }, h('h3', { text: 'Sign-in with your own account provider (single sign-on)' }),
+    h('p', { class: 'muted', text: 'Lets family and friends sign in with an account, so they can suggest changes to captions and, later, comment, and lets you sign in as the admin without a shared password. It works with Keycloak, or any provider that speaks OpenID Connect.' }),
+    locked ? h('p', {}, h('strong', { text: 'Set in the container. ' }), 'These details come from the container\'s settings (OIDC_AUTHORITY, OIDC_CLIENT_ID and friends), so they cannot be changed here. You can still check the connection and test a sign-in.') : howTo,
+    h('div', { class: 'row' }, h('label', {}, enabled, ' Offer sign-in to visitors')),
+    h('div', { class: 'row' }, h('label', {}, 'Provider address ', authority)),
+    h('div', { class: 'row' }, h('label', {}, allowHttp, ' Allow an http:// address (only for a provider on your home network)')),
+    h('div', { class: 'row' }, h('label', {}, 'Client ID ', clientId), ' ', h('label', {}, 'Client secret ', secret)),
+    h('div', { class: 'row' }, h('label', {}, 'Admin role ', role), h('span', { class: 'muted', text: ' People with this role in the provider are admins (they also need a verified email).' })),
+    h('div', { class: 'row' }, h('label', {}, hidePw, ' Hide the admin password form'),
+      h('span', { class: 'muted', text: locked ? ' (set by ADMIN_PASSWORD_LOGIN in the container)' : d.testedAt ? ' (only do this once you are sure you can sign in through your provider)' : ' (available after a test sign-in as an admin works)' })),
+    h('div', { class: 'row' },
+      locked ? null : h('button', { class: 'primary', text: 'Save', onclick: save }),
+      h('button', { text: 'Check the connection', onclick: check }),
+      h('button', { text: 'Test sign-in', title: 'Signs in through your provider in this window and shows what it sent; it does not change your session', onclick: async () => {
+        if (!locked && !(await save())) return;
+        location.href = '/auth/test-login';
+      } }), msg),
+    checkOut, testOut,
+    d.testedAt ? h('p', { class: 'muted', text: 'Last successful test sign-in as an admin: ' + new Date(d.testedAt + (/Z$/.test(d.testedAt) ? '' : 'Z')).toLocaleString() }) : null);
 }
 
 function emailPanel() {

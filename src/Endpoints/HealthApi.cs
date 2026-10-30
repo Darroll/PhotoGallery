@@ -15,7 +15,7 @@ public static class HealthApi
     {
         var g = app.MapGroup("/api/admin/health").RequireAuthorization("Admin");
 
-        g.MapGet("", async (AppDb db, AppConfig cfg, SettingsService settings, CacheService cache, ThumbnailService thumbs, BackupService backups) =>
+        g.MapGet("", async (AppDb db, AppConfig cfg, SsoConfig sso, SettingsService settings, CacheService cache, ThumbnailService thumbs, BackupService backups) =>
         {
             var checks = new List<Check>();
             var now = DateTime.UtcNow;
@@ -131,7 +131,13 @@ public static class HealthApi
             }
             checks.Add(cfg.AdminPasswordGenerated
                 ? new Check("adminpw", "Security", "Admin password", "warn", "Generated", "No ADMIN_PASSWORD is set, so a random one is made on every start. Set ADMIN_PASSWORD in the container settings.")
-                : new Check("adminpw", "Security", "Admin password", "ok", "Set", cfg.OidcEnabled ? "Single sign-on is also available." : "Set in the container settings."));
+                : new Check("adminpw", "Security", "Admin password", "ok", "Set", sso.Enabled ? "Single sign-on is also available." : "Set in the container settings."));
+
+            checks.Add(!sso.Enabled
+                ? new Check("sso", "Security", "Visitor sign-in", "off", "Off", "Visitors cannot sign in, so they cannot suggest changes (and, later, comment).", "/admin/settings/sso")
+                : sso.FromContainer || settings.Sso.TestedAt != null
+                    ? new Check("sso", "Security", "Visitor sign-in", "ok", "On", "Single sign-on is on.", "/admin/settings/sso")
+                    : new Check("sso", "Security", "Visitor sign-in", "warn", "Not tested", "Sign-in is on, but no test sign-in as an admin has worked yet, so nobody may be able to manage the site through it.", "/admin/settings/sso"));
 
             // --- visitor activity ---
             if (!stats.Enabled) checks.Add(new Check("activity", "Activity", "Visitor activity (24 h)", "off", "Off", "Visitor statistics are switched off.", "/admin/settings/visitor-stats"));

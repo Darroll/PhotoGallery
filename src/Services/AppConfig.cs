@@ -21,6 +21,8 @@ public class AppConfig
     /// <summary>Address of an Ollama server with a vision model, for automatic captions. Empty means off.</summary>
     public string? CaptionUrl { get; }
     public string CaptionModel { get; }
+    /// <summary>ADMIN_PASSWORD_LOGIN was set explicitly.</summary>
+    public bool AdminPasswordLoginSet { get; }
     public bool OidcEnabled => OidcAuthority != null && OidcClientId != null;
     public int[] Sizes { get; }
     public int MaxUploadMb { get; }
@@ -63,6 +65,7 @@ public class AppConfig
         OidcClientId = Opt(c["OIDC_CLIENT_ID"]);
         // Once SSO is configured the password form is gone; ADMIN_PASSWORD_LOGIN=true brings it back (e.g. if SSO is down).
         var pwLogin = Opt(c["ADMIN_PASSWORD_LOGIN"]);
+        AdminPasswordLoginSet = pwLogin != null;
         AdminPasswordLogin = pwLogin == null ? !OidcEnabled : !string.Equals(pwLogin, "false", StringComparison.OrdinalIgnoreCase);
         OidcClientSecret = Opt(c["OIDC_CLIENT_SECRET"]);
         OidcAdminRole = Opt(c["OIDC_ADMIN_ROLE"]) ?? "gallery-admin";

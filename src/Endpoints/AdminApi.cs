@@ -65,10 +65,10 @@ public static class AdminApi
             return await next(ctx);
         });
 
-        admin.MapPost("/login", async (LoginRequest req, HttpContext ctx, AppConfig cfg, AppDb db, SettingsService settings) =>
+        admin.MapPost("/login", async (LoginRequest req, HttpContext ctx, AppConfig cfg, SsoConfig sso, AppDb db, SettingsService settings) =>
         {
             var ip = ActivityLog.ClientIp(ctx);
-            if (!cfg.AdminPasswordLogin) return Results.NotFound();
+            if (!sso.PasswordLogin) return Results.NotFound();
             // both checks always run so the response time does not reveal which one was wrong
             var userOk = cfg.AdminUsername == null || Passwords.FixedEquals(req.Username?.Trim() ?? "", cfg.AdminUsername);
             var passOk = Passwords.FixedEquals(req.Password ?? "", cfg.AdminPassword);
@@ -97,10 +97,10 @@ public static class AdminApi
             return Results.NoContent();
         });
 
-        admin.MapGet("/me", (HttpContext ctx, AppConfig cfg) => new
+        admin.MapGet("/me", (HttpContext ctx, AppConfig cfg, SsoConfig sso) => new
         {
             admin = AccessService.IsAdmin(ctx), userRequired = cfg.AdminUsername != null,
-            passwordLogin = cfg.AdminPasswordLogin, sso = cfg.OidcEnabled,
+            passwordLogin = sso.PasswordLogin, sso = sso.Enabled,
             signedInAs = ctx.User.Identity?.IsAuthenticated == true && !AccessService.IsAdmin(ctx) ? ctx.User.Identity?.Name : null
         });
 

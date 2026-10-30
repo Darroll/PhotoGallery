@@ -12,6 +12,7 @@ Directory.CreateDirectory(cfg.DataDir);
 builder.Services.AddSingleton(cfg);
 builder.Services.AddDbContext<AppDb>(o => o.UseSqlite($"Data Source={Path.Combine(cfg.DataDir, "photogallery.db")}"));
 builder.Services.AddSingleton<SettingsService>();
+builder.Services.AddSingleton<SsoConfig>();
 builder.Services.AddSingleton<ImageService>();
 builder.Services.AddSingleton<ThumbnailService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ThumbnailService>());
@@ -43,7 +44,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         o.Events.OnRedirectToLogin = c => { c.Response.StatusCode = 401; return Task.CompletedTask; };
         o.Events.OnRedirectToAccessDenied = c => { c.Response.StatusCode = 403; return Task.CompletedTask; };
     })
-    .AddSso(cfg);
+    .AddSso();
 builder.Services.AddAuthorization(o => o.AddPolicy("Admin", p => p.RequireRole(AccessService.AdminRole)));
 
 builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = (cfg.MaxUploadMb + 1L) * 1024 * 1024);
@@ -160,6 +161,8 @@ StatsApi.Map(app);
 HealthApi.Map(app);
 BackupApi.Map(app);
 AuthApi.Map(app);
+SsoApi.Map(app);
+SsoApi.MapTestLogin(app);
 SubscribeApi.Map(app);
 CaptionApi.Map(app);
 SearchApi.Map(app);

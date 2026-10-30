@@ -13,7 +13,7 @@ public static class AuthApi
 
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/me", async (HttpContext ctx, AppConfig cfg, AppDb db) =>
+        app.MapGet("/api/me", async (HttpContext ctx, SsoConfig sso, AppDb db) =>
         {
             var signedIn = ctx.User.Identity?.IsAuthenticated == true;
             // preferences exist only for accounts with a provider id (not for the password admin), and follow the person across devices
@@ -21,7 +21,7 @@ public static class AuthApi
             var prefs = sub == null ? null : UserPreferences.Parse(await db.Users.AsNoTracking().Where(u => u.Sub == sub).Select(u => u.Preferences).FirstOrDefaultAsync());
             return new
             {
-                sso = cfg.OidcEnabled,
+                sso = sso.Enabled,
                 signedIn,
                 name = signedIn ? ctx.User.Identity?.Name : null,
                 admin = AccessService.IsAdmin(ctx),
@@ -47,9 +47,9 @@ public static class AuthApi
             return Results.Ok(UserPreferences.Parse(u.Preferences));
         });
 
-        app.MapGet("/auth/login", (HttpContext ctx, AppConfig cfg, string? next) =>
+        app.MapGet("/auth/login", (HttpContext ctx, SsoConfig sso, string? next) =>
         {
-            if (!cfg.OidcEnabled) return Results.NotFound();
+            if (!sso.Enabled) return Results.NotFound();
             var props = new AuthenticationProperties { RedirectUri = "/auth/done?next=" + Uri.EscapeDataString(Sso.SafeNext(next)) };
             return Results.Challenge(props, [Sso.Scheme]);
         });
@@ -63,9 +63,9 @@ public static class AuthApi
             return Results.Content($"<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0;url={url}\"><title>Signing in</title><a href=\"{url}\">Continue</a>", "text/html; charset=utf-8");
         });
 
-        app.MapGet("/auth/logout", async (HttpContext ctx, AppConfig cfg) =>
+        app.MapGet("/auth/logout", async (HttpContext ctx, SsoConfig sso) =>
         {
-            if (cfg.OidcEnabled && ctx.User.Identity?.IsAuthenticated == true && ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier) != null)
+            if (sso.Configured && ctx.User.Identity?.IsAuthenticated == true && ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier) != null)
             {
                 // ends the provider's session as well, then comes back to the home page
                 await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);

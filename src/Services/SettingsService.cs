@@ -48,6 +48,7 @@ class AppSettings
     public LicenseSettings License { get; set; } = new();
     public ThemeSettings Theme { get; set; } = new();
     public LinkPreviewSettings LinkPreviews { get; set; } = new();
+    public SsoSettings Sso { get; set; } = new();
 }
 
 /// <summary>App-level settings kept in DATA_DIR/settings.json (editable from the admin Settings page).</summary>
@@ -77,6 +78,7 @@ public class SettingsService
                 data.License = (data.License ?? new()).Sanitized();
                 data.Theme = (data.Theme ?? new()).Sanitized();
                 data.LinkPreviews = (data.LinkPreviews ?? new()).Sanitized();
+                data.Sso = (data.Sso ?? new()).Sanitized();
                 if (string.IsNullOrWhiteSpace(data.SiteName)) { data.SiteName = SanitizeName(cfg.SiteTitle); Save(); }
             }
             else
@@ -130,6 +132,31 @@ public class SettingsService
             data.Email = s.Sanitized();
             Save();
             return data.Email.Clone();
+        }
+    }
+
+    public SsoSettings Sso
+    {
+        get { lock (gate) return data.Sso.Clone(); }
+    }
+
+    public SsoSettings SetSso(SsoSettings s)
+    {
+        lock (gate)
+        {
+            data.Sso = s.Sanitized();
+            Save();
+            return data.Sso.Clone();
+        }
+    }
+
+    /// <summary>A test sign-in worked as an admin with a verified email.</summary>
+    public void MarkSsoTested()
+    {
+        lock (gate)
+        {
+            data.Sso.TestedAt = DateTime.UtcNow;
+            Save();
         }
     }
 
