@@ -1639,9 +1639,38 @@ function emailPanel() {
   const loginAlerts = cb(true), enabled = cb(false), uploads = cb(true), linkAlerts = cb(true), expiring = cb(true), weekly = cb(false), subscribers = cb(true);
   const subCount = h('span', { class: 'muted' });
   api('/api/admin/subscribers/count').then(r => { if (r.ok) subCount.textContent = `${r.data.confirmed} confirmed, ${r.data.pending} waiting to confirm`; });
-  const host = h('input', { type: 'text', placeholder: '192.168.2.3' });
+  const host = h('input', { type: 'text', placeholder: 'smtp.example.com' });
   const port = h('input', { type: 'number', min: 1, max: 65535, value: 25 });
   port.style.width = '90px';
+  const secure = cb(false);
+  const user = h('input', { type: 'text', placeholder: 'you@example.com', autocomplete: 'off' });
+  const pass = h('input', { type: 'password', autocomplete: 'new-password' });
+  let passwordSet = false, presets = [], preset = '';
+  const presetPick = h('select', { 'aria-label': 'Email provider' }, h('option', { value: '', text: 'Choose your email provider...' }));
+  const steps = h('p', { class: 'muted' });
+  const showSteps = () => {
+    const p = presets.find(x => x.id === preset);
+    steps.replaceChildren(...(p ? [p.steps, p.link ? ' ' : '', p.link ? h('a', { href: p.link, target: '_blank', rel: 'noopener', text: 'Open the page for this' }) : ''] : []));
+  };
+  presetPick.onchange = () => {
+    preset = presetPick.value;
+    const p = presets.find(x => x.id === preset);
+    if (p) {
+      if (p.host || preset !== 'custom') host.value = p.host;
+      port.value = p.port; secure.checked = p.security === 'starttls';
+      if (!p.needsLogin) { user.value = ''; pass.value = ''; passwordSet = false; pass.placeholder = ''; }
+      else if (user.value && !from.value) from.value = user.value;
+    }
+    showSteps();
+  };
+  user.addEventListener('change', () => { if (user.value.includes('@') && (!from.value || from.value === lastAutoFrom)) { from.value = user.value; lastAutoFrom = user.value; } });
+  let lastAutoFrom = '';
+  api('/api/admin/settings/email/presets').then(r => {
+    if (!r.ok) return;
+    presets = r.data;
+    presets.forEach(x => presetPick.append(h('option', { value: x.id, text: x.label, selected: x.id === preset })));
+    showSteps();
+  });
   const from = h('input', { type: 'text', placeholder: 'gallery@example.com' });
   const to = h('input', { type: 'text', placeholder: 'you@example.com' });
   const url = h('input', { type: 'text', placeholder: location.origin });
@@ -1650,7 +1679,8 @@ function emailPanel() {
   const msg = h('span', { class: 'muted' });
   const outbox = h('div', { class: 'muted' });
   const current = () => ({
-    enabled: enabled.checked, host: host.value, port: Number(port.value) || 25, from: from.value, to: to.value,
+    enabled: enabled.checked, host: host.value, port: Number(port.value) || 25, security: secure.checked ? 'starttls' : 'none',
+    username: user.value, password: pass.value, preset, from: from.value, to: to.value,
     siteUrl: url.value || location.origin, guestUploads: uploads.checked, linkAlerts: linkAlerts.checked,
     galleryExpiring: expiring.checked, expiryDays: Number(days.value) || 3, weeklySummary: weekly.checked, loginAlerts: loginAlerts.checked,
     subscribers: subscribers.checked
@@ -1665,14 +1695,21 @@ function emailPanel() {
   api('/api/admin/settings/email').then(r => {
     if (!r.ok) return;
     const d = r.data;
-    enabled.checked = d.enabled; host.value = d.host; port.value = d.port; from.value = d.from; to.value = d.to; url.value = d.siteUrl || '';
+    enabled.checked = d.enabled; host.value = d.host; port.value = d.port; secure.checked = d.security === 'starttls';
+    user.value = d.username || ''; passwordSet = !!d.passwordSet; pass.placeholder = passwordSet ? 'Saved (leave empty to keep it)' : ''; preset = d.preset || '';
+    presetPick.value = preset; showSteps(); lastAutoFrom = '';
+    from.value = d.from; to.value = d.to; url.value = d.siteUrl || '';
     uploads.checked = d.guestUploads; linkAlerts.checked = d.linkAlerts; expiring.checked = d.galleryExpiring; days.value = d.expiryDays; weekly.checked = d.weeklySummary; loginAlerts.checked = d.loginAlerts !== false; subscribers.checked = d.subscribers !== false;
   });
   loadOutbox();
   return h('div', { class: 'panel' }, h('h3', { text: 'Email alerts' }),
     h('p', { class: 'muted', text: 'Sends you a short email through your mail relay. Mail is queued and retried if the relay is unavailable.' }),
     h('div', { class: 'row' }, h('label', {}, enabled, ' Send email alerts')),
-    h('div', { class: 'row' }, h('label', {}, 'Relay ', host, ' port ', port)),
+    h('div', { class: 'row' }, h('label', {}, 'Email provider ', presetPick)),
+    steps,
+    h('div', { class: 'row' }, h('label', {}, 'Mail server ', host, ' port ', port)),
+    h('div', { class: 'row' }, h('label', {}, secure, ' Use a secure connection (most providers need this)')),
+    h('div', { class: 'row' }, h('label', {}, 'User name ', user), ' ', h('label', {}, 'Password ', pass), h('span', { class: 'muted', text: ' (leave both empty for a relay that needs no sign-in)' })),
     h('div', { class: 'row' }, h('label', {}, 'Send from ', from)),
     h('div', { class: 'row' }, h('label', {}, 'Send alerts to ', to)),
     h('div', { class: 'row' }, h('label', {}, 'Site address for links ', url)),
@@ -1686,6 +1723,7 @@ function emailPanel() {
       h('button', { class: 'primary', text: 'Save', onclick: async () => {
         const r = await api('/api/admin/settings/email', { method: 'PUT', body: current() });
         msg.textContent = r.ok ? 'Saved' : (r.data || 'Save failed');
+        if (r.ok) { passwordSet = !!r.data.passwordSet; pass.value = ''; pass.placeholder = passwordSet ? 'Saved (leave empty to keep it)' : ''; }
       } }),
       h('button', { text: 'Send test email', onclick: async () => {
         msg.textContent = 'Sending...';

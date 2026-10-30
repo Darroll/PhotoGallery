@@ -9,6 +9,14 @@ public class EmailSettings
     public bool Enabled { get; set; }
     public string Host { get; set; } = "192.168.2.3";
     public int Port { get; set; } = 25;
+    /// <summary>"none" (plain, for a relay on your own network) or "starttls" (secure, what Gmail and most providers need).</summary>
+    public string Security { get; set; } = "none";
+    /// <summary>Sign-in for providers that need one. Empty for a relay that accepts mail without it.</summary>
+    public string Username { get; set; } = "";
+    /// <summary>Never sent to the browser; an empty value in a save keeps the stored one.</summary>
+    public string Password { get; set; } = "";
+    /// <summary>Which preset the admin picked, only to show the matching instructions again.</summary>
+    public string Preset { get; set; } = "";
     public string From { get; set; } = "gallery@darrollwalsh.com";
     /// <summary>Where alerts are sent (the photographer).</summary>
     public string To { get; set; } = "";
@@ -29,12 +37,37 @@ public class EmailSettings
         return new EmailSettings
         {
             Enabled = Enabled, Host = T(Host, 200), Port = Math.Clamp(Port, 1, 65535), From = T(From, 200), To = T(To, 200),
+            Security = Security == "starttls" ? "starttls" : "none", Username = T(Username, 200), Password = CleanPassword(Password, Host),
+            Preset = EmailHelp.Presets.Any(p => p.Id == Preset) ? Preset : "",
             SiteUrl = T(SiteUrl, 200).TrimEnd('/'), GuestUploads = GuestUploads, LinkAlerts = LinkAlerts,
             GalleryExpiring = GalleryExpiring, ExpiryDays = Math.Clamp(ExpiryDays, 1, 30), WeeklySummary = WeeklySummary, LoginAlerts = LoginAlerts, Subscribers = Subscribers
         };
     }
 
+    /// <summary>Google shows app passwords in groups separated by spaces; the spaces are not part of the password.</summary>
+    static string CleanPassword(string? p, string? host)
+    {
+        p ??= "";
+        if (host != null && (host.Contains("gmail", StringComparison.OrdinalIgnoreCase) || host.Contains("google", StringComparison.OrdinalIgnoreCase))) p = string.Concat(p.Where(c => !char.IsWhiteSpace(c)));
+        return p.Length > 300 ? p[..300] : p;
+    }
+
     public EmailSettings Clone() => Sanitized();
+
+    /// <summary>What the admin page gets: everything except the password, which is only reported as set or not.</summary>
+    public object ForAdmin() => new
+    {
+        Enabled, Host, Port, Security, Username, PasswordSet = Password.Length > 0, Preset, From, To, SiteUrl, GuestUploads, LinkAlerts,
+        GalleryExpiring, ExpiryDays, WeeklySummary, LoginAlerts, Subscribers
+    };
+
+    /// <summary>A save or a test that leaves the password empty keeps the stored one, unless the sign-in name changed.</summary>
+    public EmailSettings WithStoredPassword(EmailSettings stored)
+    {
+        var s = Sanitized();
+        if (s.Password.Length == 0 && s.Username.Length > 0 && string.Equals(s.Username, stored.Username, StringComparison.OrdinalIgnoreCase)) s.Password = stored.Password;
+        return s;
+    }
 }
 
 public class EmailOutbox
@@ -80,7 +113,8 @@ public class EmailService(IServiceScopeFactory scopes, SettingsService settings,
     {
         try
         {
-            using var client = new SmtpClient(s.Host, s.Port) { EnableSsl = false, Timeout = 20000 };
+            using var client = new SmtpClient(s.Host, s.Port) { EnableSsl = s.Security == "starttls", Timeout = 20000 };
+            if (s.Username.Length > 0) client.Credentials = new System.Net.NetworkCredential(s.Username, s.Password);
             using var msg = new MailMessage(new MailAddress(s.From, "Photo gallery"), new MailAddress(to))
             {
                 Subject = subject, Body = body, BodyEncoding = Encoding.UTF8, SubjectEncoding = Encoding.UTF8
@@ -88,7 +122,7 @@ public class EmailService(IServiceScopeFactory scopes, SettingsService settings,
             await client.SendMailAsync(msg, ct);
             return null;
         }
-        catch (Exception ex) { return (ex.InnerException?.Message ?? ex.Message); }
+        catch (Exception ex) { return EmailHelp.Explain(ex, s.Host, s.Port, s.Security, s.Username); }
     }
 
     protected override async Task ExecuteAsync(CancellationToken ct)

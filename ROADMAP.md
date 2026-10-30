@@ -143,7 +143,7 @@ If time is short, the smallest set that delivers the vision is **#1, #4, #6, #7,
 
 - [ ] **First-run setup wizard.** Choose the admin password, pick the photo folder from a list, name the site, create the first gallery. No config files. Optional later steps: email, sign-in (SSO), backups.
 - [ ] **Sign-in made simple.** Single sign-on through Keycloak is the only way to comment (decided, Q11), and a non-technical person will not know how to set it up. So the wizard gets a guided SSO step in plain words: what to create in Keycloak, what to copy where, and a "test sign-in" button. The README gains a step-by-step Keycloak page with screenshots.
-- [ ] **Email setup helper.** Invites, comment digests and subscriptions all need a mail relay, which is the hardest step for a non-technical person. Provide presets (for example Gmail or Outlook with an app password), a send-a-test button, and a plain explanation of any error. *proposed*
+- [x] **Email setup helper.** Invites, comment digests and subscriptions all need a mail relay, which is the hardest step for a non-technical person. Provide presets (for example Gmail or Outlook with an app password), a send-a-test button, and a plain explanation of any error. *proposed*
 - [ ] **Settings in the app instead of container variables** where possible (sizes, rescan interval, backup retention). Rule: a value set in the container always wins and is shown as locked in the app.
 - [ ] **Plain-language Unraid template.** Short field descriptions, safe defaults, only a handful of fields shown.
 - [ ] **"Is my site reachable?" check** on the Overview page, with a plain explanation when it is not.

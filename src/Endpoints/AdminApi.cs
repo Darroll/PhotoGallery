@@ -191,20 +191,24 @@ public static class AdminApi
             settings.SetTheme(input);
             return Results.Ok(settings.Theme.ForVisitors());
         });
-        secured.MapGet("/settings/email", (SettingsService settings) => Results.Ok(settings.Email));
+        secured.MapGet("/settings/email", (SettingsService settings) => Results.Ok(settings.Email.ForAdmin()));
+        secured.MapGet("/settings/email/presets", () => Results.Ok(EmailHelp.Presets));
         secured.MapPut("/settings/email", (EmailSettings input, SettingsService settings) =>
         {
-            var s = input.Sanitized();
-            if (s.To.Length > 0 && !System.Net.Mail.MailAddress.TryCreate(s.To, out _)) return Results.BadRequest("That recipient address does not look right.");
-            if (!System.Net.Mail.MailAddress.TryCreate(s.From, out _)) return Results.BadRequest("That sender address does not look right.");
-            return Results.Ok(settings.SetEmail(s));
+            var s = input.WithStoredPassword(settings.Email);
+            if (s.To.Length > 0 && !EmailHelp.Valid(s.To)) return Results.BadRequest("That recipient address does not look right.");
+            if (!EmailHelp.Valid(s.From)) return Results.BadRequest("That sender address does not look right.");
+            return Results.Ok(settings.SetEmail(s).ForAdmin());
         });
         secured.MapPost("/settings/email/test", async (EmailSettings input, SettingsService settings) =>
         {
-            var s = input.Sanitized();
-            if (!System.Net.Mail.MailAddress.TryCreate(s.To, out _)) return Results.BadRequest("Enter the address that should receive alerts first.");
-            var err = await EmailService.SendAsync(s, s.To, "Test email from your photo gallery", "If you can read this, the mail relay settings work.");
-            return err == null ? Results.Ok(new { sent = true }) : Results.BadRequest("Could not send: " + err);
+            var s = input.WithStoredPassword(settings.Email);
+            if (s.Host.Length == 0) return Results.BadRequest("No mail server is set yet. Pick your email provider, or type the server name.");
+            if (!EmailHelp.Valid(s.To)) return Results.BadRequest("Enter the address that should receive alerts first.");
+            if (!EmailHelp.Valid(s.From)) return Results.BadRequest("The \"Send from\" address does not look right.");
+            if (s.Username.Length > 0 && s.Password.Length == 0) return Results.BadRequest("Enter the password for " + s.Username + ".");
+            var err = await EmailService.SendAsync(s, s.To, "Test email from your photo gallery", "If you can read this, the email settings work.");
+            return err == null ? Results.Ok(new { sent = true }) : Results.BadRequest(err);
         });
         secured.MapGet("/settings/email/outbox", async (AppDb db) =>
         {
