@@ -34,8 +34,8 @@ An item is finished only when it has: tests, a database migration if the model c
 Ordered so each step uses what the one before it built, and the quick wins come first.
 
 1. **Link categories** (section 4). Small, self-contained, visible at once.
-2. **Like counts** (section 1). Needs the decision on who a "like" belongs to (Q10).
-3. **Comments, moderation and log** (section 1). Needs sign-in (Q11) and the identity rules below.
+2. **Like counts** (section 1), keyed by IP or signed-in user (decided).
+3. **Comments, moderation and log** (section 1). Needs Keycloak sign-in working, so the guided SSO step and test button come with it.
 4. **Inbox** (section 3). Gathers comments, guest uploads and caption suggestions, so it comes after comments.
 5. **Share button and QR** (section 3), then **invites** (section 5). Invites need working email, so the **email setup helper** (section 2) comes first.
 6. **Setup wizard, simple mode, plain Unraid template** (sections 2 and 3). Last, because the wizard should walk through everything above and simple mode needs the final list of settings.
@@ -46,7 +46,7 @@ Ordered so each step uses what the one before it built, and the quick wins come 
 **Likes**
 
 - [ ] **Like count on every photo.** The like is the existing heart (decided). Show how many people liked it, next to the heart, on the grid and in the viewer.
-- [ ] **Who a like belongs to.** Today a heart is tied to an anonymous browser id, so clearing cookies allows a second like. Decide how counts are kept honest (Q10).
+- [ ] **Who a like belongs to (decided, Q10).** An anonymous like is tied to the visitor's IP address: one like per IP per photo, so clearing cookies does not allow a second one (IPv6 addresses are grouped by their /64 network). A signed-in user has one like per photo whatever IP they use, so the same person on two networks still counts once, and two signed-in people on one IP count twice. If a visitor signs in after liking anonymously from the same browser, the anonymous like becomes their signed-in like and is not counted twice. Known trade-off: people sharing one IP (a household) share a single anonymous like, and signing in avoids that. The IP is stored with the like and never displayed, and is covered by the privacy tools in section 6.
 - [ ] **Most-liked view.** A "Most liked" sort and a top-liked strip on each gallery.
 - [ ] **Likes only, never negatives.** No thumbs down, no dislike counts. A visitor can quietly remove their own like.
 - [ ] **My likes page.** A visitor sees and downloads their own liked photos in one place. *proposed*
@@ -59,8 +59,8 @@ Ordered so each step uses what the one before it built, and the quick wins come 
 - [ ] **Comments on photos.** Shown immediately, no approval step (decided). Only people with a **verified email address** can comment. Verification is Keycloak's: sign-in goes through single sign-on and the provider's `email_verified` claim is respected (decided).
 - [ ] **Show the display name, never the email address**, on comments. The email stays in the log. *proposed*
 - [ ] **Flat comments only**, no threads and no reactions other than the like. Keeps it limited and positive. *proposed*
-- [ ] **Edit or delete your own comment** for a short time after posting. The earlier text is kept in the log. *proposed* (Q13)
-- [ ] **Admin can comment too**, marked as the photographer. *proposed* (Q12)
+- [ ] **Edit or delete your own comment** for 15 minutes after posting (decided). The earlier text is kept in the log.
+- [ ] **Admin can reply in the comments**, flat and marked as the photographer (decided).
 - [ ] **Comment moderation.** Admin can review, hide and delete any comment; turn comments off per photo and per gallery; and block a person from commenting. Rate-limited and spam-guarded.
 - [ ] **Comment log (who, what, when, where).** Every comment, edit, hide, delete and block is recorded: verified email and display name, the text (and previous text on edit), time, gallery and photo, and IP address and browser (the IP is stored, never displayed). The log is saved with the comment (decided). A deleted comment disappears from the page but its record stays in the admin log until its gallery is deleted. Viewable and searchable by the admin.
 - [ ] **Email alert for new comments**, as a daily digest by default so it never floods the inbox (reuses the existing alerts).
@@ -69,7 +69,7 @@ Ordered so each step uses what the one before it built, and the quick wins come 
 ## 2. Setup anyone can do
 
 - [ ] **First-run setup wizard.** Choose the admin password, pick the photo folder from a list, name the site, create the first gallery. No config files. Optional later steps: email, sign-in (SSO), backups.
-- [ ] **Sign-in made simple (Q11).** Comments need verified sign-in, and a non-technical person will not run Keycloak. Offer a plain way to turn it on (a guided SSO step in the wizard), and possibly a built-in email-code sign-in as an option.
+- [ ] **Sign-in made simple.** Single sign-on through Keycloak is the only way to comment (decided, Q11), and a non-technical person will not know how to set it up. So the wizard gets a guided SSO step in plain words: what to create in Keycloak, what to copy where, and a "test sign-in" button. The README gains a step-by-step Keycloak page with screenshots.
 - [ ] **Email setup helper.** Invites, comment digests and subscriptions all need a mail relay, which is the hardest step for a non-technical person. Provide presets (for example Gmail or Outlook with an app password), a send-a-test button, and a plain explanation of any error. *proposed*
 - [ ] **Settings in the app instead of container variables** where possible (sizes, rescan interval, backup retention). Rule: a value set in the container always wins and is shown as locked in the app.
 - [ ] **Plain-language Unraid template.** Short field descriptions, safe defaults, only a handful of fields shown.
@@ -135,7 +135,7 @@ Answers go here as they are decided.
 - **Q7. Decided:** verification follows Keycloak (`email_verified`); commenting needs single sign-on.
 - **Q8. Decided:** the log is saved with the comment; the IP address is stored but never rendered.
 - **Q9. Decided:** External links use preview cards when available, else a plain row; the buttons under the title stay.
-- **Q10.** Should a like require sign-in (an honest count, one per person) or stay anonymous per browser (easier, but a count can be inflated by clearing cookies)? Or either: anonymous likes allowed, counted separately?
-- **Q11.** Commenting needs verified sign-in, but a non-technical admin has no Keycloak. Should we add a built-in email-code sign-in as an optional alternative, or keep SSO only?
-- **Q12.** May the admin reply in the comments, marked as the photographer?
-- **Q13.** May commenters edit or delete their own comments?
+- **Q10. Decided:** anonymous likes count once per IP; signed-in users count once per account, whatever their IP.
+- **Q11. Decided:** Keycloak only; the setup wizard gets a guided SSO step.
+- **Q12. Decided:** the admin may reply, flat, marked as the photographer.
+- **Q13. Decided:** commenters may edit or delete their own comment for 15 minutes; the log keeps the earlier text.
