@@ -30,6 +30,16 @@ public static class Likes
         return new IPAddress(b).ToString() + "/64";
     }
 
+    /// <summary>
+    /// The hearts that belong to this visitor: the ones given from this browser, plus, for a signed-in person, the ones they
+    /// gave from any other browser or device while signed in.
+    /// </summary>
+    public static IQueryable<Favorite> Mine(AppDb db, string visitorId, string identityKey)
+    {
+        var signedIn = identityKey.StartsWith("u:");
+        return db.Favorites.Where(f => (visitorId != "" && f.VisitorId == visitorId) || (signedIn && f.IdentityKey == identityKey));
+    }
+
     /// <summary>Number of different people who liked each photo of a gallery.</summary>
     public static async Task<Dictionary<int, int>> CountsAsync(AppDb db, int galleryId) =>
         await db.Favorites.AsNoTracking().Where(f => f.GalleryId == galleryId)

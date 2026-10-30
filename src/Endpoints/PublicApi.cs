@@ -81,7 +81,7 @@ public static class PublicApi
             var admin = a.Admin;
             var vid = ActivityLog.ReadVisitorId(ctx);
             await Likes.AdoptAsync(db, ctx, vid);
-            var favoriteIds = vid == "" ? new List<int>() : await db.Favorites.AsNoTracking().Where(f => f.GalleryId == g.Id && f.VisitorId == vid).Select(f => f.PhotoId).ToListAsync();
+            var favoriteIds = await Likes.Mine(db, vid, Likes.IdentityKey(ctx)).AsNoTracking().Where(f => f.GalleryId == g.Id).Select(f => f.PhotoId).Distinct().ToListAsync();
             var favoriteName = vid == "" ? "" : await db.FavoriteOwners.AsNoTracking().Where(o => o.GalleryId == g.Id && o.VisitorId == vid).Select(o => o.Name).FirstOrDefaultAsync() ?? "";
             var photos = await db.Photos.Where(p => p.GalleryId == g.Id && (p.Approved || admin))
                 .Select(p => new { p.Id, w = p.Width, h = p.Height, p.Name, raw = p.RawRelPath != null, rawOnly = p.RawRelPath != null && p.RawRelPath == p.RelPath, taken = p.TakenAt, added = p.AddedAt, p.Approved, p.Caption, p.AltText })
@@ -144,17 +144,44 @@ public static class PublicApi
             if (!await db.Photos.AnyAsync(p => p.Id == photoId && p.GalleryId == g.Id && p.Approved)) return Results.NotFound();
             var vid = ActivityLog.EnsureVisitorId(ctx);
             await Likes.AdoptAsync(db, ctx, vid);
-            var existing = await db.Favorites.FirstOrDefaultAsync(f => f.GalleryId == g.Id && f.PhotoId == photoId && f.VisitorId == vid);
+            var mine = Likes.Mine(db, vid, Likes.IdentityKey(ctx)).Where(f => f.GalleryId == g.Id && f.PhotoId == photoId);
+            var existing = await mine.FirstOrDefaultAsync();
             if (input.On && existing == null)
             {
                 if (await db.Favorites.CountAsync(f => f.GalleryId == g.Id && f.VisitorId == vid) >= 2000) return Results.StatusCode(429);
                 db.Favorites.Add(new Favorite { GalleryId = g.Id, PhotoId = photoId, VisitorId = vid, IdentityKey = Likes.IdentityKey(ctx), Ip = ActivityLog.ClientIp(ctx) });
                 activity.Record(ctx, "favorite", g.Id, photoId);
             }
-            else if (!input.On && existing != null) db.Favorites.Remove(existing);
+            else if (!input.On && existing != null) db.Favorites.RemoveRange(await mine.ToListAsync());   // from every device of a signed-in person
             await db.SaveChangesAsync();
-            return Results.Ok(new { count = await db.Favorites.CountAsync(f => f.GalleryId == g.Id && f.VisitorId == vid), likes = g.ShowLikeCounts || a.Admin ? await Likes.CountAsync(db, photoId) : 0 });
+            return Results.Ok(new { count = await Likes.Mine(db, vid, Likes.IdentityKey(ctx)).Where(f => f.GalleryId == g.Id).Select(f => f.PhotoId).Distinct().CountAsync(), likes = g.ShowLikeCounts || a.Admin ? await Likes.CountAsync(db, photoId) : 0 });
         }).RequireRateLimiting("viewed");
+
+        // everything this visitor hearted, by gallery, limited to galleries they can open right now
+        app.MapGet("/api/me/likes", async (HttpContext ctx, AppDb db, AccessService access) =>
+        {
+            var vid = ActivityLog.ReadVisitorId(ctx);
+            var key = Likes.IdentityKey(ctx);
+            var rows = await Likes.Mine(db, vid, key).AsNoTracking().Select(f => new { f.GalleryId, f.PhotoId }).Distinct().ToListAsync();
+            var groups = new List<object>();
+            if (rows.Count > 0)
+            {
+                var gids = rows.Select(r => r.GalleryId).Distinct().ToList();
+                var pids = rows.Select(r => r.PhotoId).Distinct().ToList();
+                var galleries = (await db.Galleries.AsNoTracking().Where(g => gids.Contains(g.Id) && g.AllowLikes).ToListAsync()).OrderBy(g => g.Title, StringComparer.OrdinalIgnoreCase);
+                var photos = await db.Photos.AsNoTracking().Where(p => p.Approved && gids.Contains(p.GalleryId) && pids.Contains(p.Id)).ToListAsync();
+                var pairs = rows.Select(r => (r.GalleryId, r.PhotoId)).ToHashSet();
+                foreach (var g in galleries)
+                {
+                    if (!(await access.CheckAsync(ctx, g)).Allowed) continue;
+                    var liked = photos.Where(p => p.GalleryId == g.Id && !p.RawOnly && pairs.Contains((g.Id, p.Id))).ToList();
+                    if (liked.Count == 0) continue;
+                    liked = GalleryRules.Sort(liked, g, p => p.TakenAt, p => p.Name, p => p.AddedAt);
+                    groups.Add(new { g.Slug, g.Title, count = liked.Count, photos = liked.Select(p => new { p.Id, p.Name, w = p.Width, h = p.Height }) });
+                }
+            }
+            return Results.Ok(new { signedIn = AuthApi.Sub(ctx) != null, groups });
+        });
 
         app.MapPut("/api/g/{slug}/favorite-name", async (string slug, NameInput input, HttpContext ctx, AppDb db, AccessService access) =>
         {

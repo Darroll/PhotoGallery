@@ -171,6 +171,7 @@ async function route(force = false) {
   if (parts[0] === 'admin') return viewOverview(app);
   if (parts[0] === 'license') return viewLicense(app);
   if (parts[0] === 'search') return viewSearch(app);
+  if (parts[0] === 'likes') return viewLikes(app);
   if (parts[0] === 'expired') document.title = 'Link unavailable - ' + site.title;
   if (parts[0] === 'expired') return app.append(h('div', { class: 'center' }, h('h1', { text: 'Link unavailable' }), h('p', { class: 'sub', text: 'This share link has expired or was revoked.' })));
   return viewHome(app);
@@ -184,7 +185,7 @@ document.addEventListener('click', (e) => {
   const a = e.target.closest && e.target.closest('a[href]');
   if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || a.target === '_blank' || a.hasAttribute('download')) return;
   const href = a.getAttribute('href');
-  if (href === '/' || /^\/(g|admin|expired|license|search)(\/|$)/.test(href)) {
+  if (href === '/' || /^\/(g|admin|expired|license|search|likes)(\/|$)/.test(href)) {
     e.preventDefault();
     if (dirtyGuard && !dirtyGuard()) return;
     go(href);
@@ -206,6 +207,36 @@ async function viewLicense(app) {
     h('p', {}, h('a', { class: 'btn', href: '/', text: 'Back to galleries' }))));
 }
 
+// ---------- my likes ----------
+// Everything this visitor hearted, grouped by gallery, with a download for each gallery's likes.
+async function viewLikes(app) {
+  document.title = 'My likes - ' + site.title;
+  app.append(h('h1', { text: 'My likes' }));
+  const r = await api('/api/me/likes');
+  if (!r.ok) return app.append(h('p', { class: 'err', text: 'Could not load your likes.' }));
+  const where = r.data.signedIn ? 'Everything you hearted while signed in, on any device.' : 'Everything you hearted in this browser.' + (me && me.sso ? ' Sign in to keep your likes on every device.' : '');
+  app.append(h('p', { class: 'muted', text: where }));
+  if (!r.data.groups.length) return app.append(h('p', { text: 'Nothing here yet. Tap the heart on a photo and it will be kept here.' }));
+  for (const grp of r.data.groups) {
+    const msg = h('span', { class: 'muted' });
+    const dl = h('button', { class: 'primary', text: 'Download…', onclick: async () => {
+      msg.textContent = 'Opening…';
+      const gr = await api('/api/g/' + encodeURIComponent(grp.slug));
+      msg.textContent = '';
+      if (!gr.ok || !gr.data.allowDownload) { toast('Downloads are not available for this gallery'); return; }
+      G = gr.data; sel = new Set(); favs = new Set(grp.photos.map(p => p.id));   // the likes on this page, from every device
+      openDownloadSheet({ scope: 'favorites' });
+    } });
+    app.append(h('section', { class: 'likes-group' },
+      h('div', { class: 'row likes-head' },
+        h('h2', {}, h('a', { href: '/g/' + encodeURIComponent(grp.slug), text: grp.title })),
+        h('span', { class: 'muted', text: plural(grp.count, 'photo') }), h('span', { class: 'grow' }), msg, dl),
+      h('div', { class: 'likes-grid' }, grp.photos.map(p =>
+        h('a', { class: 'like-ph', href: `/g/${encodeURIComponent(grp.slug)}/p/${p.id}`, title: p.name },
+          h('img', { src: `/img/${p.id}/thumb`, alt: p.name, loading: 'lazy' }))))));
+  }
+}
+
 function renderHeader() {
   const top = $('#top'), m = me || {};
   const next = encodeURIComponent(location.pathname + location.search);
@@ -213,6 +244,7 @@ function renderHeader() {
     h('a', { class: 'brand', href: '/', text: site.title }),
     h('nav', {},
       signinFailed ? h('span', { class: 'chip warn', text: 'Sign-in failed' }) : null,
+      m.likes > 0 ? h('a', { href: '/likes', text: '♥ My likes' }) : null,
       m.admin || !m.sso ? h('a', { href: '/admin', text: 'Admin' }) : null,
       m.sso && m.signedIn ? h('span', { class: 'who', text: m.name || 'Signed in' }) : null,
       m.sso ? (m.signedIn ? h('a', { href: '/auth/logout', text: 'Sign out' }) : h('a', { href: '/auth/login?next=' + next, text: 'Sign in' })) : null,
@@ -337,6 +369,7 @@ async function toggleFav(p) {
   G.refresh && G.refresh();
   const r = await api(`/api/g/${encodeURIComponent(G.slug)}/favorite/${p.id}`, { method: 'POST', body: { on } });
   if (!r.ok) { on ? favs.delete(p.id) : favs.add(p.id); G.refresh && G.refresh(); toast('Could not save that favorite'); return; }
+  if (me && typeof me.likes === 'number') { const was = me.likes > 0; me.likes = Math.max(0, me.likes + (on ? 1 : -1)); if (was !== me.likes > 0) renderHeader(); }
   if (typeof r.data.likes === 'number' && G.showLikeCounts) { p.likes = r.data.likes; G.refresh && G.refresh(); }
   if (on && favs.size === 1) toast('Saved to your favorites. The photographer can see them.');
 }

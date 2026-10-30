@@ -25,6 +25,7 @@ public static class AuthApi
                 signedIn,
                 name = signedIn ? ctx.User.Identity?.Name : null,
                 admin = AccessService.IsAdmin(ctx),
+                likes = await Likes.Mine(db, ActivityLog.ReadVisitorId(ctx), Likes.IdentityKey(ctx)).Select(f => f.PhotoId).Distinct().CountAsync(),
                 preferences = prefs
             };
         });

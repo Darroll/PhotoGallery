@@ -336,6 +336,14 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 
 /* ================= videos ================= */
 .vid-head { margin: 18px 0 8px; font-size: 18px; }
+.likes-group { margin: 0 0 28px; }
+.likes-head { align-items: baseline; gap: 12px; }
+.likes-head .grow { flex: 1; }
+.likes-head h2 { margin: 0; font-size: 1.2rem; }
+.likes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
+.like-ph { display: block; aspect-ratio: 1; overflow: hidden; border-radius: 4px; background: var(--line); }
+.like-ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.like-ph:focus-visible { outline: 3px solid var(--accent); }
 .topliked { margin: 0 0 12px; }
 .topliked .vid-head { margin-top: 8px; }
 .strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }

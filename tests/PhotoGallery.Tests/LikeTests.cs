@@ -87,6 +87,8 @@ public class Visitor
 
     public Task<HttpResponseMessage> LikeRawAsync(string slug, int photoId) => SendAsync(HttpMethod.Post, $"/api/g/{slug}/favorite/{photoId}", new { on = true });
 
+    public async Task<System.Text.Json.JsonElement> GetJsonAsync(string url) => await (await SendAsync(HttpMethod.Get, url)).ReadAsync();
+
     public async Task<System.Text.Json.JsonElement> GalleryAsync(string slug) => await (await SendAsync(HttpMethod.Get, $"/api/g/{slug}")).ReadAsync();
 
     public async Task<int> LikesOnAsync(string slug, int photoId) =>
@@ -203,5 +205,67 @@ public class LikeTests(LikesFactory app) : IClassFixture<LikesFactory>
         var g = await app.VisitorAt("192.0.2.30").GalleryAsync(slug);
         Assert.True(g.GetProperty("allowLikes").GetBoolean());
         Assert.True(g.GetProperty("showLikeCounts").GetBoolean());
+    }
+
+    [Fact]
+    public async Task My_likes_lists_what_the_visitor_hearted_by_gallery_and_counts_them_in_the_header_data()
+    {
+        var (slugA, photosA, idA) = await NewGalleryAsync("Zebra Day");
+        var (slugB, photosB, _) = await NewGalleryAsync("Apple Day");
+        var v = app.VisitorAt("203.0.113.40");
+        await v.LikeAsync(slugA, photosA[0]);
+        await v.LikeAsync(slugB, photosB[0]);
+        await v.LikeAsync(slugB, photosB[1]);
+
+        var mine = await v.GetJsonAsync("/api/me/likes");
+        var groups = mine.GetProperty("groups").EnumerateArray().ToList();
+        Assert.Equal(["Apple Day", "Zebra Day"], groups.Select(g => g.GetProperty("title").GetString()).Where(t => t is "Apple Day" or "Zebra Day"));
+        var apple = groups.First(g => g.GetProperty("title").GetString() == "Apple Day");
+        Assert.Equal(2, apple.GetProperty("count").GetInt32());
+        Assert.Equal(slugB, apple.GetProperty("slug").GetString());
+        Assert.False(mine.GetProperty("signedIn").GetBoolean());
+        Assert.Equal(3, (await v.GetJsonAsync("/api/me")).GetProperty("likes").GetInt32());
+
+        // somebody else on the same address does not see them
+        Assert.Empty((await app.VisitorAt("203.0.113.40").GetJsonAsync("/api/me/likes")).GetProperty("groups").EnumerateArray());
+        Assert.Equal(0, (await app.VisitorAt("203.0.113.40").GetJsonAsync("/api/me")).GetProperty("likes").GetInt32());
+
+        // a gallery that switches hearts off drops out of the page
+        var admin = await app.AdminAsync();
+        await admin.PutAsJsonAsync($"/api/admin/galleries/{idA}", new { allowLikes = false });
+        var after = (await v.GetJsonAsync("/api/me/likes")).GetProperty("groups").EnumerateArray().Select(g => g.GetProperty("title").GetString()).ToList();
+        Assert.DoesNotContain("Zebra Day", after);
+        Assert.Contains("Apple Day", after);
+    }
+
+    [Fact]
+    public async Task A_signed_in_person_sees_and_removes_their_likes_from_every_device()
+    {
+        var (slug, photos, _) = await NewGalleryAsync("Likes Across Devices");
+        var phone = app.VisitorAt("203.0.113.60", sub: "dana");
+        await phone.LikeAsync(slug, photos[0]);
+
+        var laptop = app.VisitorAt("203.0.113.61", sub: "dana");          // another device, another network, a fresh browser
+        Assert.Contains(photos[0], (await laptop.GalleryAsync(slug)).GetProperty("favorites").EnumerateArray().Select(x => x.GetInt32()));
+        var page = (await laptop.GetJsonAsync("/api/me/likes")).GetProperty("groups").EnumerateArray().First(g => g.GetProperty("slug").GetString() == slug);
+        Assert.Equal(1, page.GetProperty("count").GetInt32());
+        Assert.True((await laptop.GetJsonAsync("/api/me/likes")).GetProperty("signedIn").GetBoolean());
+
+        // taking the heart back on the laptop takes it back everywhere
+        await laptop.LikeAsync(slug, photos[0], on: false);
+        Assert.DoesNotContain(photos[0], (await phone.GalleryAsync(slug)).GetProperty("favorites").EnumerateArray().Select(x => x.GetInt32()));
+        Assert.Equal(0, await phone.LikesOnAsync(slug, photos[0]));
+
+        // another person is not affected
+        var erin = app.VisitorAt("203.0.113.62", sub: "erin");
+        Assert.Empty((await erin.GetJsonAsync("/api/me/likes")).GetProperty("groups").EnumerateArray().Where(g => g.GetProperty("slug").GetString() == slug));
+    }
+
+    [Fact]
+    public async Task The_my_likes_page_is_served()
+    {
+        var r = await app.NewClient().GetAsync("/likes");
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.Contains("<html", await r.Content.ReadAsStringAsync());
     }
 }
