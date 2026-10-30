@@ -57,7 +57,7 @@ Legend: [x] done, [ ] to do, (?) waiting for a decision (see "Open questions").
 
 ## 4. Links and videos
 
-- [ ] **Link categories.** Every link on a gallery has a category: **Video** (shown as the Videos grid above the photos, as today) or **External** (shown below the gallery). The admin picks the category when adding a link, can change it later, and YouTube links default to Video. Existing links keep working: YouTube links become Video, other links become External. (?) Q9
+- [ ] **Link categories.** Every link on a gallery has a category: **Video** (shown as the Videos grid above the photos, as today) or **External** (shown below the gallery). The admin picks the category when adding a link, can change it later, and YouTube links default to Video. Existing links keep working: YouTube links become Video, other links become External. External links show as a preview card (picture and title) when one is available, otherwise as a plain row (decided). The buttons under the gallery title stay, for the links the admin chooses to show there (decided).
 - [ ] **Any link with a preview** (title, picture): Vimeo, Google Photos albums, news articles, not only YouTube.
 - [ ] **Links list on the gallery** with order, notes and "open in new tab".
 - [ ] **Link health check.** Flag dead links for the admin.
@@ -96,4 +96,4 @@ Answers go here as they are decided.
 - **Q6.** Invites: personal links that need no account, or sign-in?
 - **Q7. Decided:** verification follows Keycloak (`email_verified`); commenting needs single sign-on.
 - **Q8. Decided:** the log is saved with the comment; the IP address is stored but never rendered.
-- **Q9.** Should External links show as a plain list (title, link, note) or as preview cards (picture and title)? Should the buttons under the gallery title go away, or stay for chosen links?
+- **Q9. Decided:** External links use preview cards when available, else a plain row; the buttons under the title stay.
