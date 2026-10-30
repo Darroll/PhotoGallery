@@ -19,7 +19,7 @@ public static class AdminApi
         string? AllowedSizes, string? AllowedFormats, string? ExpiresAt, List<LinkItem>? FootageLinks);
     record LinkRawInput(int RawPhotoId);
     record MoveInput(string? Direction);
-    record LinkItem(string? Label, string? Url, string? Category, bool? Button);
+    record LinkItem(string? Label, string? Url, string? Category, bool? Button, string? Note);
     record SiteInput(string? Name);
     record LinkInput(string? Label, int? ExpiresInDays, int? MaxDownloads);
     record CoverInput(int PhotoId);
@@ -49,7 +49,7 @@ public static class AdminApi
         g.AllowDownload, g.AllowRaw, g.AllowZip, g.AllowGuestUpload, g.WatermarkView, g.WatermarkDownload,
         rawMatchMode = g.RawMatchMode, hideRawOnly = g.HideRawOnly, sortMode = g.SortMode, sortDesc = g.SortDesc,
         eventDate = g.EventDate, g.Location, g.AllowedSizes, g.AllowedFormats, expiresAt = g.ExpiresAt,
-        footageLinks = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l) }), cover = g.CoverPhotoId, count, pending, rawOnly
+        footageLinks = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }), cover = g.CoverPhotoId, count, pending, rawOnly
     };
 
     public static void Map(WebApplication app)
@@ -307,7 +307,7 @@ public static class AdminApi
                     var label = l.Label ?? "";
                     // an empty label on a YouTube link is filled with the video's own title
                     if (label.Trim().Length == 0 && GalleryRules.YouTubeId(l.Url) is { } vid) label = await YouTubeTitle(vid) ?? "";
-                    items.Add(new GalleryRules.FootageLink(label, l.Url ?? "", l.Category, l.Button));
+                    items.Add(new GalleryRules.FootageLink(label, l.Url ?? "", l.Category, l.Button, l.Note));
                 }
                 g.FootageLinks = GalleryRules.CleanLinks(items);
                 if (settings.LinkPreviews.Enabled)
@@ -541,6 +541,21 @@ public static class AdminApi
             var previewsRefreshed = 0;
             foreach (var u in urls) if (await ExternalLinkPreviews.RefreshAsync(cfg, u)) previewsRefreshed++;
             return Results.Ok(new { videos = ids.Count, refreshed, links = urls.Count, linksRefreshed = previewsRefreshed });
+        });
+
+        // does each link on the gallery still open?
+        secured.MapGet("/galleries/{id:int}/links/health", async (int id, AppDb db, AppConfig cfg, SettingsService settings) =>
+        {
+            var g = await db.Galleries.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+            return g == null ? Results.NotFound() : Results.Ok(new { enabled = settings.LinkPreviews.Enabled, items = LinkHealth.Report(cfg, g) });
+        });
+        secured.MapPost("/galleries/{id:int}/links/check", async (int id, AppDb db, AppConfig cfg, SettingsService settings) =>
+        {
+            var g = await db.Galleries.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+            if (g == null) return Results.NotFound();
+            var enabled = settings.LinkPreviews.Enabled;
+            if (enabled) foreach (var url in GalleryRules.Links(g).Select(l => l.Url).Distinct()) await LinkHealth.CheckAsync(cfg, url, manual: true);
+            return Results.Ok(new { enabled, items = LinkHealth.Report(cfg, g) });
         });
 
         secured.MapGet("/galleries/{id:int}/thumbnails", async (int id, ThumbnailService thumbs, CacheService cache) =>

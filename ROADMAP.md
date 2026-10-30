@@ -167,8 +167,8 @@ If time is short, the smallest set that delivers the vision is **#1, #4, #6, #7,
 - [x] **Link categories.** Every link on a gallery has a category: **Video** (shown as the Videos grid above the photos, as today) or **External** (shown below the gallery). The admin picks the category when adding a link and can change it later. YouTube links default to Video. Existing links keep working: YouTube links become Video, other links become External. External links show as a preview card (picture and title) when one is available, otherwise as a plain row (decided). The buttons under the gallery title stay, for the links the admin chooses to show there (decided).
 - [x] **Previews for any link** (title, picture): Vimeo, Google Photos albums, news articles. The server fetches the preview once and caches it, and the picture is served from the gallery's own address, so visitors never contact the other site until they click.
 - [x] **Safe preview fetching.** The server refuses addresses on your own network and limits size and time, so a link cannot be used to probe the home network. The admin can switch preview fetching off, in keeping with "nothing leaves the server unless turned on". *proposed*
-- [ ] **Links list on the gallery** with order, notes and "open in new tab".
-- [ ] **Link health check.** Flag dead links for the admin and in the Inbox.
+- [x] **Links list on the gallery** with order, notes and "open in new tab".
+- [x] **Link health check.** Flag dead links for the admin and in the Inbox.
 - Links only, no video uploads (decided).
 
 ## 5. Sharing with family

@@ -99,7 +99,7 @@ public static class PublicApi
             return Results.Ok(new
             {
                 g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId, tags = gTags, tagColors,
-                g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), preview = previews && GalleryRules.CategoryOf(l) == "external" ? ExternalLinkPreviews.ForPage(cfg, l.Url) : null }), favorites = favoriteIds, favoriteName, sizes = GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
+                g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note, preview = previews && GalleryRules.CategoryOf(l) == "external" ? ExternalLinkPreviews.ForPage(cfg, l.Url) : null }), favorites = favoriteIds, favoriteName, sizes = GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
                 allowDownload = g.AllowDownload,
                 allowOriginal = g.AllowDownload && !locked,
                 allowRaw = g.AllowDownload && g.AllowRaw && !locked,

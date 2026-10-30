@@ -75,6 +75,20 @@ public static class HealthApi
                 ? new Check("expiry", "Galleries", "Expiry", "warn", expired > 0 ? $"{expired} expired" : $"{soon} expiring", $"{expired} expired and {soon} expiring within 7 days.", "/admin/galleries")
                 : new Check("expiry", "Galleries", "Expiry", "ok", "None due", "No gallery has expired or expires within 7 days."));
 
+            // --- links ---
+            if (!settings.LinkPreviews.Enabled) checks.Add(new Check("links", "Galleries", "Links", "off", "Not checked", "Link previews and checks are switched off.", "/admin/settings"));
+            else
+            {
+                var broken = new List<string>();
+                var all = await db.Galleries.AsNoTracking().Where(x => x.ExpiresAt == null || x.ExpiresAt > now).ToListAsync();
+                foreach (var gal in all)
+                    foreach (var l in GalleryRules.Links(gal))
+                        if (LinkHealth.Get(cfg, l.Url) is { Status: "broken" }) broken.Add($"{l.Label} ({gal.Title})");
+                checks.Add(broken.Count > 0
+                    ? new Check("links", "Galleries", "Links", "warn", $"{broken.Count} not opening", "These links did not open at the last check: " + string.Join(", ", broken.Take(5)) + (broken.Count > 5 ? ", ..." : ""), "/admin/galleries")
+                    : new Check("links", "Galleries", "Links", "ok", "All open", "No saved link has failed its check. Links are checked about once a day."));
+            }
+
             // --- waiting for you ---
             var pendingPhotos = await db.Photos.CountAsync(p => !p.Approved);
             checks.Add(pendingPhotos > 0

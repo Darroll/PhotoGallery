@@ -23,6 +23,7 @@ builder.Services.AddHostedService<CaptionService>();
 builder.Services.AddScoped<AccessService>();
 builder.Services.AddScoped<Scanner>();
 builder.Services.AddHostedService<RescanService>();
+builder.Services.AddHostedService<LinkHealthService>();
 builder.Services.AddSingleton<BackupService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<BackupService>());
 

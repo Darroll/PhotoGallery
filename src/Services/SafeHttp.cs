@@ -9,6 +9,9 @@ namespace PhotoGallery;
 /// private, link-local and other non-public ranges are refused, so a saved link cannot be used to probe the server's
 /// own network. Only ports 80 and 443, a few redirects, a time limit and a size limit.
 /// </summary>
+/// <summary>Thrown when a connection would go to an address that is not public.</summary>
+public class BlockedAddressException() : HttpRequestException("That address is not allowed.");
+
 public static class SafeHttp
 {
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(8);
@@ -48,7 +51,7 @@ public static class SafeHttp
         ConnectCallback = async (ctx, ct) =>
         {
             var addresses = (await Dns.GetHostAddressesAsync(ctx.DnsEndPoint.Host, ct)).Where(IsPublic).ToArray();
-            if (addresses.Length == 0) throw new HttpRequestException("That address is not allowed.");
+            if (addresses.Length == 0) throw new BlockedAddressException();
             var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
             try
             {
@@ -60,6 +63,36 @@ public static class SafeHttp
     }) { Timeout = System.Threading.Timeout.InfiniteTimeSpan };
 
     public record Response(string ContentType, byte[] Body, Uri FinalUri);
+
+    /// <summary>How a link answered: Ok, Gone (404 or 410), Unreachable (no connection), Unsure (some other answer, for example a site that turns robots away) or NotChecked (not a public address).</summary>
+    public enum Reach { Ok, Gone, Unreachable, Unsure, NotChecked }
+
+    /// <summary>Asks a link whether it opens, without downloading it. Same safety rules as <see cref="GetAsync"/>.</summary>
+    public static async Task<(Reach reach, int? code)> ProbeAsync(Uri uri)
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        try
+        {
+            var method = HttpMethod.Head;
+            for (var hop = 0; hop <= MaxRedirects + 1; hop++)
+            {
+                if (uri.Scheme is not ("http" or "https") || uri.Port is not (80 or 443)) return (Reach.NotChecked, null);
+                using var req = new HttpRequestMessage(method, uri);
+                req.Headers.UserAgent.ParseAdd("PhotoGalleryLinkCheck/1.0");
+                using var resp = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
+                var code = (int)resp.StatusCode;
+                if (code is >= 300 and < 400 && resp.Headers.Location is { } to) { uri = to.IsAbsoluteUri ? to : new Uri(uri, to); continue; }
+                if (method == HttpMethod.Head && code is 400 or 403 or 405 or 501) { method = HttpMethod.Get; hop--; continue; } // some sites refuse HEAD
+                if (code is >= 200 and < 300) return (Reach.Ok, code);
+                if (code is 404 or 410) return (Reach.Gone, code);
+                return (Reach.Unsure, code);
+            }
+            return (Reach.Unsure, null); // too many redirects
+        }
+        catch (BlockedAddressException) { return (Reach.NotChecked, null); }
+        catch (HttpRequestException e) when (e.InnerException is BlockedAddressException) { return (Reach.NotChecked, null); }
+        catch { return (Reach.Unreachable, null); }
+    }
 
     /// <summary>Downloads at most <paramref name="maxBytes"/>; null when blocked, too big, slow or not a success. With <paramref name="truncate"/> a longer body is cut off at the limit instead (a page's title is near the top).</summary>
     public static async Task<Response?> GetAsync(Uri uri, long maxBytes, string accept, bool truncate = false)

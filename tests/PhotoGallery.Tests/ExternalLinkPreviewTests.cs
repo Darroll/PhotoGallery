@@ -11,7 +11,11 @@ static class NoRealNetwork
 {
     /// <summary>Tests never fetch real web pages; the preview tests install their own fake.</summary>
     [ModuleInitializer]
-    internal static void Init() => ExternalLinkPreviews.Fetch = (_, _, _) => Task.FromResult<SafeHttp.Response?>(null);
+    internal static void Init()
+    {
+        ExternalLinkPreviews.Fetch = (_, _, _) => Task.FromResult<SafeHttp.Response?>(null);
+        LinkHealth.Probe = _ => Task.FromResult((SafeHttp.Reach.NotChecked, (int?)null));
+    }
 }
 
 public class ExternalLinkPreviewTests(AppFactory app) : IClassFixture<AppFactory>

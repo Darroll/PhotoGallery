@@ -299,6 +299,12 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .link-row input:nth-child(2) { flex: 1; min-width: 0; }
 .link-thumb { order: -1; flex: 0 0 auto; width: 96px; height: 54px; object-fit: cover; border-radius: 4px; background: var(--border, #ccc); }
 .link-thumb[hidden] { display: none; }
+.link-note { flex: 1 1 100%; order: 5; }
+.link-health { font-size: .8rem; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+.link-health.bad { color: #d64545; }
+.link-health.good { color: #3a9d5d; }
+.ext-note { font-size: .9rem; margin-top: 4px; overflow-wrap: anywhere; }
+.vid-note { display: block; font-size: .85rem; }
 .link-row select { flex: 0 0 auto; width: auto; }
 .link-opt { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; flex: 0 0 auto; }
 .link-opt input { flex: none; width: auto; }

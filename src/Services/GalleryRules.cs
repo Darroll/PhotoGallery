@@ -34,7 +34,7 @@ public static class GalleryRules
     /// "external" (shown below the gallery). <c>Button</c> also shows it as a button under the title. Links saved before
     /// categories existed have neither: YouTube links count as videos, other links as external with a button, as before.
     /// </summary>
-    public record FootageLink(string Label, string Url, string? Category = null, bool? Button = null);
+    public record FootageLink(string Label, string Url, string? Category = null, bool? Button = null, string? Note = null);
 
     public static string CategoryOf(FootageLink l) => l.Category != "external" && YouTubeId(l.Url) != null ? "video" : "external";
 
@@ -76,7 +76,8 @@ public static class GalleryRules
             if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps)) continue;
             var label = (l.Label ?? "").Trim();
             if (label.Length == 0) label = u.Host;
-            var link = new FootageLink(label.Length > 60 ? label[..60] : label, u.ToString(), l.Category, l.Button);
+            var note = (l.Note ?? "").Trim();
+            var link = new FootageLink(label.Length > 60 ? label[..60] : label, u.ToString(), l.Category, l.Button, note.Length == 0 ? null : note.Length > 200 ? note[..200] : note);
             clean.Add(link with { Category = CategoryOf(link), Button = ButtonOf(link) });
             if (clean.Count == 30) break;
         }

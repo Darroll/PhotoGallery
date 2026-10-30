@@ -385,9 +385,10 @@ async function viewGallery(app, slug) {
   if (vids.length) app.append(h('h2', { class: 'vid-head', text: vids.length === 1 ? 'Video' : 'Videos' }), h('div', { class: 'videos' }, vids.map(l =>
     h('button', { class: 'vid', title: l.label, onclick: () => playVideo(l) },
       h('span', { class: 'vid-thumb' }, h('img', { src: `/vthumb/${l.videoId}`, alt: '', loading: 'lazy' }), h('span', { class: 'vid-play', text: '\u25B6' })),
-      h('span', { class: 'vid-title', text: l.label })))));
+      h('span', { class: 'vid-title', text: l.label }),
+      l.note ? h('span', { class: 'vid-note muted', text: l.note }) : null))));
   if (buttons.length) app.append(h('div', { class: 'footage' }, buttons.map(l =>
-    h('a', { class: 'btn footage-link', href: l.url, target: '_blank', rel: 'noopener noreferrer', text: '▶ ' + l.label }))));
+    h('a', { class: 'btn footage-link', href: l.url, target: '_blank', rel: 'noopener noreferrer', title: l.note || '', text: '▶ ' + l.label }))));
   if (G.link) {
     const bits = [];
     if (G.link.expires) bits.push('link expires ' + fmtDate(G.link.expires));
@@ -485,7 +486,8 @@ async function viewGallery(app, slug) {
       l.preview && l.preview.image ? h('img', { class: 'ext-img', src: l.preview.image, alt: '', loading: 'lazy' }) : null,
       h('span', { class: 'ext-text' },
         h('span', { class: 'ext-title', text: (l.label === hostOf(l.url) && l.preview && l.preview.title) || l.label }),
-        h('span', { class: 'ext-host muted', text: hostOf(l.url) }))))));
+        h('span', { class: 'ext-host muted', text: hostOf(l.url) }),
+        l.note ? h('span', { class: 'ext-note', text: l.note }) : null)))));
   fill();
   G.revealAll = () => { curated.checked = false; favOnly = false; fill(); };
   galleryView = slug;
@@ -1512,9 +1514,9 @@ async function linkPreviewPanel() {
   if (!r.ok) return h('div', { class: 'panel' }, h('h3', { text: 'Link previews' }), h('p', { class: 'err', text: 'Could not load this setting.' }));
   const on = h('input', { type: 'checkbox', checked: !!r.data.enabled });
   const msg = h('span', { class: 'muted' });
-  return h('div', { class: 'panel' }, h('h3', { text: 'Link previews' }),
-    h('p', { class: 'muted', text: 'For External links on a gallery, the server looks up the page once to get its title and picture, and keeps a small copy. Visitors only load that copy from your site; they never contact the other site until they click the link. Addresses on your own network are never contacted. Turn this off and External links show as plain cards, and nothing is fetched from those sites.' }),
-    h('div', { class: 'row' }, h('label', {}, on, ' Fetch titles and pictures for External links')),
+  return h('div', { class: 'panel' }, h('h3', { text: 'Link previews and checks' }),
+    h('p', { class: 'muted', text: 'Once a day the server also asks each saved link whether it still opens, and tells you on the Overview page and in the gallery settings when one does not. For External links on a gallery, the server looks up the page once to get its title and picture, and keeps a small copy. Visitors only load that copy from your site; they never contact the other site until they click the link. Addresses on your own network are never contacted. Turn this off and External links show as plain cards, and nothing is fetched from those sites.' }),
+    h('div', { class: 'row' }, h('label', {}, on, ' Fetch titles and pictures for External links, and check that links still open')),
     h('div', { class: 'row' }, h('button', { class: 'primary', text: 'Save', onclick: async () => {
       const res = await api('/api/admin/settings/link-previews', { method: 'PUT', body: { enabled: on.checked } });
       msg.textContent = res.ok ? 'Saved' : 'Could not save';
@@ -1772,10 +1774,25 @@ async function viewGallerySettings(app, id) {
       h('option', { value: 'video', text: 'Video' }), h('option', { value: 'external', text: 'External' })));
     category.value = l.category || (isYt() ? 'video' : 'external');
     const button = track(h('input', { type: 'checkbox', checked: !!l.button }));
+    const note = track(h('input', { type: 'text', class: 'link-note', placeholder: 'Note (optional), shown with the link', value: l.note || '', maxlength: 200 }));
+    const badge = h('span', { class: 'link-health hidden' });
+    const move = (dir) => { const sib = dir < 0 ? row.previousElementSibling : row.nextElementSibling; if (!sib) return; dir < 0 ? row.parentNode.insertBefore(row, sib) : row.parentNode.insertBefore(sib, row); touch(); };
     const row = h('div', { class: 'link-row' }, label, url, category,
       h('label', { class: 'link-opt', title: 'Also show this link as a button under the gallery title' }, button, h('span', { text: 'Button under title' })),
-      h('button', { class: 'danger', text: 'Remove', onclick: () => { row.remove(); touch(); } }), thumb);
-    row.get = () => ({ label: label.value.trim(), url: url.value.trim(), category: category.value, button: button.checked });
+      h('button', { title: 'Move up', 'aria-label': 'Move up', text: '↑', onclick: () => move(-1) }),
+      h('button', { title: 'Move down', 'aria-label': 'Move down', text: '↓', onclick: () => move(1) }),
+      h('button', { class: 'danger', text: 'Remove', onclick: () => { row.remove(); touch(); } }), badge, thumb, note);
+    row.get = () => ({ label: label.value.trim(), url: url.value.trim(), category: category.value, button: button.checked, note: note.value.trim() });
+    // what the last check found; only for the address that was saved
+    row.setHealth = (items) => {
+      const u = url.value.trim();
+      const it = (items || []).find(x => x.url === u || x.url === u + '/');
+      const show = it && (it.status === 'broken' || it.status === 'ok');
+      badge.className = 'link-health ' + (show ? (it.status === 'broken' ? 'bad' : 'good') : 'hidden');
+      if (!show) return;
+      badge.textContent = it.status === 'broken' ? 'Not opening' : 'Opens';
+      badge.title = (it.status === 'broken' ? 'This link did not open when last checked' : 'This link opened when last checked') + (it.lastChecked ? ' (' + new Date(it.lastChecked).toLocaleString() + ')' : '');
+    };
     // a YouTube link defaults to Video, anything else to External, until the admin chooses
     url.addEventListener('change', () => { if (!l.category) category.value = isYt() ? 'video' : 'external'; });
     row.showThumb = showThumb;
@@ -1784,8 +1801,19 @@ async function viewGallerySettings(app, id) {
   };
   (g.footageLinks || []).forEach(addLinkRow);
   const videoMsg = h('span', { class: 'muted' });
+  const showHealth = (items) => [...linkRows.children].forEach(row => row.setHealth(items));
+  api(`/api/admin/galleries/${g.id}/links/health`).then(r => { if (r.ok) showHealth(r.data.items); });
   const footage = h('div', {}, linkRows, h('div', { class: 'row' },
     h('button', { text: '+ Add link', onclick: () => { addLinkRow(); touch(); } }),
+    h('button', { text: 'Check links', title: 'Ask every saved link whether it still opens. This also happens automatically about once a day.', onclick: async () => {
+      videoMsg.textContent = 'Checking...';
+      const r = await api(`/api/admin/galleries/${g.id}/links/check`, { method: 'POST' });
+      if (!r.ok) { videoMsg.textContent = 'Could not check'; return; }
+      if (!r.data.enabled) { videoMsg.textContent = 'Link checks are switched off in Site and appearance'; return; }
+      showHealth(r.data.items);
+      const bad = r.data.items.filter(x => x.status === 'broken').length;
+      videoMsg.textContent = r.data.items.length === 0 ? 'No links saved in this gallery' : bad ? `${bad} of ${r.data.items.length} links did not open` : 'Every link that could be checked opens';
+    } }),
     h('button', { text: 'Refresh thumbnails and previews', title: 'Fetch the current YouTube thumbnails, and the title and picture of External links, again for everything saved in this gallery', onclick: async () => {
       videoMsg.textContent = 'Refreshing...';
       const r = await api(`/api/admin/galleries/${g.id}/video-thumbnails/refresh`, { method: 'POST' });
