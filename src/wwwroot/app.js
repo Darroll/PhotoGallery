@@ -482,12 +482,16 @@ async function viewGallery(app, slug) {
   app.append(tb, favBar, grid, selBar);
   if (external.length) app.append(h('h2', { class: 'ext-head', text: 'Links' }), h('div', { class: 'ext-links' }, external.map(l =>
     h('a', { class: 'ext-card', href: l.url, target: '_blank', rel: 'noopener noreferrer' },
-      h('span', { class: 'ext-title', text: l.label }),
-      h('span', { class: 'ext-host muted', text: (() => { try { return new URL(l.url).host.replace(/^www\./, ''); } catch { return ''; } })() })))));
+      l.preview && l.preview.image ? h('img', { class: 'ext-img', src: l.preview.image, alt: '', loading: 'lazy' }) : null,
+      h('span', { class: 'ext-text' },
+        h('span', { class: 'ext-title', text: (l.label === hostOf(l.url) && l.preview && l.preview.title) || l.label }),
+        h('span', { class: 'ext-host muted', text: hostOf(l.url) }))))));
   fill();
   G.revealAll = () => { curated.checked = false; favOnly = false; fill(); };
   galleryView = slug;
 }
+
+function hostOf(url) { try { return new URL(url).host.replace(/^www\./, ''); } catch { return ''; } }
 
 function passwordPrompt(app, slug, title) {
   document.title = (title || 'Private gallery') + ' - Password';
@@ -1150,7 +1154,7 @@ async function viewSettings(app, section) {
   const main = await adminPage(app, 'settings/' + section, titles[section]);
   if (!main) return;
   if (section === 'watermark') return watermarkSection(main);
-  if (section === 'general') { main.append(siteNamePanel(), await themePanel(), homePanel()); return; }
+  if (section === 'general') { main.append(siteNamePanel(), await themePanel(), homePanel(), await linkPreviewPanel()); return; }
   if (section === 'review') return main.append(await captionReviewPanel());
   if (section === 'tags') return main.append(await tagPanel());
   if (section === 'groups') return main.append(await groupsPanel());
@@ -1503,6 +1507,20 @@ async function licensePanel() {
       h('a', { class: 'btn', href: '/license', target: '_blank', rel: 'noopener', text: 'Preview' }), msg), acceptLog);
 }
 
+async function linkPreviewPanel() {
+  const r = await api('/api/admin/settings/link-previews');
+  if (!r.ok) return h('div', { class: 'panel' }, h('h3', { text: 'Link previews' }), h('p', { class: 'err', text: 'Could not load this setting.' }));
+  const on = h('input', { type: 'checkbox', checked: !!r.data.enabled });
+  const msg = h('span', { class: 'muted' });
+  return h('div', { class: 'panel' }, h('h3', { text: 'Link previews' }),
+    h('p', { class: 'muted', text: 'For External links on a gallery, the server looks up the page once to get its title and picture, and keeps a small copy. Visitors only load that copy from your site; they never contact the other site until they click the link. Addresses on your own network are never contacted. Turn this off and External links show as plain cards, and nothing is fetched from those sites.' }),
+    h('div', { class: 'row' }, h('label', {}, on, ' Fetch titles and pictures for External links')),
+    h('div', { class: 'row' }, h('button', { class: 'primary', text: 'Save', onclick: async () => {
+      const res = await api('/api/admin/settings/link-previews', { method: 'PUT', body: { enabled: on.checked } });
+      msg.textContent = res.ok ? 'Saved' : 'Could not save';
+    } }), msg));
+}
+
 function siteNamePanel() {
   const name = h('input', { type: 'text', value: site.title, maxlength: 80 });
   const msg = h('span', { class: 'muted' });
@@ -1768,11 +1786,11 @@ async function viewGallerySettings(app, id) {
   const videoMsg = h('span', { class: 'muted' });
   const footage = h('div', {}, linkRows, h('div', { class: 'row' },
     h('button', { text: '+ Add link', onclick: () => { addLinkRow(); touch(); } }),
-    h('button', { text: 'Refresh video thumbnails', title: 'Fetch the current preview image from YouTube again for every saved video in this gallery', onclick: async () => {
+    h('button', { text: 'Refresh thumbnails and previews', title: 'Fetch the current YouTube thumbnails, and the title and picture of External links, again for everything saved in this gallery', onclick: async () => {
       videoMsg.textContent = 'Refreshing...';
       const r = await api(`/api/admin/galleries/${g.id}/video-thumbnails/refresh`, { method: 'POST' });
       if (r.ok) [...linkRows.children].forEach(row => row.showThumb(true));
-      videoMsg.textContent = !r.ok ? 'Could not refresh' : r.data.videos === 0 ? 'No YouTube videos saved in this gallery' : `Refreshed ${r.data.refreshed} of ${r.data.videos}. Reload the gallery page to see them there.`;
+      videoMsg.textContent = !r.ok ? 'Could not refresh' : r.data.videos + r.data.links === 0 ? 'No videos or External links saved in this gallery' : `Refreshed ${r.data.refreshed} of ${r.data.videos} video thumbnails and ${r.data.linksRefreshed} of ${r.data.links} link previews. Reload the gallery page to see them there.`;
     } }), videoMsg));
   const collectLinks = () => [...linkRows.children].map(r => r.get()).filter(l => l.url);
   const tagsInput = tagEditor(g.tags || [], touch);
@@ -1780,7 +1798,7 @@ async function viewGallerySettings(app, id) {
     h('div', { class: 'form1' },
       field('Title', title), field('URL name', slug, `Gallery address: /g/${g.slug}`), field('Description', desc),
       field('Event date', eventDate), field('Location', location_), field('Tags', tagsInput, 'Click + to add a label that helps visitors find this gallery in search. Start typing to pick one already in use.'),
-      field('Videos and links', footage, 'Paste YouTube links to show the recordings together on the gallery page (leave the title empty to use the video\'s own title). Preview images are re-checked on YouTube every 12 hours; use Refresh video thumbnails to update them now. Choose a category for each link: Video links show in a grid above the photos, External links show below the gallery. Tick Button under title to also show a link as a button beside the title. Only http and https links are kept, up to 30.'),
+      field('Videos and links', footage, 'Paste YouTube links to show the recordings together on the gallery page (leave the title empty to use the video\'s own title). Preview images are re-checked on YouTube every 12 hours; use Refresh thumbnails and previews to update them now. Choose a category for each link: Video links show in a grid above the photos, External links show below the gallery. Tick Button under title to also show a link as a button beside the title. Only http and https links are kept, up to 30.'),
       field('Photo order', h('div', { class: 'row' }, sortMode, h('label', {}, sortDesc, ' Reverse (newest / Z-A first)'))),
       field('Cover image', h('div', {}, h('div', { class: 'row' }, coverImg, coverBtn), pickerBox)),
       field('Library folder', folderSelect, 'Which library folder this gallery shows. Changing it rescans the gallery and resets the cover.'),

@@ -47,6 +47,7 @@ class AppSettings
     public EmailSettings Email { get; set; } = new();
     public LicenseSettings License { get; set; } = new();
     public ThemeSettings Theme { get; set; } = new();
+    public LinkPreviewSettings LinkPreviews { get; set; } = new();
 }
 
 /// <summary>App-level settings kept in DATA_DIR/settings.json (editable from the admin Settings page).</summary>
@@ -75,6 +76,7 @@ public class SettingsService
                 data.Email = (data.Email ?? new()).Sanitized();
                 data.License = (data.License ?? new()).Sanitized();
                 data.Theme = (data.Theme ?? new()).Sanitized();
+                data.LinkPreviews = (data.LinkPreviews ?? new()).Sanitized();
                 if (string.IsNullOrWhiteSpace(data.SiteName)) { data.SiteName = SanitizeName(cfg.SiteTitle); Save(); }
             }
             else
@@ -143,6 +145,21 @@ public class SettingsService
             data.Theme = s.Sanitized();
             Save();
             return data.Theme.Clone();
+        }
+    }
+
+    public LinkPreviewSettings LinkPreviews
+    {
+        get { lock (gate) return data.LinkPreviews.Sanitized(); }
+    }
+
+    public LinkPreviewSettings SetLinkPreviews(LinkPreviewSettings s)
+    {
+        lock (gate)
+        {
+            data.LinkPreviews = s.Sanitized();
+            Save();
+            return data.LinkPreviews.Sanitized();
         }
     }
 

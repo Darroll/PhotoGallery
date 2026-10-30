@@ -306,8 +306,10 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .link-row { flex-wrap: wrap; }
 .ext-head { margin: 28px 0 10px; font-size: 1.1rem; }
 .ext-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-bottom: 24px; }
-.ext-card { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--border, #ccc); border-radius: 10px; text-decoration: none; color: inherit; }
+.ext-card { display: flex; flex-direction: column; gap: 8px; padding: 0; overflow: hidden; border: 1px solid var(--border, #ccc); border-radius: 10px; text-decoration: none; color: inherit; }
 .ext-card:hover { border-color: var(--accent, currentColor); }
+.ext-text { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; }
+.ext-img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; }
 .ext-title { font-weight: 600; overflow-wrap: anywhere; }
 .ext-host { font-size: .85rem; }
 .panel.inner { margin: 10px 0; background: var(--bg); }

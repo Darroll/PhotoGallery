@@ -164,6 +164,8 @@ public static class AdminApi
             if (path == null || !File.Exists(path)) return Results.NotFound();
             return Results.File(path, ImageService.ContentType(Path.GetExtension(path).TrimStart('.')));
         });
+        secured.MapGet("/settings/link-previews", (SettingsService settings) => Results.Ok(settings.LinkPreviews));
+        secured.MapPut("/settings/link-previews", (LinkPreviewSettings input, SettingsService settings) => Results.Ok(settings.SetLinkPreviews(input)));
         secured.MapGet("/settings/site", (SettingsService settings) => Results.Ok(new { name = settings.SiteName }));
         secured.MapPut("/settings/site", (SiteInput input, SettingsService settings) => Results.Ok(new { name = settings.SetSiteName(input.Name) }));
         secured.MapGet("/subscribers/count", async (AppDb db) => new
@@ -247,7 +249,7 @@ public static class AdminApi
             return Results.Ok(new { gallery = Dto(g, scan.Total, 0, scan.RawOnly), scan });
         });
 
-        secured.MapPut("/galleries/{id:int}", async (int id, GalleryInput input, AppDb db, AppConfig cfg, Scanner scanner, ThumbnailService thumbs) =>
+        secured.MapPut("/galleries/{id:int}", async (int id, GalleryInput input, AppDb db, AppConfig cfg, Scanner scanner, ThumbnailService thumbs, SettingsService settings) =>
         {
             var g = await db.Galleries.FindAsync(id);
             if (g == null) return Results.NotFound();
@@ -308,6 +310,8 @@ public static class AdminApi
                     items.Add(new GalleryRules.FootageLink(label, l.Url ?? "", l.Category, l.Button));
                 }
                 g.FootageLinks = GalleryRules.CleanLinks(items);
+                if (settings.LinkPreviews.Enabled)
+                    ExternalLinkPreviews.EnsureInBackground(cfg, GalleryRules.Links(g).Where(l => GalleryRules.CategoryOf(l) == "external").Select(l => l.Url));
             }
             if (input.EventDate != null) g.EventDate = DateTime.TryParse(input.EventDate, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ed) ? ed : null;
             if (input.ExpiresAt != null) g.ExpiresAt = DateTime.TryParse(input.ExpiresAt, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ex) ? ex : null;
@@ -523,14 +527,20 @@ public static class AdminApi
         });
 
         // fetch the current YouTube preview image again for every video in the gallery
-        secured.MapPost("/galleries/{id:int}/video-thumbnails/refresh", async (int id, AppDb db, AppConfig cfg) =>
+        secured.MapPost("/galleries/{id:int}/video-thumbnails/refresh", async (int id, AppDb db, AppConfig cfg, SettingsService settings) =>
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Id == id);
             if (g == null) return Results.NotFound();
             var ids = GalleryRules.Links(g).Select(l => GalleryRules.YouTubeId(l.Url)).Where(v => v != null).Select(v => v!).Distinct().ToList();
             var refreshed = 0;
             foreach (var vid in ids) if (await VideoThumbs.RefreshAsync(cfg, vid)) refreshed++;
-            return Results.Ok(new { videos = ids.Count, refreshed });
+            // External links get their title and picture fetched again as well
+            var urls = settings.LinkPreviews.Enabled
+                ? GalleryRules.Links(g).Where(l => GalleryRules.CategoryOf(l) == "external").Select(l => l.Url).Distinct().ToList()
+                : new List<string>();
+            var previewsRefreshed = 0;
+            foreach (var u in urls) if (await ExternalLinkPreviews.RefreshAsync(cfg, u)) previewsRefreshed++;
+            return Results.Ok(new { videos = ids.Count, refreshed, links = urls.Count, linksRefreshed = previewsRefreshed });
         });
 
         secured.MapGet("/galleries/{id:int}/thumbnails", async (int id, ThumbnailService thumbs, CacheService cache) =>

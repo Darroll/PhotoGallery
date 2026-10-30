@@ -64,7 +64,7 @@ public static class PublicApi
             return Results.Ok(list);
         });
 
-        app.MapGet("/api/g/{slug}", async (string slug, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ActivityLog activity) =>
+        app.MapGet("/api/g/{slug}", async (string slug, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ActivityLog activity, SettingsService settings) =>
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
             if (g == null) return Results.NotFound();
@@ -94,10 +94,12 @@ public static class PublicApi
             var gTags = (await Tags.NamesByGalleryAsync(db, new List<int> { g.Id })).GetValueOrDefault(g.Id) ?? new List<string>();
             var tagColors = await Tags.ColorsAsync(db, gTags.Concat(tagNames.Values.SelectMany(v => v)));
             var locked = g.WatermarkDownload && !admin;
+            var previews = settings.LinkPreviews.Enabled;
+            if (previews) ExternalLinkPreviews.EnsureInBackground(cfg, GalleryRules.Links(g).Where(l => GalleryRules.CategoryOf(l) == "external").Select(l => l.Url));
             return Results.Ok(new
             {
                 g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId, tags = gTags, tagColors,
-                g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l) }), favorites = favoriteIds, favoriteName, sizes = GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
+                g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), preview = previews && GalleryRules.CategoryOf(l) == "external" ? ExternalLinkPreviews.ForPage(cfg, l.Url) : null }), favorites = favoriteIds, favoriteName, sizes = GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
                 allowDownload = g.AllowDownload,
                 allowOriginal = g.AllowDownload && !locked,
                 allowRaw = g.AllowDownload && g.AllowRaw && !locked,
@@ -217,6 +219,16 @@ public static class PublicApi
             else if (VideoThumbs.NeedsRefresh(file)) await VideoThumbs.RefreshAsync(cfg, vid);
             ctx.Response.Headers.CacheControl = "public, no-cache"; // browsers re-check, and get a 304 while nothing changed
             return Results.File(file, "image/jpeg", lastModified: File.GetLastWriteTimeUtc(file));
+        });
+
+        // cached pictures for External links; the name is a hash of the link's address, so only a known link can be asked for
+        app.MapGet("/lp/{file}", (string file, HttpContext ctx, AppConfig cfg) =>
+        {
+            if (!System.Text.RegularExpressions.Regex.IsMatch(file, "^[0-9a-f]{24}\\.webp$")) return Results.NotFound();
+            var path = ExternalLinkPreviews.ImagePath(cfg, file[..24]);
+            if (!File.Exists(path)) return Results.NotFound();
+            ctx.Response.Headers.CacheControl = "public, max-age=86400";
+            return Results.File(path, "image/webp", lastModified: File.GetLastWriteTimeUtc(path));
         });
 
         app.MapGet("/dl/{id:int}", async (int id, string? size, string? fmt, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity, SettingsService settings) =>
