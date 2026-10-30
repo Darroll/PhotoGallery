@@ -29,7 +29,16 @@ public static class GalleryRules
         _ => list.OrderByDescending(g => g.CreatedAt).ToList()
     };
 
-    public record FootageLink(string Label, string Url);
+    /// <summary>
+    /// A link on a gallery. <c>Category</c> is "video" (YouTube links, shown in the Videos grid above the photos) or
+    /// "external" (shown below the gallery). <c>Button</c> also shows it as a button under the title. Links saved before
+    /// categories existed have neither: YouTube links count as videos, other links as external with a button, as before.
+    /// </summary>
+    public record FootageLink(string Label, string Url, string? Category = null, bool? Button = null);
+
+    public static string CategoryOf(FootageLink l) => l.Category != "external" && YouTubeId(l.Url) != null ? "video" : "external";
+
+    public static bool ButtonOf(FootageLink l) => l.Button ?? (l.Category == null && YouTubeId(l.Url) == null);
 
     static readonly System.Text.RegularExpressions.Regex YtId = new("^[A-Za-z0-9_-]{11}$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
@@ -67,7 +76,8 @@ public static class GalleryRules
             if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps)) continue;
             var label = (l.Label ?? "").Trim();
             if (label.Length == 0) label = u.Host;
-            clean.Add(new FootageLink(label.Length > 60 ? label[..60] : label, u.ToString()));
+            var link = new FootageLink(label.Length > 60 ? label[..60] : label, u.ToString(), l.Category, l.Button);
+            clean.Add(link with { Category = CategoryOf(link), Button = ButtonOf(link) });
             if (clean.Count == 30) break;
         }
         return System.Text.Json.JsonSerializer.Serialize(clean);

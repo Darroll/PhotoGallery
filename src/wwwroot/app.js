@@ -381,12 +381,12 @@ async function viewGallery(app, slug) {
   const headerTags = tagLine(G.tags, galleryTagEdit(G));
   if (headerTags) app.append(headerTags);
   if (G.description) app.append(h('p', { class: 'sub', text: G.description }));
-  const vids = (G.links || []).filter(l => l.videoId), others = (G.links || []).filter(l => !l.videoId);
+  const vids = (G.links || []).filter(l => l.category === 'video' && l.videoId), buttons = (G.links || []).filter(l => l.button), external = (G.links || []).filter(l => l.category === 'external');
   if (vids.length) app.append(h('h2', { class: 'vid-head', text: vids.length === 1 ? 'Video' : 'Videos' }), h('div', { class: 'videos' }, vids.map(l =>
     h('button', { class: 'vid', title: l.label, onclick: () => playVideo(l) },
       h('span', { class: 'vid-thumb' }, h('img', { src: `/vthumb/${l.videoId}`, alt: '', loading: 'lazy' }), h('span', { class: 'vid-play', text: '\u25B6' })),
       h('span', { class: 'vid-title', text: l.label })))));
-  if (others.length) app.append(h('div', { class: 'footage' }, others.map(l =>
+  if (buttons.length) app.append(h('div', { class: 'footage' }, buttons.map(l =>
     h('a', { class: 'btn footage-link', href: l.url, target: '_blank', rel: 'noopener noreferrer', text: '▶ ' + l.label }))));
   if (G.link) {
     const bits = [];
@@ -480,6 +480,10 @@ async function viewGallery(app, slug) {
   tb.append(h('span', { class: 'grow' }));
   if (G.allowUpload) tb.append(uploadControl(slug));
   app.append(tb, favBar, grid, selBar);
+  if (external.length) app.append(h('h2', { class: 'ext-head', text: 'Links' }), h('div', { class: 'ext-links' }, external.map(l =>
+    h('a', { class: 'ext-card', href: l.url, target: '_blank', rel: 'noopener noreferrer' },
+      h('span', { class: 'ext-title', text: l.label }),
+      h('span', { class: 'ext-host muted', text: (() => { try { return new URL(l.url).host.replace(/^www\./, ''); } catch { return ''; } })() })))));
   fill();
   G.revealAll = () => { curated.checked = false; favOnly = false; fill(); };
   galleryView = slug;
@@ -1745,7 +1749,17 @@ async function viewGallerySettings(app, id) {
       thumb.src = `/vthumb/${m[1]}` + (bust ? `?t=${Date.now()}` : '');
     };
     url.addEventListener('change', () => showThumb(false));
-    const row = h('div', { class: 'link-row' }, label, url, h('button', { class: 'danger', text: 'Remove', onclick: () => { row.remove(); touch(); } }), thumb);
+    const isYt = () => /(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/)/.test(url.value);
+    const category = track(h('select', { title: 'Video links show in the Videos grid above the photos. External links show below the gallery.' },
+      h('option', { value: 'video', text: 'Video' }), h('option', { value: 'external', text: 'External' })));
+    category.value = l.category || (isYt() ? 'video' : 'external');
+    const button = track(h('input', { type: 'checkbox', checked: !!l.button }));
+    const row = h('div', { class: 'link-row' }, label, url, category,
+      h('label', { class: 'link-opt', title: 'Also show this link as a button under the gallery title' }, button, h('span', { text: 'Button under title' })),
+      h('button', { class: 'danger', text: 'Remove', onclick: () => { row.remove(); touch(); } }), thumb);
+    row.get = () => ({ label: label.value.trim(), url: url.value.trim(), category: category.value, button: button.checked });
+    // a YouTube link defaults to Video, anything else to External, until the admin chooses
+    url.addEventListener('change', () => { if (!l.category) category.value = isYt() ? 'video' : 'external'; });
     row.showThumb = showThumb;
     showThumb(false);
     linkRows.append(row);
@@ -1760,13 +1774,13 @@ async function viewGallerySettings(app, id) {
       if (r.ok) [...linkRows.children].forEach(row => row.showThumb(true));
       videoMsg.textContent = !r.ok ? 'Could not refresh' : r.data.videos === 0 ? 'No YouTube videos saved in this gallery' : `Refreshed ${r.data.refreshed} of ${r.data.videos}. Reload the gallery page to see them there.`;
     } }), videoMsg));
-  const collectLinks = () => [...linkRows.children].map(r => ({ label: r.children[0].value.trim(), url: r.children[1].value.trim() })).filter(l => l.url);
+  const collectLinks = () => [...linkRows.children].map(r => r.get()).filter(l => l.url);
   const tagsInput = tagEditor(g.tags || [], touch);
   const general = section('General', 'Name, date, order, cover', true,
     h('div', { class: 'form1' },
       field('Title', title), field('URL name', slug, `Gallery address: /g/${g.slug}`), field('Description', desc),
       field('Event date', eventDate), field('Location', location_), field('Tags', tagsInput, 'Click + to add a label that helps visitors find this gallery in search. Start typing to pick one already in use.'),
-      field('Videos and links', footage, 'Paste YouTube links to show the recordings together on the gallery page (leave the title empty to use the video\'s own title). Preview images are re-checked on YouTube every 12 hours; use Refresh video thumbnails to update them now. Other links appear as buttons. Only http and https links are kept, up to 30.'),
+      field('Videos and links', footage, 'Paste YouTube links to show the recordings together on the gallery page (leave the title empty to use the video\'s own title). Preview images are re-checked on YouTube every 12 hours; use Refresh video thumbnails to update them now. Choose a category for each link: Video links show in a grid above the photos, External links show below the gallery. Tick Button under title to also show a link as a button beside the title. Only http and https links are kept, up to 30.'),
       field('Photo order', h('div', { class: 'row' }, sortMode, h('label', {}, sortDesc, ' Reverse (newest / Z-A first)'))),
       field('Cover image', h('div', {}, h('div', { class: 'row' }, coverImg, coverBtn), pickerBox)),
       field('Library folder', folderSelect, 'Which library folder this gallery shows. Changing it rescans the gallery and resets the cover.'),

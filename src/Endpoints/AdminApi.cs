@@ -19,7 +19,7 @@ public static class AdminApi
         string? AllowedSizes, string? AllowedFormats, string? ExpiresAt, List<LinkItem>? FootageLinks);
     record LinkRawInput(int RawPhotoId);
     record MoveInput(string? Direction);
-    record LinkItem(string? Label, string? Url);
+    record LinkItem(string? Label, string? Url, string? Category, bool? Button);
     record SiteInput(string? Name);
     record LinkInput(string? Label, int? ExpiresInDays, int? MaxDownloads);
     record CoverInput(int PhotoId);
@@ -49,7 +49,7 @@ public static class AdminApi
         g.AllowDownload, g.AllowRaw, g.AllowZip, g.AllowGuestUpload, g.WatermarkView, g.WatermarkDownload,
         rawMatchMode = g.RawMatchMode, hideRawOnly = g.HideRawOnly, sortMode = g.SortMode, sortDesc = g.SortDesc,
         eventDate = g.EventDate, g.Location, g.AllowedSizes, g.AllowedFormats, expiresAt = g.ExpiresAt,
-        footageLinks = GalleryRules.Links(g), cover = g.CoverPhotoId, count, pending, rawOnly
+        footageLinks = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l) }), cover = g.CoverPhotoId, count, pending, rawOnly
     };
 
     public static void Map(WebApplication app)
@@ -305,7 +305,7 @@ public static class AdminApi
                     var label = l.Label ?? "";
                     // an empty label on a YouTube link is filled with the video's own title
                     if (label.Trim().Length == 0 && GalleryRules.YouTubeId(l.Url) is { } vid) label = await YouTubeTitle(vid) ?? "";
-                    items.Add(new GalleryRules.FootageLink(label, l.Url ?? ""));
+                    items.Add(new GalleryRules.FootageLink(label, l.Url ?? "", l.Category, l.Button));
                 }
                 g.FootageLinks = GalleryRules.CleanLinks(items);
             }

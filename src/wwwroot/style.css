@@ -299,6 +299,17 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .link-row input:nth-child(2) { flex: 1; min-width: 0; }
 .link-thumb { order: -1; flex: 0 0 auto; width: 96px; height: 54px; object-fit: cover; border-radius: 4px; background: var(--border, #ccc); }
 .link-thumb[hidden] { display: none; }
+.link-row select { flex: 0 0 auto; width: auto; }
+.link-opt { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; flex: 0 0 auto; }
+.link-opt input { flex: none; width: auto; }
+.link-row input:nth-child(2) { flex: 1 1 260px; }
+.link-row { flex-wrap: wrap; }
+.ext-head { margin: 28px 0 10px; font-size: 1.1rem; }
+.ext-links { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-bottom: 24px; }
+.ext-card { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--border, #ccc); border-radius: 10px; text-decoration: none; color: inherit; }
+.ext-card:hover { border-color: var(--accent, currentColor); }
+.ext-title { font-weight: 600; overflow-wrap: anywhere; }
+.ext-host { font-size: .85rem; }
 .panel.inner { margin: 10px 0; background: var(--bg); }
 
 /* phone toolbar: tidy two-column grid, denser photo rows */
