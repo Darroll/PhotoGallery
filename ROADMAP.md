@@ -30,10 +30,10 @@ Legend: [x] done, [ ] to do, (?) waiting for a decision (see "Open questions").
 - [ ] **Like count on every photo.** The like is the existing heart (decided). Show how many people liked it, next to the heart, on the grid and in the viewer.
 - [ ] **Most-liked view.** A "Most liked" sort and a top-liked strip on each gallery.
 - [ ] **Likes only, never negatives.** No thumbs down, no dislike counts, no "unlike" shaming: a visitor can remove their own like quietly.
-- [ ] **Comments on photos.** Shown immediately, no approval step (decided). Only people with a **verified email address** can comment. (?) Q7 how the email is verified
+- [ ] **Comments on photos.** Shown immediately, no approval step (decided). Only people with a **verified email address** can comment. Verification is Keycloak's: sign-in goes through single sign-on and the provider's `email_verified` claim is respected (decided).
 - [ ] **Gallery message.** A single feedback / thank-you note to the photographer for the whole gallery.
 - [ ] **Comment moderation.** Admin can review, hide and delete any comment; turn comments off per photo and per gallery; and block a person from commenting. Rate-limited and spam-guarded.
-- [ ] **Comment log (who, what, when, where).** Every comment, edit, hide, delete and block is recorded: verified email and display name, the text (and previous text on edit), time, gallery and photo, and IP address and browser. Viewable and searchable by the admin, and kept even when a comment is deleted. (?) Q8 retention
+- [ ] **Comment log (who, what, when, where).** Every comment, edit, hide, delete and block is recorded: verified email and display name, the text (and previous text on edit), time, gallery and photo, and IP address and browser (the IP is stored, not displayed). Viewable and searchable by the admin, and kept even when a comment is hidden or deleted. The log lives with the comment, so it is kept as long as the comment is (decided). The IP address is stored but never shown on any page.
 - [ ] **Email alert for new comments** (reuses the existing alerts).
 - [ ] **Per-gallery switches** for likes, like counts and comments.
 
@@ -93,5 +93,5 @@ Answers go here as they are decided.
 - **Q4.** Which install routes matter to you beyond Unraid?
 - **Q5. Decided:** links only.
 - **Q6.** Invites: personal links that need no account, or sign-in?
-- **Q7.** How should a commenter's email be verified: a one-time link or code emailed to them (no account, works for relatives), or single sign-on only?
-- **Q8.** How long should the comment log be kept (forever, or e.g. 2 years)? IP addresses are personal data.
+- **Q7. Decided:** verification follows Keycloak (`email_verified`); commenting needs single sign-on.
+- **Q8. Decided:** the log is saved with the comment; the IP address is stored but never rendered.
