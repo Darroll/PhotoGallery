@@ -297,6 +297,8 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .link-row { display: flex; gap: 8px; align-items: center; }
 .link-row input:first-child { flex: 0 1 220px; }
 .link-row input:nth-child(2) { flex: 1; min-width: 0; }
+.link-thumb { order: -1; flex: 0 0 auto; width: 96px; height: 54px; object-fit: cover; border-radius: 4px; background: var(--border, #ccc); }
+.link-thumb[hidden] { display: none; }
 .panel.inner { margin: 10px 0; background: var(--bg); }
 
 /* phone toolbar: tidy two-column grid, denser photo rows */

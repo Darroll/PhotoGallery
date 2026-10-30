@@ -56,7 +56,7 @@ Site settings has an **Email alerts** panel (relay host/port, sender, your addre
 
 ### Videos
 
-In a gallery's settings, **Videos and links** takes YouTube links (watch, youtu.be, shorts, live). They show as a **Videos** grid above the photos so all recordings of an event sit in one place. Leave the title empty and the video's own title is used. Preview images are fetched by the server and cached, so visitors do not contact YouTube until they press play. A cached image is checked on YouTube again after 12 hours (the old one stays if YouTube cannot be reached), and **Refresh video thumbnails** under the links list fetches the current ones straight away, for example after you change a video's thumbnail on YouTube; playback uses the privacy-enhanced youtube-nocookie player in a pop-up. Other links stay as buttons.
+In a gallery's settings, **Videos and links** takes YouTube links (watch, youtu.be, shorts, live). They show as a **Videos** grid above the photos so all recordings of an event sit in one place. Leave the title empty and the video's own title is used. Preview images are fetched by the server and cached, so visitors do not contact YouTube until they press play. A cached image is checked on YouTube again after 12 hours (the old one stays if YouTube cannot be reached), and **Refresh video thumbnails** under the links list fetches the current ones straight away, for example after you change a video's thumbnail on YouTube. Each saved YouTube link in the settings shows its current thumbnail beside it; playback uses the privacy-enhanced youtube-nocookie player in a pop-up. Other links stay as buttons.
 
 ### Thumbnails
 

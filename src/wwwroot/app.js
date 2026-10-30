@@ -1735,7 +1735,19 @@ async function viewGallerySettings(app, id) {
   const addLinkRow = (l = { label: '', url: '' }) => {
     const label = track(h('input', { type: 'text', placeholder: 'Title (optional for YouTube)', value: l.label || '', maxlength: 60 }));
     const url = track(h('input', { type: 'text', placeholder: 'https://www.youtube.com/watch?v=...', value: l.url || '' }));
-    const row = h('div', { class: 'link-row' }, label, url, h('button', { class: 'danger', text: 'Remove', onclick: () => { row.remove(); touch(); } }));
+    // the cached YouTube preview image, for saved links only (a new link has none until the gallery is saved)
+    const thumb = h('img', { class: 'link-thumb', alt: '', hidden: true });
+    thumb.onload = () => { thumb.hidden = false; };
+    thumb.onerror = () => { thumb.hidden = true; };
+    const showThumb = (bust) => {
+      const m = url.value.match(/(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/|v\/))([A-Za-z0-9_-]{11})/);
+      if (!m) { thumb.hidden = true; return; }
+      thumb.src = `/vthumb/${m[1]}` + (bust ? `?t=${Date.now()}` : '');
+    };
+    url.addEventListener('change', () => showThumb(false));
+    const row = h('div', { class: 'link-row' }, label, url, h('button', { class: 'danger', text: 'Remove', onclick: () => { row.remove(); touch(); } }), thumb);
+    row.showThumb = showThumb;
+    showThumb(false);
     linkRows.append(row);
   };
   (g.footageLinks || []).forEach(addLinkRow);
@@ -1745,7 +1757,8 @@ async function viewGallerySettings(app, id) {
     h('button', { text: 'Refresh video thumbnails', title: 'Fetch the current preview image from YouTube again for every saved video in this gallery', onclick: async () => {
       videoMsg.textContent = 'Refreshing...';
       const r = await api(`/api/admin/galleries/${g.id}/video-thumbnails/refresh`, { method: 'POST' });
-      videoMsg.textContent = !r.ok ? 'Could not refresh' : r.data.videos === 0 ? 'No YouTube videos saved in this gallery' : `Refreshed ${r.data.refreshed} of ${r.data.videos}. Reload the gallery page to see them.`;
+      if (r.ok) [...linkRows.children].forEach(row => row.showThumb(true));
+      videoMsg.textContent = !r.ok ? 'Could not refresh' : r.data.videos === 0 ? 'No YouTube videos saved in this gallery' : `Refreshed ${r.data.refreshed} of ${r.data.videos}. Reload the gallery page to see them there.`;
     } }), videoMsg));
   const collectLinks = () => [...linkRows.children].map(r => ({ label: r.children[0].value.trim(), url: r.children[1].value.trim() })).filter(l => l.url);
   const tagsInput = tagEditor(g.tags || [], touch);
