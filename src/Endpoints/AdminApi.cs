@@ -13,11 +13,12 @@ public static class AdminApi
     static string Clip(string? s) => new string((s ?? "").Where(c => !char.IsControl(c)).Take(40).ToArray());
     record PeopleInput(List<string>? Emails);
     record GalleryInput(string? Title, string? Description, string? Folder, string? Slug, Visibility? Visibility,
-        string? Password, bool? AllowDownload, bool? AllowRaw, bool? AllowZip, bool? AllowGuestUpload, bool? AllowLikes, bool? ShowLikeCounts,
+        string? Password, bool? AllowDownload, bool? AllowRaw, bool? AllowZip, bool? AllowGuestUpload, bool? AllowLikes, bool? ShowLikeCounts, bool? AllowComments,
         bool? WatermarkView, bool? WatermarkDownload, RawMatch? RawMatchMode,
         bool? HideRawOnly, GallerySort? SortMode, bool? SortDesc, string? EventDate, string? Location,
         string? AllowedSizes, string? AllowedFormats, string? ExpiresAt, List<LinkItem>? FootageLinks);
     record LinkRawInput(int RawPhotoId);
+    record CommentSwitch(bool Off);
     record MoveInput(string? Direction);
     record LinkItem(string? Label, string? Url, string? Category, bool? Button, string? Note);
     record SiteInput(string? Name);
@@ -46,7 +47,7 @@ public static class AdminApi
     {
         g.Id, g.Slug, g.Title, g.Description, g.Folder, g.Visibility,
         hasPassword = !string.IsNullOrEmpty(g.PasswordHash),
-        g.AllowDownload, g.AllowRaw, g.AllowZip, g.AllowGuestUpload, g.AllowLikes, g.ShowLikeCounts, g.WatermarkView, g.WatermarkDownload,
+        g.AllowDownload, g.AllowRaw, g.AllowZip, g.AllowGuestUpload, g.AllowLikes, g.ShowLikeCounts, g.AllowComments, g.WatermarkView, g.WatermarkDownload,
         rawMatchMode = g.RawMatchMode, hideRawOnly = g.HideRawOnly, sortMode = g.SortMode, sortDesc = g.SortDesc,
         eventDate = g.EventDate, g.Location, g.AllowedSizes, g.AllowedFormats, expiresAt = g.ExpiresAt,
         footageLinks = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }), cover = g.CoverPhotoId, count, pending, rawOnly
@@ -297,6 +298,7 @@ public static class AdminApi
             if (input.AllowZip != null) g.AllowZip = input.AllowZip.Value;
             if (input.AllowGuestUpload != null) g.AllowGuestUpload = input.AllowGuestUpload.Value;
             if (input.AllowLikes != null) g.AllowLikes = input.AllowLikes.Value;
+            if (input.AllowComments != null) g.AllowComments = input.AllowComments.Value;
             if (input.ShowLikeCounts != null) g.ShowLikeCounts = input.ShowLikeCounts.Value;
             if (input.WatermarkView != null) g.WatermarkView = input.WatermarkView.Value;
             if (input.WatermarkDownload != null) g.WatermarkDownload = input.WatermarkDownload.Value;
@@ -348,6 +350,8 @@ public static class AdminApi
             await db.FavoriteOwners.Where(o => o.GalleryId == id).ExecuteDeleteAsync();
             await db.GalleryTags.Where(t => t.GalleryId == id).ExecuteDeleteAsync();
             await db.GalleryGroups.Where(x => x.GalleryId == id).ExecuteDeleteAsync();
+            await db.CommentEvents.Where(e => e.GalleryId == id).ExecuteDeleteAsync();   // the log goes with the gallery
+            await db.Comments.Where(c => c.GalleryId == id).ExecuteDeleteAsync();
             db.Galleries.Remove(g);
             await db.SaveChangesAsync();
             return Results.NoContent();
@@ -451,6 +455,16 @@ public static class AdminApi
                 .Select(grp => new { photoId = grp.Key, name = photos[grp.Key].Name, count = grp.Count() })
                 .OrderByDescending(x => x.count).ThenBy(x => x.name).Take(30).ToList();
             return Results.Ok(new { lists, top });
+        });
+
+        // comments can be switched off for a single photo, whatever the gallery says
+        secured.MapPut("/photos/{id:int}/comments", async (int id, CommentSwitch input, AppDb db) =>
+        {
+            var p = await db.Photos.FindAsync(id);
+            if (p == null) return Results.NotFound();
+            p.CommentsOff = input.Off;
+            await db.SaveChangesAsync();
+            return Results.Ok(new { commentsOff = p.CommentsOff });
         });
 
         // --- guest upload moderation ---

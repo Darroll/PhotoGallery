@@ -118,6 +118,11 @@ public class MigrationTests : IDisposable
         db.Database.ExecuteSqlRaw("DROP INDEX \"IX_Photos_Fingerprint\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Photos\" DROP COLUMN \"Fingerprint\"");
         db.Database.ExecuteSqlRaw("DROP TABLE \"PhotosRetired\"");
+        db.Database.ExecuteSqlRaw("DROP TABLE \"CommentEvents\"");
+        db.Database.ExecuteSqlRaw("DROP TABLE \"Comments\"");
+        db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"AllowComments\"");
+        db.Database.ExecuteSqlRaw("ALTER TABLE \"Photos\" DROP COLUMN \"CommentsOff\"");
+        db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" DROP COLUMN \"DisplayName\"");
     }
 
     [Fact]

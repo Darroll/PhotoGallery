@@ -94,12 +94,13 @@ public class UserPreferencesSchemaTests
                 // a database from before preferences existed: the current schema minus the new column
                 db.Database.EnsureCreated();
                 db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" DROP COLUMN \"Preferences\"");
+                db.Database.ExecuteSqlRaw("ALTER TABLE \"Users\" DROP COLUMN \"DisplayName\"");
                 db.Database.ExecuteSqlRaw("INSERT INTO \"Users\" VALUES ('old-user', 'o@example.test', 'Old', '2025-01-01', '2025-01-02')");
             }
             using (var db = new AppDb(opts)) { Schema.Upgrade(db); Schema.Upgrade(db); }   // twice: it must be repeatable
             using (var db = new AppDb(opts))
             {
-                var u = db.Users.Single(x => x.Sub == "old-user");
+                var u = db.Users.Where(x => x.Sub == "old-user").Select(x => new { x.Name, x.Preferences }).Single();
                 Assert.Equal("Old", u.Name);
                 Assert.Equal("{}", u.Preferences);
                 Assert.Null(UserPreferences.Parse(u.Preferences).Theme);

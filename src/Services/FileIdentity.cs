@@ -49,9 +49,10 @@ public static class FileIdentity
     }
 
     public record SavedLike(string VisitorId, string IdentityKey, string Ip, DateTime CreatedAt);
-    public record Saved(string Caption, string AltText, string CaptionSource, List<int> TagIds, List<SavedLike> Likes)
+    /// <summary>CommentIds are the comments written on the photo; they are re-pointed, not copied, so the log stays intact.</summary>
+    public record Saved(string Caption, string AltText, string CaptionSource, List<int> TagIds, List<SavedLike> Likes, List<int>? CommentIds = null)
     {
-        public bool IsEmpty => Caption == "" && AltText == "" && TagIds.Count == 0 && Likes.Count == 0;
+        public bool IsEmpty => Caption == "" && AltText == "" && TagIds.Count == 0 && Likes.Count == 0 && (CommentIds?.Count ?? 0) == 0;
     }
 
     /// <summary>Takes what a visitor or the admin attached to these photos, so it can be put back on the same file elsewhere.</summary>
@@ -62,8 +63,10 @@ public static class FileIdentity
             .GroupBy(t => t.PhotoId).ToDictionary(x => x.Key, x => x.Select(t => t.TagId).ToList());
         var likes = (await db.Favorites.AsNoTracking().Where(f => ids.Contains(f.PhotoId)).ToListAsync())
             .GroupBy(f => f.PhotoId).ToDictionary(x => x.Key, x => x.Select(f => new SavedLike(f.VisitorId, f.IdentityKey, f.Ip, f.CreatedAt)).ToList());
+        var comments = (await db.Comments.AsNoTracking().Where(c => ids.Contains(c.PhotoId)).Select(c => new { c.PhotoId, c.Id }).ToListAsync())
+            .GroupBy(c => c.PhotoId).ToDictionary(x => x.Key, x => x.Select(c => c.Id).ToList());
         return photos.ToDictionary(p => p.Id, p => new Saved(p.Caption, p.AltText, p.CaptionSource,
-            tags.GetValueOrDefault(p.Id) ?? [], likes.GetValueOrDefault(p.Id) ?? []));
+            tags.GetValueOrDefault(p.Id) ?? [], likes.GetValueOrDefault(p.Id) ?? [], comments.GetValueOrDefault(p.Id) ?? []));
     }
 
     /// <summary>Adds saved data to a photo without overwriting anything it already has.</summary>
@@ -81,6 +84,11 @@ public static class FileIdentity
         foreach (var l in s.Likes)
             if (haveLikes.Add(l.VisitorId))
                 db.Favorites.Add(new Favorite { GalleryId = target.GalleryId, PhotoId = target.Id, VisitorId = l.VisitorId, IdentityKey = l.IdentityKey, Ip = l.Ip, CreatedAt = l.CreatedAt });
+        if (s.CommentIds is { Count: > 0 } moving)
+        {
+            await db.Comments.Where(c => moving.Contains(c.Id)).ExecuteUpdateAsync(u => u.SetProperty(c => c.PhotoId, target.Id).SetProperty(c => c.GalleryId, target.GalleryId));
+            await db.CommentEvents.Where(e => moving.Contains(e.CommentId)).ExecuteUpdateAsync(u => u.SetProperty(e => e.PhotoId, target.Id).SetProperty(e => e.GalleryId, target.GalleryId));
+        }
         await db.SaveChangesAsync();
     }
 

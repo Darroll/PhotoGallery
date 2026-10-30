@@ -129,11 +129,11 @@ If time is short, the smallest set that delivers the vision is **#1, #4, #6, #7,
 
 **Comments**
 
-- [ ] **Comments on photos.** Shown immediately, no approval step (decided). Only people with a **verified email address** can comment. Verification is Keycloak's: sign-in goes through single sign-on and the provider's `email_verified` claim is respected (decided).
-- [ ] **Show the display name, never the email address**, on comments. The email stays in the log. *proposed*
-- [ ] **Flat comments only**, no threads and no reactions other than the like. Keeps it limited and positive. *proposed*
-- [ ] **Edit or delete your own comment** for 15 minutes after posting (decided). The earlier text is kept in the log.
-- [ ] **Admin can reply in the comments**, flat and marked as the photographer (decided).
+- [x] **Comments on photos.** Shown immediately, no approval step (decided). Only people with a **verified email address** can comment. Verification is Keycloak's: sign-in goes through single sign-on and the provider's `email_verified` claim is respected (decided).
+- [x] **Show the display name, never the email address**, on comments. The email stays in the log. *proposed*
+- [x] **Flat comments only**, no threads and no reactions other than the like. Keeps it limited and positive. *proposed*
+- [x] **Edit or delete your own comment** for 15 minutes after posting (decided). The earlier text is kept in the log.
+- [x] **Admin can reply in the comments**, flat and marked as the photographer (decided).
 - [ ] **Comment moderation.** Admin can review, hide and delete any comment; turn comments off per photo and per gallery; and block a person from commenting. Rate-limited and spam-guarded.
 - [ ] **Comment log (who, what, when, where).** Every comment, edit, hide, delete and block is recorded: verified email and display name, the text (and previous text on edit), time, gallery and photo, and IP address and browser (the IP is stored, never displayed). The log is saved with the comment (decided). A deleted comment disappears from the page but its record stays in the admin log until its gallery is deleted. Viewable and searchable by the admin.
 - [ ] **Email alert for new comments**, as a daily digest by default so it never floods the inbox (reuses the existing alerts).

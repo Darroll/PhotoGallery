@@ -661,6 +661,95 @@ function openDownloadSheet(opts = {}) {
 
 // Details of a photo: each file behind it (the image and its RAW, if any) with the metadata that file carries.
 // Returns the nodes for the panel that sits beside the image in the viewer, or null when they cannot be loaded.
+// --- comments in the viewer ---
+const cmErr = (r, fallback) => r && r.data && typeof r.data === 'object' && r.data.error ? r.data.error : typeof (r && r.data) === 'string' && r.data ? r.data : fallback;
+const cmWhen = (iso) => new Date(iso + (/Z$/.test(iso) ? '' : 'Z')).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+
+// The comments for one photo, plus the box to write one. Returns the nodes for the side panel; `changed` redraws it after any change.
+async function commentsPanel(photo, changed) {
+  const base = `/api/g/${encodeURIComponent(G.slug)}/photo/${photo.id}/comments`;
+  const r = await api(base);
+  if (!r.ok) return [h('p', { class: 'muted', text: 'Comments are not available for this photo.' })];
+  const d = r.data, me = d.me;
+  if (!d.enabled) return [h('p', { class: 'muted', text: G.admin ? 'Comments are switched off for this photo or its gallery. Use the buttons under the photo to switch them on.' : 'Comments are switched off for this photo.' })];
+  photo.comments = d.comments.length;
+
+  const out = [];
+  const msg = h('div', { class: 'cm-msg' });
+  let replyTo = null;
+  const byId = new Map(d.comments.map(c => [c.id, c]));
+
+  const card = (c) => {
+    const body = h('div', { class: 'cm-text', text: c.text });
+    const head = h('div', { class: 'cm-head' },
+      c.isAdmin ? h('span', { class: 'cm-badge', text: 'Photographer' }) : h('strong', { text: c.author }),
+      h('span', { class: 'muted', text: ' ' + cmWhen(c.at) + (c.edited ? ' (edited)' : '') }));
+    const acts = h('div', { class: 'cm-acts' });
+    if (me.canPost) acts.append(h('button', { class: 'linkish', text: 'Reply', onclick: () => { replyTo = c; drawComposer(); box.focus(); } }));
+    if (c.mine && c.canChangeUntil && new Date(c.canChangeUntil + (/Z$/.test(c.canChangeUntil) ? '' : 'Z')) > new Date()) {
+      acts.append(
+        h('button', { class: 'linkish', text: 'Edit', onclick: () => {
+          const ta = h('textarea', { rows: 3, maxlength: 1000, 'aria-label': 'Edit your comment' }); ta.value = c.text;
+          const err = h('div', { class: 'cm-msg' });
+          body.replaceChildren(ta, err, h('div', { class: 'cm-acts' },
+            h('button', { class: 'primary', text: 'Save', onclick: async () => {
+              const e = await api(`${base}/${c.id}`, { method: 'PUT', body: { text: ta.value } });
+              if (e.ok) changed(); else err.textContent = cmErr(e, 'Could not save.');
+            } }),
+            h('button', { text: 'Cancel', onclick: () => body.replaceChildren(c.text) })));
+          ta.focus();
+        } }),
+        h('button', { class: 'linkish', text: 'Delete', onclick: async () => {
+          if (!confirm('Delete this comment?')) return;
+          const e = await api(`${base}/${c.id}`, { method: 'DELETE' });
+          if (e.ok) changed(); else msg.textContent = cmErr(e, 'Could not delete.');
+        } }));
+    }
+    return h('div', { class: 'cm' + (c.isAdmin ? ' cm-admin' : '') },
+      head,
+      c.replyTo ? h('div', { class: 'cm-reply muted', text: '↩ in reply to ' + c.replyTo.author }) : null,
+      body, acts);
+  };
+
+  const list = h('div', { class: 'cm-list' }, d.comments.length ? d.comments.map(card) : h('p', { class: 'muted', text: 'No comments yet.' }));
+  out.push(h('p', { class: 'muted', text: plural(d.comments.length, 'comment') }), list);
+
+  const box = h('textarea', { rows: 3, maxlength: 1000, placeholder: 'Write a comment...', 'aria-label': 'Your comment' });
+  const composer = h('div', { class: 'cm-compose' });
+  const drawComposer = () => {
+    const post = h('button', { class: 'primary', text: 'Post', onclick: async () => {
+      post.disabled = true;
+      const e = await api(base, { method: 'POST', body: { text: box.value, replyTo: replyTo ? replyTo.id : null } });
+      post.disabled = false;
+      if (e.ok) changed(); else msg.textContent = cmErr(e, 'Could not post.');
+    } });
+    composer.replaceChildren(...[
+      replyTo ? h('div', { class: 'cm-replying' }, '↩ Replying to ' + replyTo.author + ' ', h('button', { class: 'linkish', text: 'Cancel', onclick: () => { replyTo = null; drawComposer(); } })) : null,
+      box, h('div', { class: 'cm-acts' }, post, h('span', { class: 'muted', text: me.admin ? 'Posting as the photographer' : 'Posting as ' + me.name + '. ' }),
+        me.admin ? null : h('button', { class: 'linkish', text: 'Change name', onclick: () => { nameForm(); } }))].filter(Boolean));
+  };
+
+  const nameForm = () => {
+    const input = h('input', { type: 'text', maxlength: 40, value: me.name || me.suggestedName || '', 'aria-label': 'Your display name', placeholder: 'Your name' });
+    composer.replaceChildren(
+      h('p', { text: 'Choose the name to show on your comments. It is a name, not your email address, and others will see it.' }), input,
+      h('div', { class: 'cm-acts' }, h('button', { class: 'primary', text: 'Save name', onclick: async () => {
+        const e = await api('/api/me/display-name', { method: 'PUT', body: { name: input.value } });
+        if (e.ok) changed(); else msg.textContent = cmErr(e, 'Could not save the name.');
+      } }), me.name ? h('button', { text: 'Cancel', onclick: drawComposer }) : null));
+    input.focus();
+  };
+
+  if (me.canPost) drawComposer();
+  else if (me.verified && !me.name) nameForm();
+  else if (!me.signedIn) composer.replaceChildren(me.canSignIn
+    ? h('p', {}, h('a', { class: 'btn primary', href: '/auth/login?next=' + encodeURIComponent(location.pathname), text: 'Sign in to comment' }))
+    : h('p', { class: 'muted', text: 'Only the photographer can write comments here.' }));
+  else composer.replaceChildren(h('p', { class: 'muted', text: 'Your email address is not verified by the sign-in provider, so you cannot comment yet.' }));
+  out.push(composer, msg);
+  return out;
+}
+
 async function photoDetails(photo) {
   const r = await api(`/api/g/${encodeURIComponent(G.slug)}/photo/${photo.id}/info`);
   if (!r.ok) return null;
@@ -867,7 +956,7 @@ function openLightbox(index, play, mode = 'push') {
   const closeBtn = h('button', { class: 'lb-close', 'aria-label': 'Close', text: '✕' });
   const prev = h('button', { class: 'nav prev', text: '‹', 'aria-label': 'Previous' });
   const next = h('button', { class: 'nav next', text: '›', 'aria-label': 'Next' });
-  const favA = act('♡', 'Favorite'), selA = act('☐', 'Select'), dlA = act('⬇', 'Download'), playA = act('▶', 'Play'), infoA = act('ⓘ', 'Details');
+  const favA = act('♡', 'Favorite'), selA = act('☐', 'Select'), dlA = act('⬇', 'Download'), playA = act('▶', 'Play'), infoA = act('ⓘ', 'Details'), cmtA = act('💬', 'Comments');
   const speed = h('select', { 'aria-label': 'Slide time' }, [3, 5, 8, 12].map(s => h('option', { value: s, text: s + 's', selected: s === 5 })));
   const fsBtn = h('button', { class: 'lb-small', text: 'Fullscreen' });
   const adminRow = h('div', { class: 'lb-admin' });
@@ -875,6 +964,7 @@ function openLightbox(index, play, mode = 'push') {
   const details = h('aside', { class: 'lb-details hidden', 'aria-label': 'Photo details' });
   const actions = h('div', { class: 'lb-actions' }, favA.el, selA.el);
   if (G.allowDownload) actions.append(dlA.el);
+  if (G.allowComments) actions.append(cmtA.el);
   actions.append(infoA.el);
   actions.append(playA.el);
   root.append(
@@ -928,6 +1018,8 @@ function openLightbox(index, play, mode = 'push') {
     const fav = favs.has(p.id), chosen = sel.has(p.id);
     favA.i.textContent = fav ? '♥' : '♡'; favA.l.textContent = (fav ? 'Favorited' : 'Favorite') + (G.showLikeCounts && p.likes > 0 ? ' · ' + p.likes : ''); favA.el.classList.toggle('on', fav);
     favA.el.classList.toggle('hidden', G.allowLikes === false);
+    cmtA.l.textContent = 'Comments' + (p.comments > 0 ? ' · ' + p.comments : '');
+    cmtA.el.classList.toggle('hidden', !G.allowComments || (p.commentsOff && !G.admin));
     selA.i.textContent = chosen ? '☑' : '☐'; selA.l.textContent = chosen ? 'Selected' : 'Select'; selA.el.classList.toggle('on', chosen);
     const unlink = G.admin && p.raw && !p.rawOnly
       ? h('button', { class: 'danger', text: 'Unlink RAW', onclick: async () => { if (confirm('Unlink the RAW from this photo?')) { await api(`/api/admin/photos/${p.id}/link-raw`, { method: 'DELETE' }); route(true); } } })
@@ -938,27 +1030,40 @@ function openLightbox(index, play, mode = 'push') {
           if (r.ok) { G.cover = p.id; toast('Gallery cover updated'); lb.sync(); } else toast('Could not set cover');
         } })
       : null;
-    adminRow.replaceChildren(...[adminStatus(G, G.admin, false), coverBtn, unlink].filter(Boolean));
+    const cmtSwitch = G.admin && G.allowComments
+      ? h('button', { text: p.commentsOff ? 'Comments are off here: turn on' : 'Turn comments off for this photo', onclick: async () => {
+          const r = await api(`/api/admin/photos/${p.id}/comments`, { method: 'PUT', body: { off: !p.commentsOff } });
+          if (r.ok) { p.commentsOff = r.data.commentsOff; lb.sync(); lb.drawDetails(); } else toast('Could not change that');
+        } })
+      : null;
+    adminRow.replaceChildren(...[adminStatus(G, G.admin, false), coverBtn, cmtSwitch, unlink].filter(Boolean));
   };
   favA.el.onclick = () => toggleFav(cur());
   selA.el.onclick = () => toggleSel(cur());
   dlA.el.onclick = () => openDownloadSheet({ photo: cur() });
   // The details open in a panel beside the photo (under it on a phone) and follow the photo as you move through the gallery.
-  const setDetails = (open) => {
-    details.classList.toggle('hidden', !open); root.classList.toggle('has-details', open); infoA.el.classList.toggle('open', open);
+  let panelKind = 'info';
+  const setDetails = (open, kind = panelKind) => {
+    panelKind = kind;
+    details.classList.toggle('hidden', !open); root.classList.toggle('has-details', open);
+    infoA.el.classList.toggle('open', open && kind === 'info'); cmtA.el.classList.toggle('open', open && kind === 'comments');
     resetZoom(); lb.drawDetails();
   };
   lb.drawDetails = async () => {
     const p = cur();
     if (!p || details.classList.contains('hidden')) return;
-    const head = h('div', { class: 'lb-details-head' }, h('h3', { text: p.name }), h('button', { text: 'Close', onclick: () => setDetails(false) }));
+    const head = h('div', { class: 'lb-details-head' }, h('h3', { text: panelKind === 'comments' ? 'Comments' : p.name }), h('button', { text: 'Close', onclick: () => setDetails(false) }));
     details.replaceChildren(head, h('p', { class: 'muted', text: 'Loading...' }));
-    const body = await photoDetails(p);
+    const kind = panelKind;
+    const body = kind === 'comments' ? await commentsPanel(p, () => { lb.sync(); lb.drawDetails(); }) : await photoDetails(p);
+    if (kind !== panelKind) return;
+    if (kind === 'comments') lb.sync();   // the count on the button
     if (!lb || cur() !== p || details.classList.contains('hidden')) return;   // moved on while it loaded
     details.replaceChildren(head, ...(body || [h('p', { class: 'muted', text: 'Details are not available for this photo.' })]));
     details.scrollTop = 0;
   };
-  infoA.el.onclick = () => setDetails(details.classList.contains('hidden'));
+  infoA.el.onclick = () => setDetails(details.classList.contains('hidden') || panelKind !== 'info', 'info');
+  cmtA.el.onclick = () => setDetails(details.classList.contains('hidden') || panelKind !== 'comments', 'comments');
 
   const stop = () => { lb.playing = false; clearInterval(lb.timer); playA.i.textContent = '▶'; playA.l.textContent = 'Play'; };
   const start = () => { lb.playing = true; playA.i.textContent = '❚❚'; playA.l.textContent = 'Pause'; clearInterval(lb.timer); lb.timer = setInterval(() => show(lb.i + 1), Number(speed.value) * 1000); };
@@ -972,7 +1077,7 @@ function openLightbox(index, play, mode = 'push') {
   root.onmousemove = wake;
   lb.key = (e) => {
     if (!lb) return;
-    if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+    if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     if (e.key === 'Escape') requestClose();
     else if (e.key === 'ArrowRight') show(lb.i + 1);
     else if (e.key === 'ArrowLeft') show(lb.i - 1);
@@ -2078,6 +2183,7 @@ async function viewGallerySettings(app, id) {
   const guestUp = track(h('input', { type: 'checkbox', checked: g.allowGuestUpload }));
   const allowLikes = track(h('input', { type: 'checkbox', checked: g.allowLikes !== false }));
   const showLikes = track(h('input', { type: 'checkbox', checked: g.showLikeCounts !== false }));
+  const allowComments = track(h('input', { type: 'checkbox', checked: g.allowComments === true }));
   const wmUp = section('Watermark & uploads', 'Branding and guest photos', true,
     h('div', { class: 'form1' },
       field('On screen', h('label', {}, wmView, ' Watermark photos shown in the gallery'), 'Style is set in Site settings.'),
@@ -2090,6 +2196,11 @@ async function viewGallerySettings(app, id) {
       field('Hearts', h('label', {}, allowLikes, ' Let visitors heart photos'), 'A heart is a like and is also saved to the visitor’s favorites list.'),
       field('Like counts', h('label', {}, showLikes, ' Show how many people liked each photo'), 'One like counts per signed-in person, or per network address for visitors who are not signed in. You always see the counts.')),
     favoritesManager(g));
+
+  const commentSection = section('Comments', 'Let signed-in visitors comment', false,
+    h('div', { class: 'form1' },
+      field('Comments', h('label', {}, allowComments, ' Let signed-in visitors comment on photos'),
+        'Only people who sign in through your sign-in provider with a verified email can comment, under a display name they choose (never their email). You can always reply, marked as the photographer, and switch comments off for a single photo while viewing it. Needs sign-in set up in Settings, Sign-in (SSO).')));
 
   // --- RAW files (collapsed) ---
   const rawMode = track(h('select', {}, [[0, 'Same folder, same file name'], [1, 'Same file name, any folder'], [2, 'Name starts with the RAW name (IMG_1234-Edit.png)']].map(([v, t]) => h('option', { value: v, text: t, selected: v === g.rawMatchMode }))));
@@ -2111,7 +2222,7 @@ async function viewGallerySettings(app, id) {
       allowDownload: allowDl.checked, allowZip: allowZip.checked,
       allowedSizes: sizeBoxes.every(x => x.box.checked) ? '' : sizeBoxes.filter(x => x.box.checked).map(x => x.px).join(','),
       allowedFormats: fmtBoxes.every(x => x.box.checked) ? '' : fmtBoxes.filter(x => x.box.checked).map(x => x.f).join(','),
-      watermarkView: wmView.checked, watermarkDownload: wmDl.checked, allowGuestUpload: guestUp.checked, allowLikes: allowLikes.checked, showLikeCounts: showLikes.checked,
+      watermarkView: wmView.checked, watermarkDownload: wmDl.checked, allowGuestUpload: guestUp.checked, allowLikes: allowLikes.checked, showLikeCounts: showLikes.checked, allowComments: allowComments.checked,
       rawMatchMode: Number(rawMode.value), allowRaw: allowRaw.checked, hideRawOnly: hideRaw.checked, footageLinks: collectLinks()
     };
     if (pw.value) body.password = pw.value === '-' ? '' : pw.value;
@@ -2131,7 +2242,7 @@ async function viewGallerySettings(app, id) {
       h('a', { class: 'btn', href: '/admin/stats?gallery=' + g.id, text: 'Statistics' }),
       h('a', { class: 'btn', href: '/g/' + encodeURIComponent(g.slug), text: 'View gallery' })),
     h('p', { class: 'muted counts', text: countsLine(g) }),
-    general, access, downloads, wmUp, favSection, raw,
+    general, access, downloads, wmUp, favSection, commentSection, raw,
     h('div', { class: 'savebar' }, saveBtn, status));
 }
 

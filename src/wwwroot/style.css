@@ -527,3 +527,17 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 #lightbox .admin-status .chip.v1, #lightbox .admin-status .chip.v2, #lightbox .admin-status .chip.v3 { color: #8db4ff; border-color: #8db4ff; }
 #lightbox .admin-status .chip.warn { color: #e0a83a; border-color: #e0a83a; }
 #lightbox .chip-link { color: #eee; border-color: #666; background: none; }
+
+/* comments (inside the viewer's side panel) */
+#lightbox .cm-list { display: flex; flex-direction: column; gap: 12px; margin: 10px 0 14px; }
+#lightbox .cm { padding: 8px 10px; border: 1px solid #333; border-radius: 10px; background: #1b1b1b; }
+#lightbox .cm-admin { border-color: #4a6fa8; background: #18202e; }
+#lightbox .cm-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 13px; }
+#lightbox .cm-badge { font-size: 11px; background: #4a6fa8; color: #fff; border-radius: 8px; padding: 0 6px; }
+#lightbox .cm-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0; }
+#lightbox .cm-reply { font-size: 12px; }
+#lightbox .cm-acts { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 4px; }
+#lightbox .cm-compose textarea, #lightbox .cm-text textarea, #lightbox .cm-compose input { width: 100%; box-sizing: border-box; background: #0f0f0f; color: #eee; border: 1px solid #444; border-radius: 8px; padding: 6px 8px; font: inherit; }
+#lightbox .cm-msg { color: #ff8a8a; font-size: 13px; min-height: 1em; margin-top: 6px; }
+#lightbox .cm-replying { font-size: 13px; margin-bottom: 4px; }
+#lightbox .linkish { background: none; border: 0; padding: 0; color: #8db4ff; cursor: pointer; font-size: 13px; text-decoration: underline; }

@@ -61,6 +61,7 @@ builder.Services.AddRateLimiter(o =>
     o.AddPolicy("suggest", c => Per(c, 10));
     o.AddPolicy("upload", c => Per(c, 30));
     o.AddPolicy("viewed", c => Per(c, 240));
+    o.AddPolicy("comment", c => Per(c, 150));   // a flood guard per address; the per-person limit is in CommentApi
     // one ZIP at a time per visitor, and a few concurrent single downloads
     o.AddPolicy("zip", c => RateLimitPartition.GetConcurrencyLimiter(c.Connection.RemoteIpAddress?.ToString() ?? "?",
         _ => new ConcurrencyLimiterOptions { PermitLimit = 1, QueueLimit = 0 }));
@@ -162,6 +163,7 @@ HealthApi.Map(app);
 BackupApi.Map(app);
 AuthApi.Map(app);
 SsoApi.Map(app);
+CommentApi.Map(app);
 SsoApi.MapTestLogin(app);
 SubscribeApi.Map(app);
 CaptionApi.Map(app);

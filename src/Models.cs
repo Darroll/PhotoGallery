@@ -50,6 +50,8 @@ public class Gallery
     public bool AllowLikes { get; set; } = true;
     /// <summary>Show how many people liked each photo. The admin always sees the counts.</summary>
     public bool ShowLikeCounts { get; set; } = true;
+    /// <summary>Signed-in visitors with a verified email may comment on photos here. Off until the admin turns it on.</summary>
+    public bool AllowComments { get; set; }
     public bool WatermarkView { get; set; }
     public bool WatermarkDownload { get; set; }
     public int? CoverPhotoId { get; set; }
@@ -87,6 +89,8 @@ public class Photo
     public DateTime AddedAt { get; set; } = DateTime.UtcNow;
     /// <summary>Identity of the file's contents, so a rename or move keeps this photo's likes, tags and caption. See <see cref="FileIdentity"/>. Empty until the first scan that sees the file.</summary>
     public string Fingerprint { get; set; } = "";
+    /// <summary>Comments are switched off for this photo even if the gallery allows them.</summary>
+    public bool CommentsOff { get; set; }
     public bool RawOnly => RawRelPath != null && RawRelPath == RelPath;
 }
 
@@ -142,6 +146,8 @@ public class AppUser
     public DateTime LastSeen { get; set; } = DateTime.UtcNow;
     /// <summary>JSON, see UserPreferences.</summary>
     public string Preferences { get; set; } = "{}";
+    /// <summary>The name shown on this person's comments. Empty until they choose one.</summary>
+    public string DisplayName { get; set; } = "";
 }
 
 /// <summary>One accepted license, recorded per accept click. Signed-in people are recorded by provider id; every accept is also tied to the browser's visitor id.</summary>
@@ -177,12 +183,18 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
     public DbSet<GalleryGroup> GalleryGroups => Set<GalleryGroup>();
     public DbSet<PhotoRetired> PhotosRetired => Set<PhotoRetired>();
+    public DbSet<Comment> Comments => Set<Comment>();
+    public DbSet<CommentEvent> CommentEvents => Set<CommentEvent>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<Gallery>().HasIndex(g => g.Slug).IsUnique();
         b.Entity<Photo>().HasIndex(p => new { p.GalleryId, p.RelPath }).IsUnique();
         b.Entity<Photo>().HasIndex(p => p.Fingerprint);
+        b.Entity<Comment>().HasIndex(c => new { c.PhotoId, c.CreatedAt });
+        b.Entity<Comment>().HasIndex(c => new { c.Sub, c.CreatedAt });
+        b.Entity<CommentEvent>().HasIndex(e => e.CommentId);
+        b.Entity<CommentEvent>().HasIndex(e => e.At);
         b.Entity<PhotoRetired>().HasIndex(r => r.Fingerprint);
         b.Entity<ShareLink>().HasIndex(l => l.Token).IsUnique();
         b.Entity<Favorite>().HasIndex(f => new { f.GalleryId, f.PhotoId, f.VisitorId }).IsUnique();
