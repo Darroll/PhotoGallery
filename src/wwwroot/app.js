@@ -400,7 +400,7 @@ async function viewGallery(app, slug) {
 
   const approved = G.photos.filter(p => p.approved || G.admin);
   const rawOnlyCount = approved.filter(p => p.rawOnly).length;
-  let selectMode = false, favOnly = false;
+  let selectMode = false, favOnly = false, likedFirst = false;
   const tiles = new Map();
 
   const countLabel = h('span', { class: 'muted' });
@@ -412,6 +412,26 @@ async function viewGallery(app, slug) {
   const rawBtn = h('label', { class: 'switch', title: 'Curated photos are the edited ones. Turn this off to also see unedited RAW frames.' }, curated, curatedText);
   const dlBtn = h('button', { text: 'Download…', onclick: () => openDownloadSheet() });
   const grid = h('div', { class: 'grid' });
+
+  // most-liked sort and strip (only where the counts are visible and someone has liked something)
+  const likesVisible = G.allowLikes !== false && !!G.showLikeCounts;
+  const byLikes = (list) => list.map((p, i) => [p, i]).sort((a, b) => (b[0].likes || 0) - (a[0].likes || 0) || a[1] - b[1]).map(x => x[0]);
+  const likedBtn = h('button', { class: 'hidden', text: '♥ Most liked', title: 'Show the most liked photos first', onclick: () => { likedFirst = !likedFirst; fill(); } });
+  const strip = h('section', { class: 'topliked hidden', 'aria-label': 'Most liked photos' });
+  const renderLikes = () => {
+    const liked = likesVisible ? approved.filter(p => !p.rawOnly && p.likes > 0) : [];
+    likedBtn.classList.toggle('hidden', liked.length === 0 || favOnly);
+    likedBtn.classList.toggle('on', likedFirst);
+    const top = byLikes(liked).slice(0, 6);
+    const show = liked.length >= 3 && !favOnly;
+    strip.classList.toggle('hidden', !show);
+    if (!show) { strip.replaceChildren(); return; }
+    strip.replaceChildren(h('h2', { class: 'vid-head', text: 'Most liked' }),
+      h('div', { class: 'strip' }, top.map(p =>
+        h('button', { class: 'strip-ph', title: `${p.name} · ${plural(p.likes, 'like')}`, onclick: () => { const i = G.list.findIndex(x => x.id === p.id); if (i >= 0) openLightbox(i, false); } },
+          h('img', { src: photoUrl(p, 'thumb'), alt: p.altText || p.name, loading: 'lazy' }),
+          h('span', { class: 'strip-n', text: '♥ ' + p.likes })))));
+  };
 
   // selection bar (bottom of the screen while choosing photos)
   const selCount = h('b');
@@ -441,6 +461,7 @@ async function viewGallery(app, slug) {
       t.check.textContent = sel.has(id) ? '✓' : '';
     }
     selCount.textContent = `${sel.size} selected`;
+    renderLikes();
     favBtn.textContent = `♥ Favorites (${favs.size})`;
     favBtn.classList.toggle('on', favOnly);
     if (lb && lb.sync) lb.sync();
@@ -450,6 +471,7 @@ async function viewGallery(app, slug) {
     const showRaw = !curated.checked;
     let photos = showRaw ? approved : approved.filter(p => !p.rawOnly);
     if (favOnly) photos = approved.filter(p => favs.has(p.id));
+    if (likedFirst && !favOnly) photos = byLikes(photos);
     G.list = photos;
     countLabel.textContent = favOnly ? `${photos.length} favorites` : plural(photos.filter(p => p.approved).length, 'photo');
     curatedText.textContent = showRaw ? ' Curated only' : ` Curated only (${rawOnlyCount} unedited RAW hidden)`;
@@ -480,12 +502,12 @@ async function viewGallery(app, slug) {
   G.refresh = () => { if (favOnly) fill(); else updateStates(); };
   curated.addEventListener('change', fill);
 
-  const tb = h('div', { class: 'toolbar gallery-bar' }, countLabel, slideBtn, selectBtn, favBtn);
+  const tb = h('div', { class: 'toolbar gallery-bar' }, countLabel, slideBtn, selectBtn, favBtn, likedBtn);
   if (G.allowDownload) tb.append(dlBtn);
   if (rawOnlyCount > 0) tb.append(rawBtn);
   tb.append(h('span', { class: 'grow' }));
   if (G.allowUpload) tb.append(uploadControl(slug));
-  app.append(tb, favBar, grid, selBar);
+  app.append(strip, tb, favBar, grid, selBar);
   if (external.length) app.append(h('h2', { class: 'ext-head', text: 'Links' }), h('div', { class: 'ext-links' }, external.map(l =>
     h('a', { class: 'ext-card', href: l.url, target: '_blank', rel: 'noopener noreferrer' },
       l.preview && l.preview.image ? h('img', { class: 'ext-img', src: l.preview.image, alt: '', loading: 'lazy' }) : null,

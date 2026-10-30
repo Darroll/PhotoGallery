@@ -56,6 +56,8 @@ The heart on a photo is the like, and the number of people who liked a photo sho
 
 **One like per person.** Signed-in visitors count once per account, whatever network they use. Visitors who are not signed in count once per network address, so clearing cookies or opening a second browser does not add another like (an IPv6 address counts as its /64 network). People who share one address, such as a household, share one anonymous like; signing in gives each person their own. A visitor who signs in after liking as a guest keeps those likes, now counted under their account and not twice. The address a heart was given from is stored with it and never shown on any page.
 
+**Most liked.** Once photos have likes, the gallery toolbar gets a **Most liked** button that puts the most liked photos first (equal counts keep the gallery's own order; press it again to go back). When at least three photos have likes, a **Most liked** strip of the top six sits above the toolbar, each with its count; clicking one opens it in the viewer. Both appear only where the counts are shown, so switching the counts off in the gallery settings hides them too.
+
 **Per gallery** (gallery settings, *Favorites*): *Let visitors heart photos* (off hides the heart everywhere) and *Show how many people liked each photo* (off hides the counts from visitors; you always see them). Hearts given before likes were counted each count once. The count is shown in the gallery's JSON as `likes` on every photo, and the heart call returns the photo's new count.
 
 ### Email alerts

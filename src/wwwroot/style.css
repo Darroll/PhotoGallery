@@ -336,6 +336,13 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 
 /* ================= videos ================= */
 .vid-head { margin: 18px 0 8px; font-size: 18px; }
+.topliked { margin: 0 0 12px; }
+.topliked .vid-head { margin-top: 8px; }
+.strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.strip-ph { position: relative; flex: 0 0 auto; height: 120px; padding: 0; border: 0; border-radius: 6px; overflow: hidden; cursor: zoom-in; background: var(--line); }
+.strip-ph img { height: 100%; width: auto; display: block; }
+.strip-ph:focus-visible { outline: 3px solid var(--accent); }
+.strip-n { position: absolute; left: 6px; bottom: 6px; padding: 1px 8px; border-radius: 10px; background: rgba(0,0,0,.6); color: #fff; font-size: 13px; }
 .videos { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .vid { display: flex; flex-direction: column; gap: 6px; padding: 0; border: 0; background: none; color: var(--fg); text-align: left; cursor: pointer; }
 .vid-thumb { position: relative; display: block; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; overflow: hidden; }
