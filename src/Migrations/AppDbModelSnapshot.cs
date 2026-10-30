@@ -442,6 +442,10 @@ namespace PhotoGallery.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("GalleryId")
                         .HasColumnType("INTEGER");
 
@@ -476,10 +480,43 @@ namespace PhotoGallery.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Fingerprint");
+
                     b.HasIndex("GalleryId", "RelPath")
                         .IsUnique();
 
                     b.ToTable("Photos");
+                });
+
+            modelBuilder.Entity("PhotoGallery.PhotoRetired", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Data")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("GalleryId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("RetiredAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Fingerprint");
+
+                    b.ToTable("PhotosRetired");
                 });
 
             modelBuilder.Entity("PhotoGallery.PhotoTag", b =>

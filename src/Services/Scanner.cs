@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PhotoGallery;
 
-public record ScanResult(int Added, int Removed, int Total, int SkippedRaw, int Paired, int RawOnly);
+public record ScanResult(int Added, int Removed, int Total, int SkippedRaw, int Paired, int RawOnly, int Moved = 0);
 
 public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs, ILogger<Scanner> log)
 {
@@ -28,6 +28,13 @@ public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs
 
         var existing = await db.Photos.Where(p => p.GalleryId == g.Id && !p.IsGuest).ToListAsync();
         var byRel = existing.ToDictionary(p => p.RelPath);
+
+        // photos from before file identity existed get their fingerprint while the file is still where it was
+        foreach (var p in existing.Where(p => p.Fingerprint == ""))
+        {
+            var path = cfg.ResolvePhoto(p, p.RelPath);
+            if (path != null && File.Exists(path)) try { p.Fingerprint = FileIdentity.Fingerprint(path); } catch (IOException) { }
+        }
 
         // RAW files already claimed by a hand-made link are not offered to automatic matching
         var lockedRaws = existing.Where(p => p.RawLocked && p.RawRelPath != null && !p.RawOnly)
@@ -87,6 +94,32 @@ public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs
         foreach (var r in raws)
             if (!usedRaw.Contains(cfg.Rel(r.Full))) plan.Add((r, cfg.Rel(r.Full)));
 
+        // A file that vanished while an identical one appeared is a rename or move: the photo follows the file, keeping
+        // its id and everything attached to it (likes, tags, caption, thumbnails).
+        var planned = plan.Select(x => cfg.Rel(x.primary.Full)).ToHashSet();
+        var unmatched = existing.Where(p => p.Fingerprint != "" && !planned.Contains(p.RelPath)).ToList();
+        int moved = 0;
+        foreach (var (primary, rawRel) in plan)
+        {
+            if (unmatched.Count == 0) break;
+            var rel = cfg.Rel(primary.Full);
+            if (byRel.ContainsKey(rel)) continue;
+            string fp;
+            try { fp = FileIdentity.Fingerprint(primary.Full); } catch (IOException) { continue; }
+            var name = Path.GetFileName(primary.Full);
+            var same = unmatched.Where(p => p.Fingerprint == fp).OrderBy(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase) ? 0 : 1).FirstOrDefault();
+            if (same == null) continue;
+            unmatched.Remove(same);
+            byRel.Remove(same.RelPath);
+            same.RelPath = rel;
+            same.Name = name;
+            if (same.RawLocked && same.RawRelPath != null && cfg.ResolvePhoto(same, same.RawRelPath) is { } oldRaw && !File.Exists(oldRaw))
+            { same.RawLocked = false; same.RawRelPath = rawRel; }   // the hand-made RAW link pointed at a file that moved too
+            byRel[rel] = same;
+            moved++;
+        }
+        if (moved > 0) await db.SaveChangesAsync();
+
         var seen = new HashSet<string>();
         int added = 0, skippedRaw = 0;
         foreach (var (primary, rawRel) in plan)
@@ -110,6 +143,7 @@ public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs
                 Name = Path.GetFileName(primary.Full),
                 RawRelPath = rawRel,
                 SizeBytes = info.Length,
+                Fingerprint = TryFingerprint(primary.Full),
                 TakenAt = info.LastWriteTimeUtc
             };
             try
@@ -122,6 +156,7 @@ public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs
                 }
                 db.Photos.Add(photo);
                 await db.SaveChangesAsync();
+                await FileIdentity.ReclaimAsync(db, photo);
                 if (isRawOnly)
                 {
                     var src = await images.GetSourceAsync(photo);
@@ -147,10 +182,12 @@ public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs
             var d = Path.Combine(cfg.CacheDir, "variants", p.Id.ToString());
             if (Directory.Exists(d)) try { Directory.Delete(d, true); } catch { }
         }
+        await FileIdentity.RetireAsync(db, gone);
         var goneIds = gone.Select(p => p.Id).ToList();
         if (goneIds.Count > 0) await db.Favorites.Where(f => goneIds.Contains(f.PhotoId)).ExecuteDeleteAsync();
         db.Photos.RemoveRange(gone);
         await db.SaveChangesAsync();
+        await FileIdentity.ForgetOldAsync(db);
 
         if (g.CoverPhotoId == null || !await db.Photos.AnyAsync(p => p.Id == g.CoverPhotoId))
         {
@@ -162,7 +199,12 @@ public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs
         var total = await db.Photos.CountAsync(p => p.GalleryId == g.Id);
         var paired = await db.Photos.CountAsync(p => p.GalleryId == g.Id && p.RawRelPath != null && p.RawRelPath != p.RelPath);
         var rawOnly = await db.Photos.CountAsync(p => p.GalleryId == g.Id && p.RawRelPath != null && p.RawRelPath == p.RelPath);
-        return new ScanResult(added, gone.Count, total, skippedRaw, paired, rawOnly);
+        return new ScanResult(added, gone.Count, total, skippedRaw, paired, rawOnly, moved);
+    }
+
+    static string TryFingerprint(string path)
+    {
+        try { return FileIdentity.Fingerprint(path); } catch (IOException) { return ""; }
     }
 
     static IEnumerable<string> Walk(string dir)

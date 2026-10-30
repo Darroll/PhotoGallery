@@ -75,6 +75,12 @@ public static class HealthApi
                 ? new Check("expiry", "Galleries", "Expiry", "warn", expired > 0 ? $"{expired} expired" : $"{soon} expiring", $"{expired} expired and {soon} expiring within 7 days.", "/admin/galleries")
                 : new Check("expiry", "Galleries", "Expiry", "ok", "None due", "No gallery has expired or expires within 7 days."));
 
+            var unprinted = await db.Photos.CountAsync(x => x.Fingerprint == "" && !x.IsGuest);
+            var held = await db.PhotosRetired.CountAsync();
+            checks.Add(unprinted > 0
+                ? new Check("fileid", "Galleries", "Renamed and moved files", "warn", $"{unprinted} not tracked yet", "Some photos have not been scanned since file tracking began, so renaming them would lose their likes and tags. A rescan fixes this.", "/admin/galleries")
+                : new Check("fileid", "Galleries", "Renamed and moved files", "ok", "Tracked", $"Renaming or moving a photo file keeps its likes, tags and caption. {held} removed {(held == 1 ? "photo's" : "photos'")} details are held for {FileIdentity.KeepDays} days in case the file comes back."));
+
             // --- links ---
             if (!settings.LinkPreviews.Enabled) checks.Add(new Check("links", "Galleries", "Links", "off", "Not checked", "Link previews and checks are switched off.", "/admin/settings"));
             else

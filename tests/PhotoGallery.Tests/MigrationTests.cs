@@ -115,6 +115,9 @@ public class MigrationTests : IDisposable
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Favorites\" DROP COLUMN \"Ip\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"AllowLikes\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"ShowLikeCounts\"");
+        db.Database.ExecuteSqlRaw("DROP INDEX \"IX_Photos_Fingerprint\"");
+        db.Database.ExecuteSqlRaw("ALTER TABLE \"Photos\" DROP COLUMN \"Fingerprint\"");
+        db.Database.ExecuteSqlRaw("DROP TABLE \"PhotosRetired\"");
     }
 
     [Fact]

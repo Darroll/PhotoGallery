@@ -85,6 +85,8 @@ public class Photo
     /// <summary>Automatic captioning attempts made for this photo (it stops after a few).</summary>
     public int CaptionAttempts { get; set; }
     public DateTime AddedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>Identity of the file's contents, so a rename or move keeps this photo's likes, tags and caption. See <see cref="FileIdentity"/>. Empty until the first scan that sees the file.</summary>
+    public string Fingerprint { get; set; } = "";
     public bool RawOnly => RawRelPath != null && RawRelPath == RelPath;
 }
 
@@ -174,11 +176,14 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<PeopleGroup> PeopleGroups => Set<PeopleGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
     public DbSet<GalleryGroup> GalleryGroups => Set<GalleryGroup>();
+    public DbSet<PhotoRetired> PhotosRetired => Set<PhotoRetired>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<Gallery>().HasIndex(g => g.Slug).IsUnique();
         b.Entity<Photo>().HasIndex(p => new { p.GalleryId, p.RelPath }).IsUnique();
+        b.Entity<Photo>().HasIndex(p => p.Fingerprint);
+        b.Entity<PhotoRetired>().HasIndex(r => r.Fingerprint);
         b.Entity<ShareLink>().HasIndex(l => l.Token).IsUnique();
         b.Entity<Favorite>().HasIndex(f => new { f.GalleryId, f.PhotoId, f.VisitorId }).IsUnique();
         b.Entity<Favorite>().HasIndex(f => new { f.PhotoId, f.IdentityKey });
