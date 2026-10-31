@@ -46,6 +46,8 @@ chown -R 99:100 /mnt/user/appdata/photogallery
 
 ## Every visitor shows the same IP, or rate limits hit everybody
 
+Step-by-step proxy settings are in [Sharing outside your home](PROXY.md).
+
 The proxy's address is not in `TRUSTED_PROXIES`, so its forwarded headers are ignored. Add the proxy's network, comma separated, for example `172.16.0.0/12,192.168.1.10/32`.
 
 ## Emails are not sent

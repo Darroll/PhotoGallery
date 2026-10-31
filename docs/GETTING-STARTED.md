@@ -63,7 +63,7 @@ Supported pictures: JPG, PNG, TIFF, WebP, HEIC, AVIF. Supported RAW files: CR2, 
 
 Only do this once the steps above work on your own network.
 
-- Put the container behind a **reverse proxy with HTTPS**: SWAG (a ready config is in `unraid/`), Nginx Proxy Manager, or a Cloudflare Tunnel. **Do not forward port 8080 from your router.**
+- Put the container behind a **reverse proxy with HTTPS**: SWAG (a ready config is in `unraid/`), Nginx Proxy Manager, or a Cloudflare Tunnel. Step-by-step settings for each are in [Sharing outside your home](PROXY.md). **Do not forward port 8080 from your router.**
 - The proxy must (a) pass the `X-Forwarded-For`, `X-Forwarded-Proto` and `Host` headers, (b) allow uploads of at least `MAX_UPLOAD_MB` (default 100 MB; a Cloudflare free plan caps at 100 MB), and (c) not buffer responses, so large ZIP downloads stream.
 - Set **`TRUSTED_PROXIES`** to the address range your proxy connects from. The default only trusts Docker's own networks (`172.16.0.0/12`). If your proxy runs on another machine or has a LAN address such as `192.168.x.x`, add it; otherwise all visitors appear to come from the proxy and rate limits and statistics are wrong.
 - Protect `/admin` as well (Cloudflare Access or a proxy allow-list) and use a long password.

@@ -151,7 +151,7 @@ The app was built for one household. Public installs mean unknown setups, no one
 - [x] **Permission self-check.** The Overview should say plainly "the app cannot read your photo folder / cannot write appdata; run `chown -R 99:100 ...`" with the exact command, since this is the most likely first failure.
 - [x] **Proxy self-check.** Warn on the Overview when requests arrive through a proxy that is not in `TRUSTED_PROXIES` (forwarded headers present but ignored), the most likely cause of wrong statistics and shared rate limits.
 - [x] **Built-in help in the app.** There is no Help page in the app; link Getting started and Troubleshooting from the admin menu and from each Overview check.
-- [ ] **Nginx Proxy Manager and Cloudflare Tunnel examples** next to the SWAG config, with the header, upload-size and buffering settings the app needs.
+- [x] **Nginx Proxy Manager and Cloudflare Tunnel examples** next to the SWAG config, with the header, upload-size and buffering settings the app needs.
 - [ ] **Other photo formats and video files.** Video files are ignored today; decide whether to support them, or say so in the first-run setup.
 - [ ] **Import and export of settings** so a user can move to a new server without redoing every gallery.
 - [x] **Optional update notice and a visible version/changelog link** in the admin header.

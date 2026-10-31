@@ -2,7 +2,7 @@
 
 Self-hosted photo galleries for Unraid, written in ASP.NET Core 9 (SQLite + libvips). No viewer accounts; one admin.
 
-**New here?** Read [Getting started](docs/GETTING-STARTED.md) (about ten minutes, nothing but the container). Something not working? See [Troubleshooting](docs/TROUBLESHOOTING.md). What changed between versions is in [CHANGELOG.md](CHANGELOG.md), and what is planned next, and the principles behind it, is in [ROADMAP.md](ROADMAP.md).
+**New here?** Read [Getting started](docs/GETTING-STARTED.md) (about ten minutes, nothing but the container). Sharing outside your home (SWAG, Nginx Proxy Manager, Cloudflare Tunnel)? See [Proxy and tunnel setups](docs/PROXY.md). Something not working? See [Troubleshooting](docs/TROUBLESHOOTING.md). What changed between versions is in [CHANGELOG.md](CHANGELOG.md), and what is planned next, and the principles behind it, is in [ROADMAP.md](ROADMAP.md).
 
 **Found a bug or a vulnerability?** Open a [GitHub issue](https://github.com/Darroll/PhotoGallery/issues/new/choose) for bugs and ideas; report security problems privately as described in [SECURITY.md](SECURITY.md).
 
