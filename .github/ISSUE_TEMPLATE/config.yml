@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or help installing (Unraid forum)
+    url: https://forums.unraid.net/topic/201119-support-darroll-photogallery/
+    about: Ask in the support thread so others can find the answer.
+  - name: Report a security problem privately
+    url: https://github.com/Darroll/PhotoGallery/security/advisories/new
+    about: Do not open a public issue for a vulnerability.

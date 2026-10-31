@@ -4,6 +4,8 @@ Self-hosted photo galleries for Unraid, written in ASP.NET Core 9 (SQLite + libv
 
 **New here?** Read [Getting started](docs/GETTING-STARTED.md) (about ten minutes, nothing but the container). Something not working? See [Troubleshooting](docs/TROUBLESHOOTING.md). What changed between versions is in [CHANGELOG.md](CHANGELOG.md), and what is planned next, and the principles behind it, is in [ROADMAP.md](ROADMAP.md).
 
+**Found a bug or a vulnerability?** Open a [GitHub issue](https://github.com/Darroll/PhotoGallery/issues/new/choose) for bugs and ideas; report security problems privately as described in [SECURITY.md](SECURITY.md).
+
 **Private by default.** A fresh install shows nothing: no gallery exists until you create one, and a new gallery starts as **Protected** (password or share link), never public. Nobody can open `/admin` without the password you choose on first visit. The app's port (8080) is meant for your home network only: to share outside it, put a reverse proxy with HTTPS or a Cloudflare Tunnel in front, and never forward the port from your router. The Overview page warns if it ever sees a connection coming straight from the internet.
 
 **Requirements:** Unraid (or any Docker host), a folder of photos, and free space on the app data share for the thumbnail cache (it grows with the size of your library). It runs on `linux/amd64`. No account anywhere, no cloud service, and the app sends nothing home: link previews, captions and email only reach the addresses you configure.

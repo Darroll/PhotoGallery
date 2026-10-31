@@ -130,7 +130,7 @@ The app was built for one household. Public installs mean unknown setups, no one
 **First week after it goes live**
 - [ ] **Watch the support thread and GitHub issues** every day or two; answer, and turn repeated questions into README or in-app help.
 - [ ] **Test as a stranger.** Install from the Apps tab on a clean share and a fresh appdata folder, with default settings and no SWAG, SSO or email. Fix every place you get stuck.
-- [ ] **Add GitHub issue templates** (bug: Unraid version, container log, steps; feature request) and a short `SECURITY.md` saying how to report a vulnerability privately.
+- [x] **Add GitHub issue templates** (bug: Unraid version, container log, steps; feature request) and a short `SECURITY.md` saying how to report a vulnerability privately.
 - [ ] **Screenshots** for the README and the forum thread (home, gallery, slideshow, admin overview).
 
 **Safe updates (most important)**

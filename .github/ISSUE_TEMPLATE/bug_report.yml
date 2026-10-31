@@ -1,0 +1,46 @@
+name: Bug report
+description: Something is not working
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please check [Troubleshooting](https://github.com/Darroll/PhotoGallery/blob/main/docs/TROUBLESHOOTING.md) first, and look at **Admin -> Overview**: it often names the problem.
+        **Do not post passwords, setup codes or private photo links.** For a security problem, do not open an issue: see the Security policy.
+  - type: input
+    id: version
+    attributes:
+      label: PhotoGallery version
+      description: Shown at the bottom of Admin -> Overview.
+    validations:
+      required: true
+  - type: input
+    id: unraid
+    attributes:
+      label: Unraid version (or other Docker host)
+      placeholder: "Unraid 7.1.4"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What did you do, what did you expect, and what happened instead?
+      placeholder: "1. ...\n2. ...\nExpected ... but saw ..."
+    validations:
+      required: true
+  - type: textarea
+    id: overview
+    attributes:
+      label: Anything amber or red on Admin -> Overview?
+      description: Copy the line and its explanation.
+  - type: textarea
+    id: log
+    attributes:
+      label: Container log
+      description: Unraid Docker tab -> photogallery -> Logs. Paste the last 50 lines or so. Remove anything private.
+      render: text
+  - type: textarea
+    id: setup
+    attributes:
+      label: How you reach it
+      description: Directly on your network, or through a proxy / tunnel (which one)? Browser and device if the problem is visual.
