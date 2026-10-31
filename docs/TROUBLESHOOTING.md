@@ -62,4 +62,4 @@ The database is backed up before any upgrade (`photogallery.db.bak-<time>` in th
 
 ## Still stuck
 
-Ask in the [Unraid forum thread](https://forums.unraid.net/topic/201119-support-darroll-photogallery/) or open a [GitHub issue](https://github.com/Darroll/PhotoGallery/issues). Include your Unraid version, the app version (shown in the app header), the container log with passwords removed, and what you expected to happen.
+Ask in the [Unraid forum thread](https://forums.unraid.net/topic/201119-support-darroll-photogallery/) or open a [GitHub issue](https://github.com/Darroll/PhotoGallery/issues). The quickest way to give us what we need: open **Admin -> Overview**, click **Copy diagnostics** and paste the result into your post. It holds the app version, your settings (passwords, keys, tokens and email addresses are removed), what the Overview flags, and recent warnings and errors. Look it over before posting it publicly. Add your Unraid version and what you expected to happen.

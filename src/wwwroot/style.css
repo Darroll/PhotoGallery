@@ -471,6 +471,7 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .health-banner { display: flex; align-items: center; gap: 14px; padding: 14px 16px; margin-bottom: 14px; background: var(--card); border: 1px solid var(--line); border-left-width: 6px; border-radius: var(--radius); box-shadow: var(--shadow); }
 .health-banner.ok { border-left-color: var(--ok); } .health-banner.warn { border-left-color: var(--warn); } .health-banner.bad { border-left-color: var(--danger); }
 .health-banner strong { font-size: 17px; }
+.diag-text { font-family: ui-monospace, Consolas, monospace; font-size: 12px; white-space: pre; }
 .health-banner .grow, .check-head .grow { flex: 1; }
 .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .check { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: var(--card); border: 1px solid var(--line); border-left-width: 4px; border-radius: var(--radius); box-shadow: var(--shadow); }
@@ -544,3 +545,4 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 #lightbox .cm-msg { color: #ff8a8a; font-size: 13px; min-height: 1em; margin-top: 6px; }
 #lightbox .cm-replying { font-size: 13px; margin-bottom: 4px; }
 #lightbox .linkish { background: none; border: 0; padding: 0; color: #8db4ff; cursor: pointer; font-size: 13px; text-decoration: underline; }
+.check-links { display: flex; gap: 14px; }

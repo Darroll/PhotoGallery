@@ -199,6 +199,18 @@ public static class HealthApi
         });
     }
 
+    /// <summary>The text block behind the Overview's "Copy diagnostics" button, safe to paste into a bug report.</summary>
+    public static void MapDiagnostics(WebApplication app)
+    {
+        app.MapGet("/api/admin/diagnostics", async (AppDb db, AppConfig cfg, SettingsService settings, SsoConfig sso, RecentLog log) =>
+        {
+            var up = DateTime.Now - Process.GetCurrentProcess().StartTime;
+            var text = Diagnostics.Build(cfg, settings, sso, log, (long)up.TotalSeconds,
+                await db.Galleries.CountAsync(), await db.Photos.CountAsync(p => p.Approved));
+            return Results.Ok(new { text });
+        }).RequireAuthorization("Admin");
+    }
+
     static string Ago(TimeSpan t) => t.TotalMinutes < 1 ? "Just now" : t.TotalHours < 1 ? $"{(int)t.TotalMinutes} min ago" : t.TotalHours < 48 ? $"{(int)t.TotalHours} h ago" : $"{(int)t.TotalDays} days ago";
 
     static string fmt(long n) => n >= 1L << 40 ? $"{n / (double)(1L << 40):0.0} TB" : n >= 1L << 30 ? $"{n / (double)(1L << 30):0.0} GB" : $"{n / (double)(1L << 20):0} MB";

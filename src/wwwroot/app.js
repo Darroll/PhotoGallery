@@ -1179,6 +1179,12 @@ function closeLightbox() {
 
 // ---------- admin ----------
 // Every admin page is drawn inside a shell: a menu on the left, the page in the middle.
+const DOCS = 'https://github.com/Darroll/PhotoGallery/blob/main/docs/';
+// Where the Troubleshooting page explains each Overview check.
+const helpFor = { library: 'permission-denied-or-the-backup-or-uploads-check-is-red', datadir: 'permission-denied-or-the-backup-or-uploads-check-is-red', backup: 'permission-denied-or-the-backup-or-uploads-check-is-red',
+  folders: 'the-gallery-is-empty-or-photos-are-missing', thumbs: 'photos-show-grey-boxes-or-load-slowly', proxy: 'every-visitor-shows-the-same-ip-or-rate-limits-hit-everybody',
+  email: 'emails-are-not-sent', sso: 'sign-in-sso-fails', adminpw: 'i-cannot-sign-in-to-admin' };
+const helpHref = (id) => id === 'exposure' ? DOCS + 'GETTING-STARTED.md#5-let-people-outside-your-home-reach-it' : DOCS + 'TROUBLESHOOTING.md' + (helpFor[id] ? '#' + helpFor[id] : '');
 const adminNav = [
   { href: '/admin', key: 'overview', label: 'Overview' },
   { href: '/admin/galleries', key: 'galleries', label: 'Galleries' },
@@ -1194,7 +1200,11 @@ const adminNav = [
   { href: '/admin/settings/visitor-stats', key: 'settings/visitor-stats', label: 'Visitor tracking' },
   { href: '/admin/settings/email', key: 'settings/email', label: 'Email alerts' },
   { href: '/admin/settings/sso', key: 'settings/sso', label: 'Sign-in (SSO)' },
-  { href: '/admin/settings/cache', key: 'settings/cache', label: 'Thumbnail cache' }];
+  { href: '/admin/settings/cache', key: 'settings/cache', label: 'Thumbnail cache' },
+  { heading: 'Help' },
+  { external: DOCS + 'GETTING-STARTED.md', label: 'Getting started' },
+  { external: DOCS + 'TROUBLESHOOTING.md', label: 'Troubleshooting' },
+  { external: 'https://github.com/Darroll/PhotoGallery/issues/new/choose', label: 'Report a problem' }];
 
 // Signs in the admin if needed, then draws the shell and returns the middle column (null when the sign-in page was shown instead).
 async function adminPage(app, key, title) {
@@ -1203,6 +1213,7 @@ async function adminPage(app, key, title) {
   if (me) me.admin = true;
   const nav = h('nav', { class: 'admin-nav', 'aria-label': 'Admin' },
     adminNav.map(n => n.heading ? h('div', { class: 'nav-heading', text: n.heading })
+      : n.external ? h('a', { href: n.external, target: '_blank', rel: 'noopener', text: n.label + ' ↗' })
       : h('a', { href: n.href, class: n.key === key ? 'on' : '', 'aria-current': n.key === key ? 'page' : false, text: n.label })),
     h('div', { class: 'nav-foot' },
       h('a', { href: '/', text: 'View site' }),
@@ -1221,13 +1232,36 @@ async function viewOverview(app) {
   const main = await adminPage(app, 'overview', 'Overview');
   if (!main) return;
   const body = h('div');
-  main.append(body);
+  const diag = h('div');
+  main.append(body, diag);
   let timer;
+  let lastChecks = [];
+  // Builds a text block for bug reports (secrets and emails are removed on the server) and offers it to copy.
+  const showDiagnostics = async () => {
+    diag.replaceChildren(h('p', { class: 'muted', text: 'Gathering...' }));
+    const r = await api('/api/admin/diagnostics');
+    if (!r.ok) { diag.replaceChildren(h('p', { class: 'err', text: 'Could not build the diagnostics.' })); return; }
+    const flagged = lastChecks.filter(c => c.status === 'warn' || c.status === 'bad');
+    const text = r.data.text + '\n## Overview checks needing attention\n' +
+      (flagged.length ? flagged.map(c => `- [${c.status}] ${c.label}: ${c.value}. ${c.detail}`).join('\n') : '- none') + '\n';
+    const area = h('textarea', { class: 'diag-text', readonly: true, rows: 18, 'aria-label': 'Diagnostics text', value: text });
+    const note = h('span', { class: 'muted' });
+    const copy = async () => {
+      area.focus(); area.select();
+      try { await navigator.clipboard.writeText(text); note.textContent = 'Copied. Paste it into your bug report.'; }
+      catch { note.textContent = 'Select all and copy (Ctrl+C), then paste it into your bug report.'; }
+    };
+    diag.replaceChildren(h('div', { class: 'panel' }, h('h3', { text: 'Diagnostics for a bug report' }),
+      h('p', { class: 'muted', text: 'Passwords, keys, tokens and email addresses are removed. Look it over before you post it publicly.' }),
+      area, h('div', { class: 'row' }, h('button', { class: 'primary', text: 'Copy', onclick: copy }), h('button', { text: 'Close', onclick: () => diag.replaceChildren() }), note)));
+    area.focus(); area.select();
+  };
   const load = async () => {
     const r = await api('/api/admin/health');
     if (!body.isConnected) return;
     if (!r.ok) { body.replaceChildren(h('p', { class: 'err', text: 'Could not load the health checks.' })); return; }
     const d = r.data;
+    lastChecks = d.checks;
     const attention = d.checks.filter(c => c.status === 'warn' || c.status === 'bad').length;
     const tile = (n, label) => h('div', { class: 'tile' }, h('div', { class: 'tile-n', text: String(n) }), h('div', { class: 'muted', text: label }));
     const groups = [...new Set(d.checks.map(c => c.group))];
@@ -1237,6 +1271,7 @@ async function viewOverview(app) {
         h('div', {}, h('strong', { text: healthHeadline[d.overall] }),
           h('div', { class: 'muted', text: attention ? `${plural(attention, 'check')} to look at, ${d.checks.length - attention} fine.` : `All ${d.checks.length} checks passed.` })),
         h('span', { class: 'grow' }),
+        h('button', { text: 'Copy diagnostics', title: 'A text block for bug reports, with secrets removed', onclick: showDiagnostics }),
         h('button', { text: 'Refresh', onclick: load })),
       h('div', { class: 'tiles' }, tile(d.counts.galleries, 'Galleries'), tile(d.counts.photos, 'Photos'), tile(d.counts.subscribers, 'Subscribers'),
         tile(fmtUptime(d.uptimeSeconds), 'Running for'), tile('v' + d.version, d.commit && d.commit !== 'dev' ? d.commit : 'Development build')),
@@ -1244,7 +1279,9 @@ async function viewOverview(app) {
         h('div', { class: 'checks' }, d.checks.filter(c => c.group === grp).map(c => h('div', { class: 'check ' + c.status },
           h('div', { class: 'check-head' }, h('span', { class: 'dot ' + c.status }), h('strong', { text: c.label }), h('span', { class: 'grow' }), h('span', { class: 'check-val ' + c.status, text: c.value })),
           h('div', { class: 'muted', text: c.detail }),
-          c.link ? h('a', { href: c.link, text: c.status === 'ok' || c.status === 'off' ? 'Open' : 'Fix or review' }) : null))))),
+          h('div', { class: 'check-links' },
+            c.link ? h('a', { href: c.link, text: c.status === 'ok' || c.status === 'off' ? 'Open' : 'Fix or review' }) : null,
+            c.status === 'warn' || c.status === 'bad' ? h('a', { href: helpHref(c.id), target: '_blank', rel: 'noopener', text: 'Help ↗' }) : null)))))),
       h('p', { class: 'muted', text: 'Green is fine, amber needs a look soon, red needs action, grey is switched off on purpose. Updates every minute.' }));
     clearTimeout(timer);
     timer = setTimeout(() => { if (body.isConnected) load(); }, 60000);

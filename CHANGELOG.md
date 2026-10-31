@@ -11,6 +11,8 @@ Newest first. "Needs attention" marks anything an existing user must do when upd
 
 - **Project housekeeping.** GitHub issue forms for bugs and feature requests, and a `SECURITY.md` describing private vulnerability reporting.
 
+- **Copy diagnostics.** A button on the Overview that gathers version, environment, settings and recent warnings and errors into one block for bug reports, with secrets and email addresses removed.
+- **Built-in help.** An admin **Help** menu (Getting started, Troubleshooting, report a problem) and a Help link on every amber or red Overview check that opens the matching Troubleshooting section.
 - **Screenshots** in the README (in `docs/screenshots/`).
 
 ## 1.1.0
