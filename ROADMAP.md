@@ -28,6 +28,18 @@ An item is finished only when it has: tests, a database migration if the model c
 - [x] Tags, search, themes, email alerts, subscriptions, captions and alt text
 - [x] Single sign-on, groups, license agreement, visitor statistics
 - [x] Health overview, automatic database backups, EF Core migrations
+- [x] Community Apps packaging: public template, icon, maintainer profile, public GHCR image built by GitHub Actions, MIT license
+
+## Unraid Community Apps listing (your steps)
+
+Done in the repo and on GitHub: template `unraid/photogallery.xml`, icon, `ca_profile.xml`, **Publish image** workflow, public package `ghcr.io/darroll/photogallery`, MIT `LICENSE`. What is left needs your Unraid forum account:
+
+- [ ] **Open a support thread** on the Unraid forum (Docker Containers section) for PhotoGallery: what it is, screenshots, how to install, where to report bugs.
+- [ ] **Put the thread URL in the template.** Set `<Support>` in `unraid/photogallery.xml` (it points at GitHub issues now), commit and push.
+- [ ] **Test the template on a clean setup.** Copy `unraid/photogallery.xml` to `/boot/config/plugins/dockerMan/templates-user/` on the server, Add Container -> photogallery, leave `ADMIN_PASSWORD` empty, confirm it pulls from ghcr.io, starts, and the password appears in the log.
+- [ ] **Submit to Community Applications.** Post the repository (`https://github.com/Darroll/PhotoGallery`) in the Community Applications thread / submission form and answer the moderators' review comments.
+- [ ] **Keep the image fresh.** Each push to `main` rebuilds `:latest`; check the Actions tab after a release (a failed build leaves users on the old image). Dependabot already covers NuGet and Docker.
+- [ ] (optional) Replace the placeholder `unraid/icon.png` with your own artwork; add screenshots to the README for the listing.
 
 ## Order of work
 
@@ -98,7 +110,7 @@ Everything to do with comments, finished together. Steps 11 and 12 must never sh
 | 19 | Settings in the app instead of container variables (container value wins, shown locked) | M | Med | none |
 | 20 | First-run setup wizard (password, folder, site name, first gallery; optional email, sign-in, backups) | L | Med | 9, 10, 19 |
 | 21 | Simple and advanced mode; create a gallery from a folder in one step | M | Med | 19 |
-| 22 | Plain-language Unraid template, install guide with screenshots, getting-started checklist, "is my site reachable?" check | M | Low | 20 |
+| 22 | Plain-language Unraid template (public Community Apps template exists; wording pass still open), install guide with screenshots, getting-started checklist, "is my site reachable?" check | M | Low | 20 |
 | 23 | Sample gallery, built-in help on each admin page, update notice | M | Low | 21 |
 | 24 | Hardening checks and scheduled cache cleanup on the Overview page | S | Low | none |
 
