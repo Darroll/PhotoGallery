@@ -12,6 +12,22 @@ Self-hosted photo galleries for Unraid, written in ASP.NET Core 9 (SQLite + libv
 
 **Supported files:** JPG, PNG, TIFF, WebP, HEIC and AVIF pictures; CR2, CR3, NEF, ARW, DNG, RAF, ORF, RW2, PEF and SRW RAW files. Video files are not supported; add YouTube links to a gallery instead.
 
+## Screenshots
+
+The galleries below are sample pictures (coloured circles), not real photos.
+
+| Home page | A gallery |
+|---|---|
+| ![Home page listing three public galleries](docs/screenshots/home.png) | ![A gallery grid with Slideshow, Select, Favorites and Download buttons](docs/screenshots/gallery.png) |
+
+| Viewer | On a phone |
+|---|---|
+| ![Full-screen viewer with Favorite, Select, Download, Details and Play](docs/screenshots/viewer.png) | <img src="docs/screenshots/gallery-phone.png" alt="A gallery on a phone" width="260"> |
+
+| Admin overview | Admin galleries |
+|---|---|
+| ![Admin overview with colour-coded health checks](docs/screenshots/admin-overview.png) | ![Admin galleries list with visibility and photo counts](docs/screenshots/admin-galleries.png) |
+
 ## Features
 
 | Need | How it works |

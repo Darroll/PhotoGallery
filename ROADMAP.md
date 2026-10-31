@@ -131,7 +131,7 @@ The app was built for one household. Public installs mean unknown setups, no one
 - [ ] **Watch the support thread and GitHub issues** every day or two; answer, and turn repeated questions into README or in-app help.
 - [ ] **Test as a stranger.** Install from the Apps tab on a clean share and a fresh appdata folder, with default settings and no SWAG, SSO or email. Fix every place you get stuck.
 - [x] **Add GitHub issue templates** (bug: Unraid version, container log, steps; feature request) and a short `SECURITY.md` saying how to report a vulnerability privately.
-- [ ] **Screenshots** for the README and the forum thread (home, gallery, slideshow, admin overview).
+- [x] **Screenshots** for the README (home, gallery, viewer, phone, admin overview and galleries; in `docs/screenshots/`). Still to do: post the same images in the forum thread, and Keycloak screenshots for the sign-in how-to.
 
 **Safe updates (most important)**
 - [x] **Versioned releases (tags and image tags; the changelog file exists, keep filling it).** Tag releases (`v1.0.0`...) so the image also gets `:1.0.0` tags; keep `:latest` for the template. Write a `CHANGELOG.md` and link it from the template and the app's Overview page.
