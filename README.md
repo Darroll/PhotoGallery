@@ -164,7 +164,7 @@ Files used: `unraid/photogallery.xml` (template), `unraid/icon.png`, `unraid/ca_
 
 1. Push to `main`; the **Publish image** workflow builds the public image. In GitHub -> Packages -> photogallery -> Package settings, set visibility to **Public** (first time only).
 2. Open a support thread on the Unraid forum (Docker Containers) and put its URL in `<Support>` of the template.
-3. Add a `LICENSE` file to the repository.
+3. The repository is MIT-licensed (`LICENSE`).
 4. Submit the template repository on the Unraid forum's Community Applications thread (or via the "Add an app" form), pointing at `https://github.com/Darroll/PhotoGallery`. Moderators review it before it appears.
 
 ## Configuration
@@ -382,3 +382,7 @@ The SSO session cookie is large, so the proxy needs a bigger header buffer. `unr
 - **"Sign-in failed" chip after returning from the provider**: check the container log. Common causes are a wrong client secret, a redirect URI that does not match exactly, or the container being unable to reach `OIDC_AUTHORITY`.
 - **Signed in but not admin**: the user lacks the admin role or group, or their email is not verified. The admin page says you are signed in as a non-admin account.
 - **Locked out**: set `ADMIN_PASSWORD_LOGIN=true` and `ADMIN_PASSWORD`, restart, sign in with the password.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
