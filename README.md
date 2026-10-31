@@ -156,7 +156,7 @@ Once the template is listed, search **PhotoGallery** in the Apps tab and click I
 4. Open `http://SERVER-IP:8080/#/admin`, create galleries from folders.
 5. To expose it to the internet put it behind a reverse proxy (SWAG, Nginx Proxy Manager, Cloudflare Tunnel); never forward the port directly. `unraid/gallery.subdomain.conf` is a ready SWAG config; put the container on SWAG's custom network and keep `TRUST_PROXY=true`.
 
-`unraid/my-photogallery.xml` is the author's private variant that pulls from a local registry (`192.168.2.3:5000`, published with `deploy.sh`).
+`unraid/my-photogallery.xml.private` is the author's private variant that pulls from a local registry (`192.168.2.3:5000`, published with `deploy.sh`). It deliberately does not end in `.xml` so Community Applications does not scan it as a second app; copy it to `templates-user/my-photogallery.xml` to use it.
 
 ### Publishing the template to Community Apps (maintainer notes)
 
