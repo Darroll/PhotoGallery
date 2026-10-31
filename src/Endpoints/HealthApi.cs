@@ -15,16 +15,23 @@ public static class HealthApi
     {
         var g = app.MapGroup("/api/admin/health").RequireAuthorization("Admin");
 
-        g.MapGet("", async (AppDb db, AppConfig cfg, SsoConfig sso, SettingsService settings, CacheService cache, ThumbnailService thumbs, BackupService backups, AdminCredentials creds) =>
+        g.MapGet("", async (AppDb db, AppConfig cfg, SsoConfig sso, SettingsService settings, CacheService cache, ThumbnailService thumbs, BackupService backups, AdminCredentials creds, ProxyWatch proxyWatch) =>
         {
             var checks = new List<Check>();
             var now = DateTime.UtcNow;
 
             // --- storage ---
-            var libraryOk = Directory.Exists(cfg.LibraryRoot);
+            const string fixCmd = "In the Unraid terminal run: chown -R 99:100 /mnt/user/appdata/photogallery (and make sure the photo share is readable by user nobody, uid 99).";
+            var access = FolderAccess.Probe(cfg);
+            var libraryOk = access.LibraryReadable;
             checks.Add(libraryOk
                 ? new Check("library", "Storage", "Photo library", "ok", "Reachable", cfg.LibraryRoot)
-                : new Check("library", "Storage", "Photo library", "bad", "Not found", $"The folder {cfg.LibraryRoot} cannot be read. Is the share mounted?"));
+                : Directory.Exists(cfg.LibraryRoot)
+                    ? new Check("library", "Storage", "Photo library", "bad", "Cannot read", $"The app is not allowed to read {cfg.LibraryRoot}. It runs as user nobody (uid 99, group users), so that user needs read access to the photo share. See Troubleshooting -> Permissions.")
+                    : new Check("library", "Storage", "Photo library", "bad", "Not found", $"The folder {cfg.LibraryRoot} cannot be read. Is the share mounted?"));
+            checks.Add(access.DataWritable
+                ? new Check("datadir", "Storage", "App data folder", "ok", "Writable", cfg.DataDir)
+                : new Check("datadir", "Storage", "App data folder", "bad", "Cannot write", $"The app cannot write to {cfg.DataDir}, so the database, thumbnails and settings cannot be saved. {fixCmd}"));
 
             try
             {
@@ -134,6 +141,13 @@ public static class HealthApi
                 : creds.SetupRequired
                     ? new Check("adminpw", "Security", "Admin password", "warn", "Not set", "No admin password has been chosen yet; the first visitor from your home network can set one. Open /admin without signing in, or set ADMIN_PASSWORD in the container.")
                     : new Check("adminpw", "Security", "Admin password", "ok", "Set", "Chosen in the app. Change it under Settings -> Site and appearance."));
+
+            if (proxyWatch.Recent(now) is { } px)
+                checks.Add(new Check("proxy", "Security", "Reverse proxy", "warn", "Headers ignored",
+                    $"Requests from {px.Peer} carried proxy headers (X-Forwarded-For or CF-Connecting-IP) but that address is not trusted" + (cfg.TrustProxy ? "" : " (TRUST_PROXY is false)") +
+                    $", so every visitor looks like the proxy: statistics and rate limits are wrong. If {px.Peer} is your proxy, add it to TRUSTED_PROXIES in the container (for example {px.Peer}/32). {px.Count} such requests, last at {px.Time.ToLocalTime():g}."));
+            else
+                checks.Add(new Check("proxy", "Security", "Reverse proxy", "ok", "No problem seen", "No requests with ignored proxy headers have been seen in the last 24 hours."));
 
             checks.Add(!sso.Enabled
                 ? new Check("sso", "Security", "Visitor sign-in", "off", "Off", "Visitors cannot sign in, so they cannot suggest changes (and, later, comment).", "/admin/settings/sso")

@@ -14,6 +14,7 @@ builder.Services.AddDbContext<AppDb>(o => o.UseSqlite($"Data Source={Path.Combin
 builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddSingleton<AdminCredentials>();
 builder.Services.AddSingleton<SsoConfig>();
+builder.Services.AddSingleton<ProxyWatch>();
 builder.Services.AddSingleton<ImageService>();
 builder.Services.AddSingleton<ThumbnailService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ThumbnailService>());
@@ -90,6 +91,7 @@ using (var scope = app.Services.CreateScope())
 }
 if (cfg.TrustProxy)
     app.Logger.LogInformation("Trusting proxy headers only from: {Nets}", string.Join(", ", cfg.TrustedNetworks.Select(n => n.Net + "/" + n.Prefix)));
+var proxyWatch = app.Services.GetRequiredService<ProxyWatch>();
 var adminCreds = app.Services.GetRequiredService<AdminCredentials>();
 if (adminCreds.SetupRequired)
     app.Logger.LogWarning("No admin password yet. Open /admin in a browser on your home network and choose one. If you are not on your home network, the setup code is: {Code}", adminCreds.SetupCode);
@@ -101,7 +103,9 @@ if (cfg.ExifTool == null)
 // remember who actually connected (before forwarded headers are applied) so spoofed proxy headers can be ignored
 app.Use(async (ctx, next) =>
 {
-    ctx.Items[ActivityLog.TrustedPeerKey] = cfg.TrustProxy && cfg.IsTrustedProxy(ctx.Connection.RemoteIpAddress);
+    var trusted = cfg.TrustProxy && cfg.IsTrustedProxy(ctx.Connection.RemoteIpAddress);
+    ctx.Items[ActivityLog.TrustedPeerKey] = trusted;
+    proxyWatch.Note(ctx, trusted);
     await next();
 });
 if (cfg.TrustProxy) app.UseForwardedHeaders();
