@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>photogallery</Name>
+  <Repository>ghcr.io/darroll/photogallery:latest</Repository>
+  <Registry>https://github.com/Darroll/PhotoGallery/pkgs/container/photogallery</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/Darroll/PhotoGallery/issues</Support>
+  <Project>https://github.com/Darroll/PhotoGallery</Project>
+  <Overview>[b]PhotoGallery[/b] - Self-hosted photo galleries: public / unlisted / password-protected galleries, share links with expiry and download limits, slideshow, lossless PNG/WebP/TIFF size exports, RAW download, ZIP download, watermarks and moderated guest uploads. Your photo library is mounted read-only; nothing in it is ever modified.</Overview>
+  <Category>MediaServer:Photos Tools:</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/Darroll/PhotoGallery/main/unraid/photogallery.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/Darroll/PhotoGallery/main/unraid/icon.png</Icon>
+  <ExtraParams>--user 99:100 --restart=unless-stopped --security-opt no-new-privileges --cap-drop ALL --read-only --tmpfs /tmp</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>An Unraid share of photos to publish. Put the container behind a reverse proxy (SWAG, Nginx Proxy Manager, Cloudflare Tunnel) before exposing it to the internet; do not forward the port directly.</Requires>
+  <Config Name="WebUI Port" Target="8080" Default="8080" Mode="tcp" Description="Port for the web interface. With a reverse proxy on a custom Docker network the proxy reaches the container by name and this mapping is only for LAN access." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+  <Config Name="Photo library (read-only)" Target="/photos" Default="/mnt/user/Photos" Mode="ro" Description="Root folder that contains your photo folders. Each gallery points at a sub-folder." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/Photos</Config>
+  <Config Name="App data" Target="/data" Default="/mnt/user/appdata/photogallery" Mode="rw" Description="Database, cache of generated sizes, guest uploads, encryption keys" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/photogallery</Config>
+  <Config Name="ADMIN_USERNAME" Target="ADMIN_USERNAME" Default="" Mode="" Description="Admin user name asked for at sign-in. Leave empty to sign in with the password only." Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="OIDC_AUTHORITY" Target="OIDC_AUTHORITY" Default="" Mode="" Description="Single sign-on: issuer URL of Keycloak (or another OpenID Connect provider), for example https://auth.example.com/realms/gallery. Leave empty to keep sign-in off." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="OIDC_CLIENT_ID" Target="OIDC_CLIENT_ID" Default="" Mode="" Description="Single sign-on client id" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="CAPTION_URL" Target="CAPTION_URL" Default="" Mode="" Description="Optional: Ollama server with a vision model for automatic captions, e.g. http://192.168.2.5:11434. Empty turns automatic captions off" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="CAPTION_MODEL" Target="CAPTION_MODEL" Default="llava" Mode="" Description="Vision model name used by CAPTION_URL" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="OIDC_CLIENT_SECRET" Target="OIDC_CLIENT_SECRET" Default="" Mode="" Description="Single sign-on client secret" Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="OIDC_ADMIN_ROLE" Target="OIDC_ADMIN_ROLE" Default="gallery-admin" Mode="" Description="Role or group in the provider whose members are admins (their email must be verified)" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="ADMIN_PASSWORD_LOGIN" Target="ADMIN_PASSWORD_LOGIN" Default="" Mode="" Description="Password sign-in for the admin is turned off automatically once single sign-on is configured. Set to true to keep it, or false to turn it off without SSO" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="ADMIN_PASSWORD" Target="ADMIN_PASSWORD" Default="" Mode="" Description="Password for /#/admin. If empty, a random one is generated and printed in the container log on each start." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="SITE_TITLE" Target="SITE_TITLE" Default="Photos" Mode="" Description="Initial site name. After first start, change it in the app under Admin, Site settings." Type="Variable" Display="always" Required="false" Mask="false">Photos</Config>
+  <Config Name="BACKUP_HOURS" Target="BACKUP_HOURS" Default="24" Mode="" Description="Hours between automatic database backups, kept in the data folder under backup (0 = off). Statistics shows them and has a Back up now button." Type="Variable" Display="advanced" Required="false" Mask="false">24</Config>
+  <Config Name="RESCAN_MINUTES" Target="RESCAN_MINUTES" Default="15" Mode="" Description="How often gallery folders are rescanned for new files (0 = off). The Rescan button always works." Type="Variable" Display="advanced" Required="false" Mask="false">15</Config>
+  <Config Name="SIZES" Target="SIZES" Default="1080,1920,2560,4096" Mode="" Description="Long-edge pixel sizes offered as lossless downloads" Type="Variable" Display="advanced" Required="false" Mask="false">1080,1920,2560,4096</Config>
+  <Config Name="MAX_UPLOAD_MB" Target="MAX_UPLOAD_MB" Default="90" Mode="" Description="Largest single guest upload (keep under 100: Cloudflare proxy limit)" Type="Variable" Display="advanced" Required="false" Mask="false">90</Config>
+  <Config Name="MAX_PENDING_PER_GALLERY" Target="MAX_PENDING_PER_GALLERY" Default="200" Mode="" Description="Cap on unapproved guest uploads per gallery" Type="Variable" Display="advanced" Required="false" Mask="false">200</Config>
+  <Config Name="TRUSTED_PROXIES" Target="TRUSTED_PROXIES" Default="172.16.0.0/12,127.0.0.0/8,::1/128" Mode="" Description="Networks allowed to send X-Forwarded-For / CF-Connecting-IP (SWAG on the proxy network). Headers from any other address are ignored, so LAN devices cannot fake an IP." Type="Variable" Display="advanced" Required="false" Mask="false">172.16.0.0/12,127.0.0.0/8,::1/128</Config>
+  <Config Name="TRUST_PROXY" Target="TRUST_PROXY" Default="true" Mode="" Description="Trust X-Forwarded-* headers from SWAG (needed for HTTPS cookies and per-IP rate limits). Do NOT publish the container's port directly to the internet." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+</Container>

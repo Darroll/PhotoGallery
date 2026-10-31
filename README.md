@@ -146,14 +146,26 @@ Do on your side:
 
 ## Deploy on Unraid
 
-1. Get this folder onto the server and build the image (the template uses a local image):
-   ```bash
-   docker build -t photogallery:latest /mnt/user/appdata/photogallery-src
-   ```
-2. Copy `unraid/my-photogallery.xml` to `/boot/config/plugins/dockerMan/templates-user/`, then Docker tab -> Add Container -> select **photogallery**.
-3. Set the library path, `ADMIN_PASSWORD`, and put the container on the same custom network as SWAG (template assumes `proxynet`).
-4. Copy `unraid/gallery.subdomain.conf` to `/mnt/user/appdata/swag/nginx/proxy-confs/`, add `gallery` to SWAG's `SUBDOMAINS`, create the DNS record, restart SWAG.
-5. Open `https://gallery.yourdomain/admin`, create galleries from folders.
+### From Community Apps
+
+Once the template is listed, search **PhotoGallery** in the Apps tab and click Install. Until then (or to try it first), install it by hand:
+
+1. Copy `unraid/photogallery.xml` to `/boot/config/plugins/dockerMan/templates-user/`, then Docker tab -> **Add Container** -> select **photogallery**.
+2. Set **Photo library** (read-only) to the folder that holds your photo folders and set `ADMIN_PASSWORD` (if left empty a random one is printed in the container log on every start).
+3. Apply. The image is pulled from `ghcr.io/darroll/photogallery:latest`, which GitHub Actions rebuilds on every push to `main` (`.github/workflows/publish-image.yml`). Updates arrive through Unraid's normal "check for updates".
+4. Open `http://SERVER-IP:8080/#/admin`, create galleries from folders.
+5. To expose it to the internet put it behind a reverse proxy (SWAG, Nginx Proxy Manager, Cloudflare Tunnel); never forward the port directly. `unraid/gallery.subdomain.conf` is a ready SWAG config; put the container on SWAG's custom network and keep `TRUST_PROXY=true`.
+
+`unraid/my-photogallery.xml` is the author's private variant that pulls from a local registry (`192.168.2.3:5000`, published with `deploy.sh`).
+
+### Publishing the template to Community Apps (maintainer notes)
+
+Files used: `unraid/photogallery.xml` (template), `unraid/icon.png`, `unraid/ca_profile.xml`. Checklist:
+
+1. Push to `main`; the **Publish image** workflow builds the public image. In GitHub -> Packages -> photogallery -> Package settings, set visibility to **Public** (first time only).
+2. Open a support thread on the Unraid forum (Docker Containers) and put its URL in `<Support>` of the template.
+3. Add a `LICENSE` file to the repository.
+4. Submit the template repository on the Unraid forum's Community Applications thread (or via the "Add an app" form), pointing at `https://github.com/Darroll/PhotoGallery`. Moderators review it before it appears.
 
 ## Configuration
 
