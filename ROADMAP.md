@@ -37,7 +37,7 @@ Done in the repo and on GitHub: template `unraid/photogallery.xml`, icon, `ca_pr
 - [x] **Open a support thread** on the Unraid forum (Docker Containers section) for PhotoGallery: what it is, screenshots, how to install, where to report bugs.
 - [x] **Put the thread URL in the template.** Set `<Support>` in `unraid/photogallery.xml` (it points at GitHub issues now), commit and push.
 - [ ] **Test the template on a clean setup.** Copy `unraid/photogallery.xml` to `/boot/config/plugins/dockerMan/templates-user/` on the server, Add Container -> photogallery, leave `ADMIN_PASSWORD` empty, confirm it pulls from ghcr.io, starts, and the password appears in the log.
-- [ ] **Submit to Community Applications.** Post the repository (`https://github.com/Darroll/PhotoGallery`) in the Community Applications thread / submission form and answer the moderators' review comments.
+- [x] **Submit to Community Applications.** Auto-approved; goes live in the next Community Applications update. Post the repository (`https://github.com/Darroll/PhotoGallery`) in the Community Applications thread / submission form and answer the moderators' review comments.
 - [ ] **Keep the image fresh.** Each push to `main` rebuilds `:latest`; check the Actions tab after a release (a failed build leaves users on the old image). Dependabot already covers NuGet and Docker.
 - [ ] (optional) Replace the placeholder `unraid/icon.png` with your own artwork; add screenshots to the README for the listing.
 
@@ -122,6 +122,34 @@ Everything to do with comments, finished together. Steps 11 and 12 must never sh
 | 26 | Accessibility pass on every page and theme | L | Med | 21 |
 | 27 | Other install routes (Q4) | M | Med | 22 |
 | 28 | "Later / ideas" (map, memories, photo of the week, keepsake page, phone-app install, translations), chosen one at a time | M to L each | varies | |
+
+## Now that it is public (strangers will install this)
+
+The app was built for one household. Public installs mean unknown setups, no one to ask in person, and updates that must never lose data. Do these roughly in order; they take priority over new features until done.
+
+**First week after it goes live**
+- [ ] **Watch the support thread and GitHub issues** every day or two; answer, and turn repeated questions into README or in-app help.
+- [ ] **Test as a stranger.** Install from the Apps tab on a clean share and a fresh appdata folder, with default settings and no SWAG, SSO or email. Fix every place you get stuck.
+- [ ] **Add GitHub issue templates** (bug: Unraid version, container log, steps; feature request) and a short `SECURITY.md` saying how to report a vulnerability privately.
+- [ ] **Screenshots** for the README and the forum thread (home, gallery, slideshow, admin overview).
+
+**Safe updates (most important)**
+- [ ] **Versioned releases.** Tag releases (`v1.0.0`...) so the image also gets `:1.0.0` tags; keep `:latest` for the template. Write a `CHANGELOG.md` and link it from the template and the app's Overview page.
+- [ ] **Never break existing data on upgrade.** Test every release by upgrading from the previous image with real data; migrations must be additive; the automatic backup runs before a migration is applied.
+- [ ] **Do not let `:latest` break people.** Only push `:latest` from a tag or after tests pass (the publish workflow currently builds on every push to `main`).
+- [ ] **Update notice** in the app (roadmap #23) so users learn about new versions, with no phoning home unless they turn it on.
+
+**First-run experience for strangers** (moves roadmap #19, #20 and #22 up)
+- [ ] **No password in the log.** If `ADMIN_PASSWORD` is empty the app prints a random one on every start; switch to a first-run setup page that makes the admin choose one, so nobody is locked out or left with an unknown password.
+- [ ] **Safe defaults.** Check that a default install is private (no public gallery until created), the port is not meant for the internet, and the README/template say so near the top.
+- [ ] **Plain-language template wording and install guide with screenshots** (the template has too many advanced fields for a first look; keep 3 visible).
+- [ ] **Template update path.** When the template changes (new variable, new path) bump nothing silently; list it in the changelog under "Template changes".
+
+**Support load and trust**
+- [ ] **Diagnostics bundle.** A button on the Overview page that gathers version, settings (secrets removed) and recent errors into one text block to paste into a bug report.
+- [ ] **No telemetry.** State plainly in the README that the app sends nothing home (captions, link previews and email go only where the admin configures).
+- [ ] **Other CPU types.** Build the image for `linux/arm64` as well as `linux/amd64` if anyone asks (Unraid is mostly amd64).
+- [ ] **Resource sanity.** Document memory and CPU use for a large library (first scan, thumbnail generation) and make the first scan gentle on small servers.
 
 Highest risk, so most careful: #2 (fetching other sites), #7 (restore), #8 (file identity), #11 and #12 (comments and the log), #17 (invites and access).
 
