@@ -137,7 +137,7 @@ The app was built for one household. Public installs mean unknown setups, no one
 - [x] **Versioned releases (tags and image tags; the changelog file exists, keep filling it).** Tag releases (`v1.0.0`...) so the image also gets `:1.0.0` tags; keep `:latest` for the template. Write a `CHANGELOG.md` and link it from the template and the app's Overview page.
 - [ ] **Never break existing data on upgrade.** Test every release by upgrading from the previous image with real data; migrations must be additive; the automatic backup runs before a migration is applied.
 - [x] **Do not let `:latest` break people.** Only push `:latest` from a tag or after tests pass (the publish workflow currently builds on every push to `main`).
-- [ ] **Update notice** in the app (roadmap #23) so users learn about new versions, with no phoning home unless they turn it on.
+- [x] **Update notice** in the app (roadmap #23) so users learn about new versions, with no phoning home unless they turn it on.
 
 **First-run experience for strangers** (moves roadmap #19, #20 and #22 up)
 - [x] **No password in the log.** If `ADMIN_PASSWORD` is empty the app prints a random one on every start; switch to a first-run setup page that makes the admin choose one, so nobody is locked out or left with an unknown password.
@@ -154,11 +154,11 @@ The app was built for one household. Public installs mean unknown setups, no one
 - [ ] **Nginx Proxy Manager and Cloudflare Tunnel examples** next to the SWAG config, with the header, upload-size and buffering settings the app needs.
 - [ ] **Other photo formats and video files.** Video files are ignored today; decide whether to support them, or say so in the first-run setup.
 - [ ] **Import and export of settings** so a user can move to a new server without redoing every gallery.
-- [ ] **Optional update notice and a visible version/changelog link** in the admin header.
+- [x] **Optional update notice and a visible version/changelog link** in the admin header.
 
 **Support load and trust**
 - [x] **Diagnostics bundle.** A button on the Overview page that gathers version, settings (secrets removed) and recent errors into one text block to paste into a bug report.
-- [ ] **No telemetry.** State plainly in the README that the app sends nothing home (captions, link previews and email go only where the admin configures).
+- [x] **No telemetry.** State plainly in the README that the app sends nothing home (captions, link previews and email go only where the admin configures).
 - [ ] **Other CPU types.** Build the image for `linux/arm64` as well as `linux/amd64` if anyone asks (Unraid is mostly amd64).
 - [ ] **Resource sanity.** Document memory and CPU use for a large library (first scan, thumbnail generation) and make the first scan gentle on small servers.
 
@@ -201,7 +201,7 @@ If time is short, the smallest set that delivers the vision is **#1, #4, #6, #7,
 - [ ] **Getting-started checklist** on the Overview page for a new install (create a gallery, share it, set up email, back up) that disappears when done. *proposed*
 - [ ] **Sample gallery** created on request, so a new admin can try every feature before using real photos. *proposed*
 - [ ] **Simple install guide** with screenshots, in the README and in the app's Help page.
-- [ ] **Update notice** on the Overview page when a newer version is available. *proposed*
+- [x] **Update notice** on the Overview page when a newer version is available. *proposed*
 - [ ] (?) Q4: other install routes (plain `docker compose`, Synology, a Windows/Mac one-click app).
 
 ## 3. Easy administration

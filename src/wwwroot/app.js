@@ -196,7 +196,7 @@ function go(path) { if (path !== location.pathname) history.pushState(null, '', 
 
 function renderFooter() {
   const f = $('#foot'); if (!f) return;
-  const ver = h('span', { text: `v${site.version || '?'}${site.commit && site.commit !== 'dev' ? ' \u00B7 ' + site.commit : ''}`, title: site.built ? `Built ${site.built}` : 'Development build' });
+  const ver = h(me && me.admin ? 'a' : 'span', { href: me && me.admin ? 'https://github.com/Darroll/PhotoGallery/blob/main/CHANGELOG.md' : false, target: me && me.admin ? '_blank' : false, rel: 'noopener', text: `v${site.version || '?'}${site.commit && site.commit !== 'dev' ? ' \u00B7 ' + site.commit : ''}`, title: (site.built ? `Built ${site.built}` : 'Development build') + (me && me.admin ? '. Click for what changed.' : '') });
   const right = h('div', { class: 'foot-info' }, ...[license.enabled ? h('a', { class: 'foot-link', href: '/license', text: license.title || 'License' }) : null, license.enabled ? ' \u00B7 ' : null, ver].filter(Boolean));
   f.replaceChildren(...[site.subscribe ? subscribeForm() : null, right].filter(Boolean));
 }
@@ -1404,7 +1404,7 @@ async function viewSettings(app, section) {
   const main = await adminPage(app, 'settings/' + section, titles[section]);
   if (!main) return;
   if (section === 'watermark') return watermarkSection(main);
-  if (section === 'general') { main.append(siteNamePanel(), await adminPasswordPanel(), await themePanel(), homePanel(), await linkPreviewPanel()); return; }
+  if (section === 'general') { main.append(siteNamePanel(), await adminPasswordPanel(), await themePanel(), homePanel(), await linkPreviewPanel(), await updatesPanel()); return; }
   if (section === 'review') return main.append(await captionReviewPanel());
   if (section === 'tags') return main.append(await tagPanel());
   if (section === 'groups') return main.append(await groupsPanel());
@@ -1769,6 +1769,21 @@ async function linkPreviewPanel() {
     h('div', { class: 'row' }, h('button', { class: 'primary', text: 'Save', onclick: async () => {
       const res = await api('/api/admin/settings/link-previews', { method: 'PUT', body: { enabled: on.checked } });
       msg.textContent = res.ok ? 'Saved' : 'Could not save';
+    } }), msg));
+}
+
+async function updatesPanel() {
+  const r = await api('/api/admin/settings/updates');
+  if (!r.ok) return h('div', { class: 'panel' }, h('h3', { text: 'New versions' }), h('p', { class: 'err', text: 'Could not load this setting.' }));
+  const on = h('input', { type: 'checkbox', checked: !!r.data.enabled });
+  const msg = h('span', { class: 'muted' });
+  return h('div', { class: 'panel' }, h('h3', { text: 'New versions' }),
+    h('p', { class: 'muted', text: 'Off by default: the app contacts no one. When on, the server asks GitHub once a day for the newest version number (nothing about your site or visitors is sent) and the Overview page tells you when an update is available.' }),
+    h('div', { class: 'row' }, h('label', {}, on, ' Tell me when a new version is available')),
+    h('div', { class: 'row' }, h('button', { class: 'primary', text: 'Save', onclick: async () => {
+      msg.textContent = 'Saving...';
+      const res = await api('/api/admin/settings/updates', { method: 'PUT', body: { enabled: on.checked } });
+      msg.textContent = !res.ok ? 'Could not save' : res.data.error ? 'Saved, but the version list could not be fetched.' : res.data.latest ? 'Saved. Newest version: v' + res.data.latest : 'Saved';
     } }), msg));
 }
 

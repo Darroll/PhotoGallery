@@ -192,6 +192,13 @@ public static class AdminApi
             return Results.File(path, ImageService.ContentType(Path.GetExtension(path).TrimStart('.')));
         });
         secured.MapGet("/settings/link-previews", (SettingsService settings) => Results.Ok(settings.LinkPreviews));
+        secured.MapGet("/settings/updates", (SettingsService settings, UpdateChecker updates) => Results.Ok(new { enabled = settings.Updates.Enabled, latest = updates.Last?.Latest, checkedAt = updates.Last?.CheckedAt, error = updates.Last?.Error }));
+        secured.MapPut("/settings/updates", async (UpdateSettings input, SettingsService settings, UpdateChecker updates) =>
+        {
+            var s = settings.SetUpdates(input);
+            if (s.Enabled) await updates.CheckAsync();
+            return Results.Ok(new { enabled = s.Enabled, latest = updates.Last?.Latest, checkedAt = updates.Last?.CheckedAt, error = updates.Last?.Error });
+        });
         secured.MapPut("/settings/link-previews", (LinkPreviewSettings input, SettingsService settings) => Results.Ok(settings.SetLinkPreviews(input)));
         secured.MapGet("/settings/site", (SettingsService settings) => Results.Ok(new { name = settings.SiteName }));
         secured.MapPut("/settings/site", (SiteInput input, SettingsService settings) => Results.Ok(new { name = settings.SetSiteName(input.Name) }));

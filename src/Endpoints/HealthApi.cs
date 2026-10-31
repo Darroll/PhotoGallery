@@ -15,7 +15,7 @@ public static class HealthApi
     {
         var g = app.MapGroup("/api/admin/health").RequireAuthorization("Admin");
 
-        g.MapGet("", async (AppDb db, AppConfig cfg, SsoConfig sso, SettingsService settings, CacheService cache, ThumbnailService thumbs, BackupService backups, AdminCredentials creds, ProxyWatch proxyWatch) =>
+        g.MapGet("", async (AppDb db, AppConfig cfg, SsoConfig sso, SettingsService settings, CacheService cache, ThumbnailService thumbs, BackupService backups, AdminCredentials creds, ProxyWatch proxyWatch, UpdateChecker updates) =>
         {
             var checks = new List<Check>();
             var now = DateTime.UtcNow;
@@ -178,6 +178,22 @@ public static class HealthApi
                 checks.Add(gaveUp > 0
                     ? new Check("autocap", "Activity", "Automatic captions", "warn", $"{gaveUp} failed", $"{gaveUp} photos could not be captioned after {CaptionService.MaxAttempts} tries. Is the caption server up?")
                     : new Check("autocap", "Activity", "Automatic captions", "ok", queued > 0 ? $"{queued} queued" : "Up to date", queued > 0 ? "Photos are waiting to be captioned." : "Every photo has a caption."));
+            }
+
+            // --- updates (opt-in; nothing is contacted while this is off) ---
+            if (!settings.Updates.Enabled)
+                checks.Add(new Check("updates", "Activity", "New versions", "off", "Not checking", "The app never contacts anyone to look for updates. To be told about new versions, turn on the notice under Settings -> Site and appearance: it asks GitHub once a day for the newest version number and sends nothing about your site.", "/admin/settings"));
+            else
+            {
+                updates.RefreshIfDue();
+                var u = updates.Last;
+                checks.Add(u == null
+                    ? new Check("updates", "Activity", "New versions", "ok", "Checking", "Looking for the newest version. Refresh in a moment.")
+                    : u.Error != null
+                        ? new Check("updates", "Activity", "New versions", "warn", "Could not check", u.Error + " The server may have no internet access; it will try again.", "/admin/settings")
+                        : u.Latest != null && updates.IsNewer(u.Latest)
+                            ? new Check("updates", "Activity", "New versions", "warn", "v" + u.Latest + " available", $"You run v{cfg.Version}. In the Unraid Docker tab, click Check for updates, then Apply update. What changed: {UpdateChecker.ReleasesPage}")
+                            : new Check("updates", "Activity", "New versions", "ok", "Up to date", $"You run v{cfg.Version}, the newest released version. Last checked {u.CheckedAt.ToLocalTime():g}."));
             }
 
             var worst = checks.Max(c => Rank(c.Status));

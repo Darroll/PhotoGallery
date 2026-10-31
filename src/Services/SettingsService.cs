@@ -48,6 +48,7 @@ class AppSettings
     public LicenseSettings License { get; set; } = new();
     public ThemeSettings Theme { get; set; } = new();
     public LinkPreviewSettings LinkPreviews { get; set; } = new();
+    public UpdateSettings Updates { get; set; } = new();
     public SsoSettings Sso { get; set; } = new();
 }
 
@@ -78,6 +79,7 @@ public class SettingsService
                 data.License = (data.License ?? new()).Sanitized();
                 data.Theme = (data.Theme ?? new()).Sanitized();
                 data.LinkPreviews = (data.LinkPreviews ?? new()).Sanitized();
+                data.Updates = (data.Updates ?? new()).Sanitized();
                 data.Sso = (data.Sso ?? new()).Sanitized();
                 if (string.IsNullOrWhiteSpace(data.SiteName)) { data.SiteName = SanitizeName(cfg.SiteTitle); Save(); }
             }
@@ -178,6 +180,21 @@ public class SettingsService
     public LinkPreviewSettings LinkPreviews
     {
         get { lock (gate) return data.LinkPreviews.Sanitized(); }
+    }
+
+    public UpdateSettings Updates
+    {
+        get { lock (gate) return data.Updates.Sanitized(); }
+    }
+
+    public UpdateSettings SetUpdates(UpdateSettings s)
+    {
+        lock (gate)
+        {
+            data.Updates = s.Sanitized();
+            Save();
+            return data.Updates.Sanitized();
+        }
     }
 
     public LinkPreviewSettings SetLinkPreviews(LinkPreviewSettings s)

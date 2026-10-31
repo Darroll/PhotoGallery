@@ -15,6 +15,7 @@ builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddSingleton<AdminCredentials>();
 builder.Services.AddSingleton<SsoConfig>();
 builder.Services.AddSingleton<ProxyWatch>();
+builder.Services.AddSingleton<UpdateChecker>();
 var recentLog = new RecentLog();
 builder.Logging.AddProvider(recentLog);
 builder.Services.AddSingleton(recentLog);
