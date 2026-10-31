@@ -44,6 +44,36 @@ public class ProxyWatch
         lock (gate) { lastSeen = DateTime.UtcNow; peer = ip?.ToString() ?? "?"; count++; }
     }
 
+    DateTime directSeen;
+    string directPeer = "";
+    long directCount;
+
+    /// <summary>True for addresses that are not on the internet: loopback, private, link-local, carrier-grade NAT (Tailscale) and IPv6 unique-local.</summary>
+    public static bool IsPrivate(IPAddress ip)
+    {
+        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+        if (IPAddress.IsLoopback(ip)) return true;
+        var b = ip.GetAddressBytes();
+        if (b.Length == 4)
+            return b[0] == 10 || b[0] == 0 || (b[0] == 172 && b[1] is >= 16 and <= 31) || (b[0] == 192 && b[1] == 168)
+                || (b[0] == 169 && b[1] == 254) || (b[0] == 100 && b[1] is >= 64 and <= 127);
+        return ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || (b[0] & 0xFE) == 0xFC;
+    }
+
+    /// <summary>A connection that came straight from an internet address, not through a proxy on your network, means the app's port is published to the internet.</summary>
+    public void NoteDirect(HttpContext ctx)
+    {
+        var ip = ctx.Connection.RemoteIpAddress;
+        if (ip == null || IsPrivate(ip)) return;
+        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+        lock (gate) { directSeen = DateTime.UtcNow; directPeer = ip.ToString(); directCount++; }
+    }
+
+    public (string Peer, long Count, DateTime Time)? RecentDirect(DateTime now)
+    {
+        lock (gate) return directCount > 0 && now - directSeen <= Window ? (directPeer, directCount, directSeen) : null;
+    }
+
     /// <summary>The newest untrusted proxy seen in the last 24 hours, or null.</summary>
     public (string Peer, long Count, DateTime Time)? Recent(DateTime now)
     {

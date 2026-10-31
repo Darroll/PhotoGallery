@@ -149,6 +149,11 @@ public static class HealthApi
             else
                 checks.Add(new Check("proxy", "Security", "Reverse proxy", "ok", "No problem seen", "No requests with ignored proxy headers have been seen in the last 24 hours."));
 
+            checks.Add(proxyWatch.RecentDirect(now) is { } direct
+                ? new Check("exposure", "Security", "Port exposure", "warn", "Reachable from the internet",
+                    $"A connection came straight from the internet address {direct.Peer} ({direct.Count} in the last 24 hours), not through a proxy on your network. The app's port looks published to the internet. Remove the port forward on your router and put a reverse proxy (SWAG, Nginx Proxy Manager) or a Cloudflare Tunnel in front instead; see Getting started, step 5.")
+                : new Check("exposure", "Security", "Port exposure", "ok", "Not seen", "No connection has come straight from an internet address in the last 24 hours. Visitors from outside should arrive through a proxy or tunnel, never a forwarded port."));
+
             checks.Add(!sso.Enabled
                 ? new Check("sso", "Security", "Visitor sign-in", "off", "Off", "Visitors cannot sign in, so they cannot suggest changes (and, later, comment).", "/admin/settings/sso")
                 : sso.FromContainer || settings.Sso.TestedAt != null

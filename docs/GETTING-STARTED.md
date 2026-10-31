@@ -2,6 +2,8 @@
 
 This takes about ten minutes and needs nothing but the container. No reverse proxy, single sign-on or email is required to begin; add them later.
 
+A fresh install is private: it has no galleries, new galleries start as **Protected**, and `/admin` needs the password you choose. Keep port 8080 on your home network (see step 5 before sharing outside it).
+
 ## 1. Install
 
 Install **PhotoGallery** from the Apps tab (or see "Deploy on Unraid" in the [README](../README.md)). Two fields matter:

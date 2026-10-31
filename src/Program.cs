@@ -106,6 +106,7 @@ app.Use(async (ctx, next) =>
     var trusted = cfg.TrustProxy && cfg.IsTrustedProxy(ctx.Connection.RemoteIpAddress);
     ctx.Items[ActivityLog.TrustedPeerKey] = trusted;
     proxyWatch.Note(ctx, trusted);
+    proxyWatch.NoteDirect(ctx);
     await next();
 });
 if (cfg.TrustProxy) app.UseForwardedHeaders();

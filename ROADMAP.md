@@ -141,7 +141,7 @@ The app was built for one household. Public installs mean unknown setups, no one
 
 **First-run experience for strangers** (moves roadmap #19, #20 and #22 up)
 - [x] **No password in the log.** If `ADMIN_PASSWORD` is empty the app prints a random one on every start; switch to a first-run setup page that makes the admin choose one, so nobody is locked out or left with an unknown password.
-- [ ] **Safe defaults.** Check that a default install is private (no public gallery until created), the port is not meant for the internet, and the README/template say so near the top.
+- [x] **Safe defaults.** Check that a default install is private (no public gallery until created), the port is not meant for the internet, and the README/template say so near the top.
 - [ ] **Plain-language template wording and install guide with screenshots** (the template has too many advanced fields for a first look; keep 3 visible).
 - [ ] **Template update path.** When the template changes (new variable, new path) bump nothing silently; list it in the changelog under "Template changes".
 
