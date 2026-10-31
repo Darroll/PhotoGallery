@@ -249,6 +249,19 @@ Visitors can pick a theme from the **Theme** menu in the header. The choice is r
 
 In **Admin -> Settings -> Appearance** you set the default theme for new visitors, and can switch the menu off so everyone gets the default. To add a theme, add its `{ id, label }` to `ThemeSettings.All` and a matching `html[data-theme="id"]` block (all tokens) in `style.css`; a test fails if a theme is missing from the stylesheet or incomplete. Only system fonts are used, because the site's content security policy blocks remote fonts.
 
+## Privacy and data requests
+
+The app holds personal data once people sign in: email addresses and display names, likes, comments with the address and browser they came from (a private log), subscriptions, and, if visitor statistics are on, network addresses. Two tools help you handle that responsibly.
+
+**Privacy notice.** Admin -> Settings -> **Privacy** has a short notice in plain words, shown at `/privacy` and linked from the footer next to the license. The default text describes what this app really keeps (likes, comments, sign-in, statistics, email alerts, cookies); read it and change anything that is not true for your site. Set a contact address so people know whom to write to. `{site}`, `{contact}` and `{year}` are filled in when it is shown. You can hide it or restore the default text.
+
+**Data about one person.** The same page has a lookup by email address (the box suggests addresses the app knows). It lists how much is held: sign-in record, comments and their log entries, likes, caption suggestions, license acceptances, subscription, group memberships, gallery invitations, queued emails, and visits tied to the person's browser. Then you can:
+
+- **Download everything (JSON)** to answer "what do you hold about me" (`GET /api/admin/privacy/person?email=...`).
+- **Delete everything about this person** for a "forget me" request (`POST /api/admin/privacy/delete`). It removes all of the above in one step, takes the address off every gallery invitation and group, and scrubs the person's likes from the details held for removed photos. The photographer's own replies stay, but no longer point at a deleted comment. A **comment block** is kept by default so a blocked person stays blocked; tick the box to remove it too.
+
+Limits: a like given while not signed in is tied only to a network address, so it cannot be matched to a person by email. It is found only if that browser was also used to sign in. Deleting a gallery already deletes its likes, comments and comment log, and the confirmation says so.
+
 ## License agreement
 
 The gallery ships with a general-purpose photo license (personal, non-commercial use only; no resale, no advertising or stock use, no AI training, watermarks and credits must stay). It is an example, not legal advice, so have it reviewed for your country.

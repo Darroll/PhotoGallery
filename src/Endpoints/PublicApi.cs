@@ -21,8 +21,11 @@ public static class PublicApi
             formats = ImageService.LosslessFormats,
             watermark = img.WatermarkAvailable,
             theme = settings.Theme.ForVisitors(),
-            subscribe = Subscribers.Available(settings)
+            subscribe = Subscribers.Available(settings),
+            privacy = settings.Privacy.Enabled ? settings.Privacy.Title : null
         });
+
+        app.MapGet("/api/privacy", (SettingsService settings) => Results.Ok(settings.Privacy.ForVisitors(settings.SiteName)));
 
         app.MapGet("/api/license", async (HttpContext ctx, AppDb db, SettingsService settings) =>
         {

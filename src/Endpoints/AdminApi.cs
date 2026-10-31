@@ -14,6 +14,7 @@ public static class AdminApi
 
     static string Clip(string? s) => new string((s ?? "").Where(c => !char.IsControl(c)).Take(40).ToArray());
     record PeopleInput(List<string>? Emails);
+    record PrivacyDeleteInput(string Email, bool RemoveBlock);
     record GalleryInput(string? Title, string? Description, string? Folder, string? Slug, Visibility? Visibility,
         string? Password, bool? AllowDownload, bool? AllowRaw, bool? AllowZip, bool? AllowGuestUpload, bool? AllowLikes, bool? ShowLikeCounts, bool? AllowComments,
         bool? WatermarkView, bool? WatermarkDownload, RawMatch? RawMatchMode,
@@ -192,6 +193,24 @@ public static class AdminApi
             return Results.File(path, ImageService.ContentType(Path.GetExtension(path).TrimStart('.')));
         });
         secured.MapGet("/settings/link-previews", (SettingsService settings) => Results.Ok(settings.LinkPreviews));
+        secured.MapGet("/settings/privacy", (SettingsService settings) => Results.Ok(new { privacy = settings.Privacy, defaultText = PrivacySettings.DefaultText, maxText = PrivacySettings.MaxText }));
+        secured.MapPut("/settings/privacy", (PrivacySettings input, SettingsService settings) => Results.Ok(settings.SetPrivacy(input)));
+        secured.MapGet("/privacy/people", async (string? q, AppDb db) => Results.Ok(await Privacy.SearchAsync(db, q ?? "")));
+        secured.MapGet("/privacy/person", async (string email, bool? download, AppDb db, HttpContext ctx) =>
+        {
+            if (!Subscribers.ValidAddress(Privacy.Norm(email))) return Results.BadRequest("Enter a valid email address.");
+            var data = await Privacy.ExportAsync(db, email);
+            if (download == true)
+                ctx.Response.Headers.ContentDisposition = "attachment; filename=\"data-" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Privacy.Norm(email))))[..8].ToLowerInvariant() + ".json\"";
+            return Results.Json(data, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web) { WriteIndented = true });
+        });
+        secured.MapPost("/privacy/delete", async (PrivacyDeleteInput input, AppDb db, ILogger<Program> log) =>
+        {
+            if (!Subscribers.ValidAddress(Privacy.Norm(input.Email))) return Results.BadRequest("Enter a valid email address.");
+            var r = await Privacy.DeleteAsync(db, input.Email, input.RemoveBlock);
+            log.LogInformation("Privacy: removed one person's data ({Comments} comments, {Likes} likes, {Accounts} accounts, {Visits} visits)", r.Comments, r.Likes, r.Accounts, r.Visits);
+            return Results.Ok(r);
+        });
         secured.MapGet("/settings/updates", (SettingsService settings, UpdateChecker updates) => Results.Ok(new { enabled = settings.Updates.Enabled, latest = updates.Last?.Latest, checkedAt = updates.Last?.CheckedAt, error = updates.Last?.Error }));
         secured.MapPut("/settings/updates", async (UpdateSettings input, SettingsService settings, UpdateChecker updates) =>
         {

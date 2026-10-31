@@ -171,6 +171,7 @@ async function route(force = false) {
   if (parts[0] === 'admin' && parts[1] === 'galleries') return viewAdmin(app);
   if (parts[0] === 'admin') return viewOverview(app);
   if (parts[0] === 'license') return viewLicense(app);
+  if (parts[0] === 'privacy') return viewPrivacy(app);
   if (parts[0] === 'search') return viewSearch(app);
   if (parts[0] === 'likes') return viewLikes(app);
   if (parts[0] === 'expired') document.title = 'Link unavailable - ' + site.title;
@@ -186,7 +187,7 @@ document.addEventListener('click', (e) => {
   const a = e.target.closest && e.target.closest('a[href]');
   if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || a.target === '_blank' || a.hasAttribute('download')) return;
   const href = a.getAttribute('href');
-  if (href === '/' || /^\/(g|admin|expired|license|search|likes)(\/|$)/.test(href)) {
+  if (href === '/' || /^\/(g|admin|expired|license|privacy|search|likes)(\/|$)/.test(href)) {
     e.preventDefault();
     if (dirtyGuard && !dirtyGuard()) return;
     go(href);
@@ -197,7 +198,7 @@ function go(path) { if (path !== location.pathname) history.pushState(null, '', 
 function renderFooter() {
   const f = $('#foot'); if (!f) return;
   const ver = h(me && me.admin ? 'a' : 'span', { href: me && me.admin ? 'https://github.com/Darroll/PhotoGallery/blob/main/CHANGELOG.md' : false, target: me && me.admin ? '_blank' : false, rel: 'noopener', text: `v${site.version || '?'}${site.commit && site.commit !== 'dev' ? ' \u00B7 ' + site.commit : ''}`, title: (site.built ? `Built ${site.built}` : 'Development build') + (me && me.admin ? '. Click for what changed.' : '') });
-  const right = h('div', { class: 'foot-info' }, ...[license.enabled ? h('a', { class: 'foot-link', href: '/license', text: license.title || 'License' }) : null, license.enabled ? ' \u00B7 ' : null, ver].filter(Boolean));
+  const right = h('div', { class: 'foot-info' }, ...[license.enabled ? h('a', { class: 'foot-link', href: '/license', text: license.title || 'License' }) : null, license.enabled ? ' \u00B7 ' : null, site.privacy ? h('a', { class: 'foot-link', href: '/privacy', text: site.privacy }) : null, site.privacy ? ' \u00B7 ' : null, ver].filter(Boolean));
   f.replaceChildren(...[site.subscribe ? subscribeForm() : null, right].filter(Boolean));
 }
 
@@ -205,6 +206,14 @@ async function viewLicense(app) {
   document.title = (license.title || 'License') + ' - ' + site.title;
   if (!license.enabled) return app.append(h('div', { class: 'center' }, h('h1', { text: 'License' }), h('p', { class: 'sub', text: 'There is no license agreement for this site.' })));
   app.append(h('div', { class: 'license-page' }, h('h1', { text: license.title }), h('div', { class: 'license-text', text: license.text }),
+    h('p', {}, h('a', { class: 'btn', href: '/', text: 'Back to galleries' }))));
+}
+
+async function viewPrivacy(app) {
+  document.title = (site.privacy || 'Privacy') + ' - ' + site.title;
+  const r = await api('/api/privacy');
+  if (!r.ok || !r.data.enabled) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Privacy' }), h('p', { class: 'sub', text: 'There is no privacy notice for this site.' })));
+  app.append(h('div', { class: 'license-page' }, h('h1', { text: r.data.title }), h('div', { class: 'license-text', text: r.data.text }),
     h('p', {}, h('a', { class: 'btn', href: '/', text: 'Back to galleries' }))));
 }
 
@@ -1197,6 +1206,7 @@ const adminNav = [
   { href: '/admin/settings/tags', key: 'settings/tags', label: 'Tags' },
   { href: '/admin/settings/groups', key: 'settings/groups', label: 'Groups' },
   { href: '/admin/settings/license', key: 'settings/license', label: 'License' },
+  { href: '/admin/settings/privacy', key: 'settings/privacy', label: 'Privacy' },
   { href: '/admin/settings/visitor-stats', key: 'settings/visitor-stats', label: 'Visitor tracking' },
   { href: '/admin/settings/email', key: 'settings/email', label: 'Email alerts' },
   { href: '/admin/settings/sso', key: 'settings/sso', label: 'Sign-in (SSO)' },
@@ -1399,7 +1409,7 @@ function newGalleryPanel(folders) {
 
 async function viewSettings(app, section) {
   document.title = 'Site settings - ' + site.title;
-  const titles = { general: 'Site and appearance', watermark: 'Watermark', review: 'Caption suggestions', tags: 'Tags', groups: 'Groups', license: 'License', 'visitor-stats': 'Visitor tracking', email: 'Email alerts', sso: 'Sign-in (SSO)', cache: 'Thumbnail cache' };
+  const titles = { general: 'Site and appearance', watermark: 'Watermark', review: 'Caption suggestions', tags: 'Tags', groups: 'Groups', license: 'License', privacy: 'Privacy', 'visitor-stats': 'Visitor tracking', email: 'Email alerts', sso: 'Sign-in (SSO)', cache: 'Thumbnail cache' };
   if (!titles[section]) section = 'general';
   const main = await adminPage(app, 'settings/' + section, titles[section]);
   if (!main) return;
@@ -1409,6 +1419,7 @@ async function viewSettings(app, section) {
   if (section === 'tags') return main.append(await tagPanel());
   if (section === 'groups') return main.append(await groupsPanel());
   if (section === 'license') return main.append(await licensePanel());
+  if (section === 'privacy') return main.append(await privacyNoticePanel(), personDataPanel());
   if (section === 'visitor-stats') return main.append(statsSettingsPanel());
   if (section === 'email') return main.append(emailPanel());
   if (section === 'sso') return main.append(await ssoPanel());
@@ -1770,6 +1781,69 @@ async function linkPreviewPanel() {
       const res = await api('/api/admin/settings/link-previews', { method: 'PUT', body: { enabled: on.checked } });
       msg.textContent = res.ok ? 'Saved' : 'Could not save';
     } }), msg));
+}
+
+async function privacyNoticePanel() {
+  const r = await api('/api/admin/settings/privacy');
+  if (!r.ok) return h('div', { class: 'panel' }, h('h3', { text: 'Privacy notice' }), h('p', { class: 'err', text: 'Could not load this setting.' }));
+  const p = r.data.privacy;
+  const enabled = h('input', { type: 'checkbox', checked: !!p.enabled });
+  const title = h('input', { type: 'text', value: p.title, maxlength: 100 });
+  const contact = h('input', { type: 'text', value: p.contact, maxlength: 200, placeholder: 'you@example.com' });
+  const text = h('textarea', { rows: 16, maxlength: r.data.maxText, value: p.text });
+  const msg = h('span', { class: 'muted' });
+  return h('div', { class: 'panel' }, h('h3', { text: 'Privacy notice' }),
+    h('p', { class: 'muted', text: 'Shown at /privacy and linked from the footer, next to the license. The default describes what this app keeps (likes, comments, sign-in, statistics, email alerts) in plain words; read it and change anything that is not true for your site. {site}, {contact} and {year} are filled in when it is shown.' }),
+    h('div', { class: 'row' }, h('label', {}, enabled, ' Show the privacy notice in the footer')),
+    h('div', { class: 'row' }, h('label', {}, 'Title ', title)),
+    h('div', { class: 'row' }, h('label', {}, 'Contact for data requests (email or web address) ', contact)),
+    text,
+    h('div', { class: 'row' },
+      h('button', { class: 'primary', text: 'Save', onclick: async () => {
+        const res = await api('/api/admin/settings/privacy', { method: 'PUT', body: { enabled: enabled.checked, title: title.value, contact: contact.value, text: text.value } });
+        msg.textContent = res.ok ? 'Saved' : 'Could not save';
+        if (res.ok) { const s = await api('/api/site'); if (s.ok) site = s.data; renderFooter(); }
+      } }),
+      h('button', { text: 'Restore the default text', onclick: () => { text.value = r.data.defaultText; msg.textContent = 'Default text loaded. Click Save to keep it.'; } }),
+      h('a', { class: 'btn', href: '/privacy', target: '_blank', rel: 'noopener', text: 'Preview' }), msg));
+}
+
+// Export or delete everything held about one person (their likes, comments, sign-in record, subscription and statistics tied to their browser).
+function personDataPanel() {
+  const email = h('input', { type: 'email', placeholder: 'person@example.com', 'aria-label': 'Email address', list: 'privacy-people' });
+  const list = h('datalist', { id: 'privacy-people' });
+  const out = h('div');
+  const msg = h('span', { class: 'muted' });
+  api('/api/admin/privacy/people').then(r => { if (r.ok) list.replaceChildren(...r.data.map(x => h('option', { value: x.email, label: (x.name ? x.name + ' - ' : '') + x.where.join(', ') }))); });
+  const summary = (d) => {
+    const rows = [['Accounts', d.accounts.length], ['Comments', d.comments.length], ['Comment log entries', d.commentLog.length], ['Likes', d.likes.length], ['Caption suggestions', d.captionSuggestions.length],
+      ['License acceptances', d.licenseAcceptances.length], ['Subscription', d.subscription.length], ['Group memberships', d.groupMemberships.length], ['Gallery invitations', d.galleryInvitations.length],
+      ['Queued emails', d.queuedEmails.length], ['Visits tied to their browser', d.visits.length]];
+    return h('table', { class: 'data' }, h('tbody', {}, rows.map(([k, n]) => h('tr', {}, h('td', { text: k }), h('td', { text: String(n) })))));
+  };
+  const look = async () => {
+    msg.textContent = ''; out.replaceChildren();
+    const r = await api('/api/admin/privacy/person?email=' + encodeURIComponent(email.value.trim()));
+    if (!r.ok) { msg.textContent = typeof r.data === 'string' ? r.data : 'Could not look that person up.'; return; }
+    const removeBlock = h('input', { type: 'checkbox' });
+    const hasBlock = r.data.commentBlock.length > 0;
+    const total = ['accounts', 'comments', 'commentLog', 'likes', 'captionSuggestions', 'licenseAcceptances', 'subscription', 'groupMemberships', 'galleryInvitations', 'queuedEmails', 'visits'].reduce((n, k) => n + r.data[k].length, 0);
+    out.replaceChildren(...[h('h4', { text: 'Held about ' + r.data.email }), total ? summary(r.data) : h('p', { text: 'Nothing is held about this address.' }),
+      h('p', { class: 'muted', text: r.data.note }),
+      total ? h('div', { class: 'row' },
+        h('a', { class: 'btn', href: '/api/admin/privacy/person?download=true&email=' + encodeURIComponent(r.data.email), download: 'data.json', text: 'Download everything (JSON)' })) : null,
+      total ? h('div', { class: 'danger-zone' },
+        hasBlock ? h('label', {}, removeBlock, ' Also remove their comment block (otherwise it is kept so they stay blocked)') : null,
+        h('button', { class: 'danger', text: 'Delete everything about this person', onclick: async () => {
+          if (!confirm('Delete everything held about ' + r.data.email + '? Their comments, likes, sign-in record, subscription and statistics tied to their browser are removed for good. This cannot be undone.')) return;
+          const d = await api('/api/admin/privacy/delete', { method: 'POST', body: { email: r.data.email, removeBlock: removeBlock.checked } });
+          if (!d.ok) { msg.textContent = 'Could not delete.'; return; }
+          out.replaceChildren(h('p', { text: `Deleted: ${plural(d.data.comments, 'comment')}, ${plural(d.data.likes, 'like')}, ${plural(d.data.accounts, 'sign-in record')}, ${plural(d.data.commentLog, 'log entry')}, ${plural(d.data.visits, 'visit')} and ${plural(d.data.other, 'other item')}.` + (d.data.blockKept ? ' Their comment block was kept.' : '') }));
+        } })) : null].filter(Boolean));
+  };
+  return h('div', { class: 'panel' }, h('h3', { text: 'Data about one person' }),
+    h('p', { class: 'muted', text: 'Answer a request for "everything you hold about me", or a request to be forgotten. Enter the email address they signed in or subscribed with. Likes given while not signed in are tied only to a network address, so they cannot be matched to a person here.' }),
+    h('div', { class: 'row' }, email, list, h('button', { class: 'primary', text: 'Look up', onclick: look }), msg), out);
 }
 
 async function updatesPanel() {
@@ -2256,7 +2330,7 @@ async function viewGallerySettings(app, id) {
       } }), scanMsg), 'Folders are also rescanned automatically.'),
       field('Thumbnails', thumbControl(g), 'Built automatically in the background after each scan. Rebuild after fixing or replacing photos.'),
       field('Delete', h('button', { class: 'danger', text: 'Delete gallery...', onclick: async () => {
-        if (!confirm('Remove this gallery from the site? Your original photo files are NOT deleted.')) return;
+        if (!confirm('Remove this gallery from the site? Its likes, comments and comment log are deleted with it. Your original photo files are NOT deleted.')) return;
         dirty = false; await api('/api/admin/galleries/' + g.id, { method: 'DELETE' }); go('/admin/galleries');
       } }))));
 

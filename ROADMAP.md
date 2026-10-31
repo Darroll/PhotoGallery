@@ -233,8 +233,8 @@ If time is short, the smallest set that delivers the vision is **#1, #4, #6, #7,
 - [ ] Backup restore test; scheduled thumbnail cache cleanup.
 - [x] **Renamed and moved files keep their likes, tags and captions** (file fingerprint; photos follow the file within and across galleries; details of removed photos held 90 days). Comments will attach to the photo the same way once they exist.
 - [ ] Admin audit log (who changed what), alongside the comment log.
-- [ ] **Privacy tools.** With comments the app now holds email addresses and names. Add: export everything held about one person, delete a person (their likes and comments), and a short editable privacy notice linked from the footer next to the license. *proposed*
-- [ ] **Delete gallery** also removes its comments and likes, and says so in the confirmation.
+- [x] **Privacy tools.** With comments the app now holds email addresses and names. Add: export everything held about one person, delete a person (their likes and comments), and a short editable privacy notice linked from the footer next to the license. *proposed*
+- [x] **Delete gallery** also removes its comments and likes, and says so in the confirmation.
 - [ ] Accessibility pass (keyboard, screen reader, contrast) on all themes.
 - [ ] Hardening checks on the Overview page (published port, default password).
 
