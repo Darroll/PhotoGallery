@@ -164,6 +164,7 @@ BackupApi.Map(app);
 AuthApi.Map(app);
 SsoApi.Map(app);
 CommentApi.Map(app);
+ModerationApi.Map(app);
 SsoApi.MapTestLogin(app);
 SubscribeApi.Map(app);
 CaptionApi.Map(app);

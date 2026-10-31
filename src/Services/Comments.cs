@@ -52,8 +52,26 @@ public class CommentEvent
     public string UserAgent { get; set; } = "";
 }
 
+/// <summary>A person the photographer has stopped from commenting. Matched by sign-in id or by verified email address.</summary>
+public class CommentBlock
+{
+    public int Id { get; set; }
+    public string Sub { get; set; } = "";
+    public string Email { get; set; } = "";
+    /// <summary>The display name they had, so the list is readable.</summary>
+    public string Name { get; set; } = "";
+    public string Reason { get; set; } = "";
+    public DateTime At { get; set; } = DateTime.UtcNow;
+}
+
 public static class Comments
 {
+    public static Task<bool> IsBlockedAsync(AppDb db, string sub, string email)
+    {
+        email = (email ?? "").ToLowerInvariant();
+        return db.CommentBlocks.AnyAsync(b => (sub != "" && b.Sub == sub) || (email != "" && b.Email == email));
+    }
+
     public const int MaxLength = 1000;
     public const int MaxName = 40;
     public static readonly TimeSpan EditWindow = TimeSpan.FromMinutes(15);

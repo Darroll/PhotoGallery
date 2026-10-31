@@ -185,6 +185,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<PhotoRetired> PhotosRetired => Set<PhotoRetired>();
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<CommentEvent> CommentEvents => Set<CommentEvent>();
+    public DbSet<CommentBlock> CommentBlocks => Set<CommentBlock>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -195,6 +196,8 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<Comment>().HasIndex(c => new { c.Sub, c.CreatedAt });
         b.Entity<CommentEvent>().HasIndex(e => e.CommentId);
         b.Entity<CommentEvent>().HasIndex(e => e.At);
+        b.Entity<CommentBlock>().HasIndex(x => x.Sub);
+        b.Entity<CommentBlock>().HasIndex(x => x.Email);
         b.Entity<PhotoRetired>().HasIndex(r => r.Fingerprint);
         b.Entity<ShareLink>().HasIndex(l => l.Token).IsUnique();
         b.Entity<Favorite>().HasIndex(f => new { f.GalleryId, f.PhotoId, f.VisitorId }).IsUnique();

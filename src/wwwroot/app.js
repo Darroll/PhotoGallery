@@ -165,6 +165,7 @@ async function route(force = false) {
   galleryView = null; closeLightbox(); app.replaceChildren();
   document.title = site.title;
   if (parts[0] === 'admin' && parts[1] === 'stats') return viewStats(app);
+  if (parts[0] === 'admin' && parts[1] === 'comments') return viewComments(app);
   if (parts[0] === 'admin' && parts[1] === 'settings') return viewSettings(app, parts[2]);
   if (parts[0] === 'admin' && parts[1] === 'galleries' && parts[2]) return viewGallerySettings(app, Number(parts[2]));
   if (parts[0] === 'admin' && parts[1] === 'galleries') return viewAdmin(app);
@@ -705,8 +706,27 @@ async function commentsPanel(photo, changed) {
           if (e.ok) changed(); else msg.textContent = cmErr(e, 'Could not delete.');
         } }));
     }
-    return h('div', { class: 'cm' + (c.isAdmin ? ' cm-admin' : '') },
+    if (me.admin) {
+      acts.append(
+        h('button', { class: 'linkish', text: c.hidden ? 'Show again' : 'Hide', onclick: async () => {
+          const e = await api(`/api/admin/comments/${c.id}/hidden`, { method: 'PUT', body: { hidden: !c.hidden } });
+          if (e.ok) changed(); else msg.textContent = cmErr(e, 'Could not change it.');
+        } }),
+        c.mine && c.canChangeUntil ? null : h('button', { class: 'linkish', text: 'Delete', onclick: async () => {
+          if (!confirm('Delete this comment? It stays in the comment log.')) return;
+          const e = await api(`/api/admin/comments/${c.id}`, { method: 'DELETE' });
+          if (e.ok) changed(); else msg.textContent = cmErr(e, 'Could not delete.');
+        } }),
+        c.isAdmin ? null : h('button', { class: 'linkish', text: 'Block this person', onclick: async () => {
+          const hideAll = confirm('Stop ' + c.author + ' from commenting?\n\nPress OK to also hide all their other comments, or Cancel to go on without that.');
+          if (!confirm('Block ' + c.author + ' from commenting on this site?' + (hideAll ? ' Their other comments will be hidden.' : '') + '\nYou can undo this under Comments in the admin menu.')) return;
+          const e = await api(`/api/admin/comments/${c.id}/block`, { method: 'POST', body: { reason: '', hideAll } });
+          if (e.ok) changed(); else msg.textContent = cmErr(e, 'Could not block.');
+        } }));
+    }
+    return h('div', { class: 'cm' + (c.isAdmin ? ' cm-admin' : '') + (c.hidden ? ' cm-hidden' : '') },
       head,
+      c.hidden ? h('div', { class: 'cm-reply muted', text: 'Hidden: visitors cannot see this comment.' }) : null,
       c.replyTo ? h('div', { class: 'cm-reply muted', text: '↩ in reply to ' + c.replyTo.author }) : null,
       body, acts);
   };
@@ -745,6 +765,7 @@ async function commentsPanel(photo, changed) {
   else if (!me.signedIn) composer.replaceChildren(me.canSignIn
     ? h('p', {}, h('a', { class: 'btn primary', href: '/auth/login?next=' + encodeURIComponent(location.pathname), text: 'Sign in to comment' }))
     : h('p', { class: 'muted', text: 'Only the photographer can write comments here.' }));
+  else if (me.blocked) composer.replaceChildren(h('p', { class: 'muted', text: 'You can no longer comment on this site.' }));
   else composer.replaceChildren(h('p', { class: 'muted', text: 'Your email address is not verified by the sign-in provider, so you cannot comment yet.' }));
   out.push(composer, msg);
   return out;
@@ -1162,6 +1183,7 @@ const adminNav = [
   { href: '/admin', key: 'overview', label: 'Overview' },
   { href: '/admin/galleries', key: 'galleries', label: 'Galleries' },
   { href: '/admin/stats', key: 'stats', label: 'Statistics' },
+  { href: '/admin/comments', key: 'comments', label: 'Comments' },
   { heading: 'Settings' },
   { href: '/admin/settings', key: 'settings/general', label: 'Site and appearance' },
   { href: '/admin/settings/watermark', key: 'settings/watermark', label: 'Watermark' },
@@ -2381,6 +2403,95 @@ function rawLinker(g) {
 }
 
 // ---------- statistics ----------
+// --- admin: comments, the comment log and blocked people ---
+const eventLabels = { post: 'Posted', edit: 'Edited', delete: 'Deleted', hide: 'Hidden', unhide: 'Shown again', block: 'Blocked a person', unblock: 'Unblocked a person' };
+
+async function viewComments(app) {
+  document.title = 'Comments - ' + site.title;
+  const main = await adminPage(app, 'comments', 'Comments');
+  if (!main) return;
+  const qs = new URLSearchParams(location.search);
+  const state = { tab: qs.get('tab') || 'comments', q: '', status: '', gallery: '', kind: '', skip: 0 };
+  const galleries = (await api('/api/admin/galleries')).data || [];
+  const body = h('div', { class: 'cm-admin-body' });
+  const tabs = h('div', { class: 'toolbar' });
+
+  const draw = () => {
+    tabs.replaceChildren(h('h1', { text: 'Comments' }), h('span', { class: 'grow' }),
+      ...[['comments', 'All comments'], ['log', 'Comment log'], ['blocked', 'Blocked people']].map(([k, label]) =>
+        h('button', { class: state.tab === k ? 'primary' : '', text: label, onclick: () => { state.tab = k; state.skip = 0; draw(); } })));
+    if (state.tab === 'blocked') return blocked();
+    list();
+  };
+
+  const filters = (withStatus) => {
+    const q = h('input', { type: 'search', placeholder: 'Search text, name or email', value: state.q, 'aria-label': 'Search', onkeydown: (e) => { if (e.key === 'Enter') { state.q = q.value; state.skip = 0; list(); } } });
+    const gal = h('select', { 'aria-label': 'Gallery', onchange: () => { state.gallery = gal.value; state.skip = 0; list(); } },
+      h('option', { value: '', text: 'All galleries' }), galleries.map(g => h('option', { value: g.id, text: g.title, selected: String(g.id) === String(state.gallery) })));
+    const sel = withStatus
+      ? h('select', { 'aria-label': 'Status', onchange: () => { state.status = sel.value; state.skip = 0; list(); } },
+        [['', 'Any status'], ['visible', 'Visible'], ['hidden', 'Hidden'], ['deleted', 'Deleted']].map(([v, t]) => h('option', { value: v, text: t, selected: v === state.status })))
+      : h('select', { 'aria-label': 'What happened', onchange: () => { state.kind = sel.value; state.skip = 0; list(); } },
+        h('option', { value: '', text: 'Anything' }), Object.entries(eventLabels).map(([v, t]) => h('option', { value: v, text: t, selected: v === state.kind })));
+    return h('div', { class: 'toolbar' }, q, gal, sel, h('button', { text: 'Search', onclick: () => { state.q = q.value; state.skip = 0; list(); } }));
+  };
+
+  const pager = (total, shown) => h('div', { class: 'toolbar' },
+    h('span', { class: 'muted', text: total ? `${state.skip + 1} to ${state.skip + shown} of ${total}` : 'Nothing found.' }), h('span', { class: 'grow' }),
+    h('button', { text: 'Newer', disabled: state.skip === 0, onclick: () => { state.skip = Math.max(0, state.skip - 50); list(); } }),
+    h('button', { text: 'Older', disabled: state.skip + shown >= total, onclick: () => { state.skip += 50; list(); } }));
+
+  const list = async () => {
+    const p = new URLSearchParams({ q: state.q, gallery: state.gallery, skip: state.skip });
+    if (state.tab === 'comments') p.set('status', state.status); else p.set('kind', state.kind);
+    const r = await api('/api/admin/' + (state.tab === 'comments' ? 'comments' : 'comments/log') + '?' + p);
+    if (!r.ok) return body.replaceChildren(filters(state.tab === 'comments'), h('p', { class: 'error', text: 'Could not load.' }));
+    const d = r.data;
+    const rows = state.tab === 'comments' ? d.items.map(c => h('tr', { class: c.status !== 'visible' ? 'cm-row-' + c.status : '' },
+      h('td', { text: cmWhen(c.at) }),
+      h('td', {}, h('strong', { text: c.isAdmin ? 'Photographer' : c.author }), c.email ? h('div', { class: 'muted', text: c.email }) : null, c.blocked ? h('div', { class: 'error', text: 'Blocked' }) : null),
+      h('td', {}, c.slug ? h('a', { href: `/g/${encodeURIComponent(c.slug)}`, text: c.gallery }) : c.gallery, h('div', { class: 'muted', text: c.photo })),
+      h('td', { class: 'cm-text', text: c.text }),
+      h('td', { text: c.status + (c.edited ? ' (edited)' : '') }),
+      h('td', { class: 'cm-acts' },
+        c.status === 'deleted' ? null : h('button', { text: c.status === 'hidden' ? 'Show' : 'Hide', onclick: async () => { await api(`/api/admin/comments/${c.id}/hidden`, { method: 'PUT', body: { hidden: c.status !== 'hidden' } }); list(); } }),
+        c.status === 'deleted' ? null : h('button', { class: 'danger', text: 'Delete', onclick: async () => { if (confirm('Delete this comment? It stays in the log.')) { await api(`/api/admin/comments/${c.id}`, { method: 'DELETE' }); list(); } } }),
+        c.isAdmin || c.blocked ? null : h('button', { text: 'Block person', onclick: async () => {
+          if (!confirm('Block ' + c.author + ' (' + c.email + ') from commenting?')) return;
+          const hideAll = confirm('Also hide all their other comments?\n\nOK = hide them, Cancel = leave them.');
+          await api(`/api/admin/comments/${c.id}/block`, { method: 'POST', body: { reason: '', hideAll } }); list();
+        } }))))
+      : d.items.map(e => h('tr', {},
+        h('td', { text: cmWhen(e.at) }),
+        h('td', { text: eventLabels[e.kind] || e.kind }),
+        h('td', {}, h('strong', { text: e.who }), e.email ? h('div', { class: 'muted', text: e.email }) : null),
+        h('td', {}, e.gallery, h('div', { class: 'muted', text: e.photo })),
+        h('td', { class: 'cm-text', text: e.text }),
+        h('td', { class: 'muted', text: e.browser })));
+    const head = state.tab === 'comments' ? ['When', 'Who', 'Where', 'Comment', 'Status', ''] : ['When', 'What', 'Who', 'Where', 'Text', 'Browser'];
+    body.replaceChildren(
+      h('p', { class: 'muted', text: state.tab === 'comments'
+        ? 'Every comment on the site. Hiding keeps a comment but takes it off the page; deleting removes it from the page and keeps it in the log.'
+        : 'Everything that happened to comments: posts, edits (with the earlier text), hides, deletes and blocks. The address each came from is stored but never shown.' }),
+      filters(state.tab === 'comments'),
+      h('table', { class: 'info-table cm-table' }, h('tr', {}, head.map(t => h('th', { text: t }))), rows),
+      pager(d.total, d.items.length));
+  };
+
+  const blocked = async () => {
+    const r = await api('/api/admin/comments/blocks');
+    const items = r.data || [];
+    body.replaceChildren(
+      h('p', { class: 'muted', text: 'People who cannot comment. They can still look at galleries. Block someone from the comment list.' }),
+      items.length ? h('table', { class: 'info-table cm-table' }, h('tr', {}, ['Since', 'Name', 'Email', 'Note', ''].map(t => h('th', { text: t }))),
+        items.map(b => h('tr', {}, h('td', { text: cmWhen(b.at) }), h('td', { text: b.name }), h('td', { text: b.email }), h('td', { text: b.reason }),
+          h('td', {}, h('button', { text: 'Unblock', onclick: async () => { await api(`/api/admin/comments/blocks/${b.id}`, { method: 'DELETE' }); blocked(); } }))))) : h('p', { text: 'Nobody is blocked.' }));
+  };
+
+  main.append(tabs, body);
+  draw();
+}
+
 const kindLabels = { view_gallery: 'Viewed gallery', view_photo: 'Viewed photo', download: 'Downloaded', zip: 'Downloaded ZIP', favorite: 'Favorited a photo', unlock_ok: 'Unlocked (password)', unlock_fail: 'Wrong password', share_open: 'Opened share link', share_invalid: 'Bad/expired link', upload: 'Uploaded' };
 
 async function viewStats(app) {

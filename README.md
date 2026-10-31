@@ -77,7 +77,20 @@ Comments are off until you switch them on per gallery (gallery settings, **Comme
 - **They follow the file.** A comment belongs to the photo, so renaming or moving the file keeps it (see *Renaming and moving files*), including a move to another gallery. Deleting a gallery deletes its comments and log.
 - **Where to find them.** In the viewer, the **Comments** button opens a panel beside the photo (under it on a phone) with a count on the button.
 
-Review, hiding and deleting other people's comments, blocking a person and the searchable comment log are the next step (moderation) and are not in the app yet.
+#### Moderating comments
+
+Open **Comments** in the admin menu. It has three tabs:
+
+- **All comments.** Every comment on the site, newest first, with who wrote it (name and verified email), the gallery and photo, and its status. Search the text, name or email, and filter by gallery or by visible, hidden or deleted.
+- **Comment log.** Everything that happened: posted, edited (with the earlier text), deleted, hidden, shown again, blocked and unblocked. Each line has the time, who, the gallery and photo, the text and the browser. The network address of each is stored with it but is never shown on any page or sent to a browser. A deleted comment leaves the page but stays in the log until its gallery is deleted.
+- **Blocked people.** Who cannot comment, with an **Unblock** button.
+
+Actions, here and in the viewer's Comments panel (which shows them to you only):
+
+- **Hide** takes a comment off the page for visitors (you still see it, dimmed) and **Show again** brings it back. A hidden comment is not counted and its author can no longer edit it.
+- **Delete** removes any comment from the page. It stays in the log.
+- **Block this person** stops them posting or editing, matched by their sign-in and by their verified email, so a new account with the same email is stopped too. You can choose to hide all their other comments at the same time. Blocked people can still look at galleries and see "You can no longer comment on this site." You cannot block yourself.
+
 
 ### Email alerts
 

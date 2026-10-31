@@ -30,7 +30,7 @@ public static class CommentApi
 
     static object Shape(Comment c, Dictionary<int, string> authors, bool mine) => new
     {
-        c.Id, author = c.Author, isAdmin = c.IsAdmin, text = c.Text, at = c.CreatedAt, edited = c.EditedAt != null, mine,
+        c.Id, author = c.Author, isAdmin = c.IsAdmin, hidden = c.Hidden, text = c.Text, at = c.CreatedAt, edited = c.EditedAt != null, mine,
         replyTo = c.ReplyToId != null && authors.TryGetValue(c.ReplyToId.Value, out var who) ? new { id = c.ReplyToId.Value, author = who } : null,
         canChangeUntil = mine ? (DateTime?)c.CreatedAt + Comments.EditWindow : null
     };
@@ -48,19 +48,21 @@ public static class CommentApi
             var sub = AuthApi.Sub(ctx);
             var member = Comments.IsVerifiedMember(ctx);
             var name = member ? await db.Users.AsNoTracking().Where(u => u.Sub == sub).Select(u => u.DisplayName).FirstOrDefaultAsync() ?? "" : "";
+            var blocked = member && await Comments.IsBlockedAsync(db, sub ?? "", Comments.Email(ctx));
             var me = new
             {
                 admin = t.Admin,
+                blocked,
                 signedIn = sub != null,
                 verified = member,
                 canSignIn = sso.Enabled,
                 name,
                 suggestedName = member && name == "" ? Comments.SuggestName(ctx.User.Identity?.Name) : "",
-                canPost = open && (t.Admin || (member && name != ""))
+                canPost = open && (t.Admin || (member && !blocked && name != ""))
             };
             if (!open) return Results.Ok(new { enabled = false, me, comments = Array.Empty<object>() });
 
-            var rows = await db.Comments.AsNoTracking().Where(c => c.PhotoId == photoId && !c.Deleted && !c.Hidden).OrderBy(c => c.CreatedAt).ThenBy(c => c.Id).ToListAsync();
+            var rows = await db.Comments.AsNoTracking().Where(c => c.PhotoId == photoId && !c.Deleted && (t.Admin || !c.Hidden)).OrderBy(c => c.CreatedAt).ThenBy(c => c.Id).ToListAsync();
             var authors = rows.ToDictionary(c => c.Id, c => c.Author);
             return Results.Ok(new { enabled = true, me, comments = rows.Select(c => Shape(c, authors, IsMine(c, ctx, t.Admin))) });
         });
@@ -80,6 +82,7 @@ public static class CommentApi
             {
                 if (sub == "") return Results.Json(new { error = "Sign in to comment." }, statusCode: 401);
                 if (!Comments.IsVerifiedMember(ctx)) return Results.Json(new { error = "Your email address has to be verified by the sign-in provider before you can comment." }, statusCode: 403);
+                if (await Comments.IsBlockedAsync(db, sub, email)) return Results.Json(new { error = "You can no longer comment on this site." }, statusCode: 403);
                 author = await db.Users.AsNoTracking().Where(u => u.Sub == sub).Select(u => u.DisplayName).FirstOrDefaultAsync() ?? "";
                 if (author == "") return Results.Json(new { error = "Choose the name to show on your comments first.", needsName = true }, statusCode: 409);
 
@@ -126,6 +129,7 @@ public static class CommentApi
             var c = await db.Comments.FirstOrDefaultAsync(x => x.Id == id && x.PhotoId == photoId && !x.Deleted);
             if (c == null) return (null, null, Results.NotFound());
             if (!IsMine(c, ctx, t.Admin)) return (null, null, Results.StatusCode(403));
+            if (c.Hidden && !t.Admin) return (null, null, Results.NotFound());
             if (DateTime.UtcNow - c.CreatedAt > Comments.EditWindow)
                 return (null, null, Results.Json(new { error = "The 15 minutes for changing a comment are over." }, statusCode: 403));
             return (c, t, null);
@@ -135,6 +139,7 @@ public static class CommentApi
         {
             var (c, t, fail) = await Own(slug, photoId, id, ctx, db, access);
             if (c == null) return fail!;
+            if (!t!.Admin && await Comments.IsBlockedAsync(db, c.Sub, c.Email)) return Results.Json(new { error = "You can no longer comment on this site." }, statusCode: 403);
             var text = Comments.CleanText(input.Text);
             if (Comments.Problem(text) is { } problem) return Results.BadRequest(problem);
             if (text != c.Text)

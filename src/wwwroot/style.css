@@ -531,7 +531,10 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 /* comments (inside the viewer's side panel) */
 #lightbox .cm-list { display: flex; flex-direction: column; gap: 12px; margin: 10px 0 14px; }
 #lightbox .cm { padding: 8px 10px; border: 1px solid #333; border-radius: 10px; background: #1b1b1b; }
-#lightbox .cm-admin { border-color: #4a6fa8; background: #18202e; }
+#lightbox .cm-hidden { opacity: .65; border-style: dashed; }
+.cm-row-hidden, .cm-row-deleted { opacity: .65; }
+.cm-table td { vertical-align: top; }
+.cm-admin { border-color: #4a6fa8; background: #18202e; }
 #lightbox .cm-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 13px; }
 #lightbox .cm-badge { font-size: 11px; background: #4a6fa8; color: #fff; border-radius: 8px; padding: 0 6px; }
 #lightbox .cm-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0; }

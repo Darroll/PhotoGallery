@@ -176,6 +176,40 @@ namespace PhotoGallery.Migrations
                     b.ToTable("Comments");
                 });
 
+            modelBuilder.Entity("PhotoGallery.CommentBlock", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Sub")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email");
+
+                    b.HasIndex("Sub");
+
+                    b.ToTable("CommentBlocks");
+                });
+
             modelBuilder.Entity("PhotoGallery.CommentEvent", b =>
                 {
                     b.Property<long>("Id")
