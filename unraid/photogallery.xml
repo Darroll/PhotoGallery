@@ -7,7 +7,7 @@
   <MyIP/>
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/Darroll/PhotoGallery/issues</Support>
+  <Support>https://forums.unraid.net/topic/201119-support-darroll-photogallery/</Support>
   <Project>https://github.com/Darroll/PhotoGallery</Project>
   <Overview>[b]PhotoGallery[/b] - Self-hosted photo galleries: public / unlisted / password-protected galleries, share links with expiry and download limits, slideshow, lossless PNG/WebP/TIFF size exports, RAW download, ZIP download, watermarks and moderated guest uploads. Your photo library is mounted read-only; nothing in it is ever modified.</Overview>
   <Category>MediaServer:Photos Tools:</Category>
