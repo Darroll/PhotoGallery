@@ -2,7 +2,11 @@
 
 Self-hosted photo galleries for Unraid, written in ASP.NET Core 9 (SQLite + libvips). No viewer accounts; one admin.
 
-What is planned next, and the principles behind it, is in [ROADMAP.md](ROADMAP.md).
+**New here?** Read [Getting started](docs/GETTING-STARTED.md) (about ten minutes, nothing but the container). Something not working? See [Troubleshooting](docs/TROUBLESHOOTING.md). What changed between versions is in [CHANGELOG.md](CHANGELOG.md), and what is planned next, and the principles behind it, is in [ROADMAP.md](ROADMAP.md).
+
+**Requirements:** Unraid (or any Docker host), a folder of photos, and free space on the app data share for the thumbnail cache (it grows with the size of your library). It runs on `linux/amd64`. No account anywhere, no cloud service, and the app sends nothing home: link previews, captions and email only reach the addresses you configure.
+
+**Supported files:** JPG, PNG, TIFF, WebP, HEIC and AVIF pictures; CR2, CR3, NEF, ARW, DNG, RAF, ORF, RW2, PEF and SRW RAW files. Video files are not supported; add YouTube links to a gallery instead.
 
 ## Features
 
@@ -130,14 +134,14 @@ Grid thumbnails and viewing images are built in the background after every scan 
 - Viewers: gallery access is an encrypted, expiring cookie (ASP.NET Data Protection, keys persisted in `/data/keys`). Changing a gallery's password or visibility invalidates existing cookies.
 - Protected photos are never served without a valid grant (images, downloads and ZIPs all check). Specific-people galleries are checked on every request against the signed-in, verified email address, so removing someone takes effect at once.
 - Upload: extension allow-list, size limit, content verified by libvips before acceptance, per-IP rate limit, pending cap.
-- Strict CSP, `nosniff`, no framing. Run it only behind SWAG/HTTPS and do not publish the container port to the internet.
+- Strict CSP, `nosniff`, no framing. Use it on your own network as is (plain `http://server:8080` works, cookies are only marked secure when the request is HTTPS). To reach it from the internet, put it behind an HTTPS reverse proxy (SWAG, Nginx Proxy Manager, Cloudflare Tunnel) and never forward the container port itself; see [Getting started](docs/GETTING-STARTED.md#5-let-people-outside-your-home-reach-it).
 
 ## Hardening checklist
 
 Built in: PBKDF2 gallery passwords, constant-time admin check, rate limits (login, unlock, upload), slow-down after wrong admin passwords plus an email alert, per-visitor limit of one ZIP at a time, strict CSP, HSTS over HTTPS, 150 MP image cap, 60 s exiftool limit, and proxy headers (`X-Forwarded-*`, `CF-Connecting-IP`) believed only from `TRUSTED_PROXIES` (default: Docker's 172.16.0.0/12 and loopback).
 
 Do on your side:
-1. Remove the WebUI port mapping from the container (SWAG reaches it by name on `proxynet`) so nothing on the LAN can talk to it directly.
+1. Once a reverse proxy works, remove the WebUI port mapping from the container (the proxy reaches it by name on a shared custom Docker network such as `proxynet`) so nothing on the LAN can talk to it directly. Skip this step if you use the app only on your LAN.
 2. Protect `/admin` and `/api/admin` with Cloudflare Access (free) or a SWAG allow-list.
 3. Keep the Cloudflare proxy on (not paused); restrict SWAG to Cloudflare's IP ranges; add a Cloudflare rate-limit rule for `/api/admin/login` and `/api/g/*/unlock`.
 4. Use a long random `ADMIN_PASSWORD`.
@@ -153,7 +157,7 @@ Once the template is listed, search **PhotoGallery** in the Apps tab and click I
 1. Copy `unraid/photogallery.xml` to `/boot/config/plugins/dockerMan/templates-user/`, then Docker tab -> **Add Container** -> select **photogallery**.
 2. Set **Photo library** (read-only) to the folder that holds your photo folders and set `ADMIN_PASSWORD` (if left empty a random one is printed in the container log on every start).
 3. Apply. The image is pulled from `ghcr.io/darroll/photogallery:latest`, which GitHub Actions rebuilds on every push to `main` (`.github/workflows/publish-image.yml`). Updates arrive through Unraid's normal "check for updates".
-4. Open `http://SERVER-IP:8080/#/admin`, create galleries from folders.
+4. Open `http://SERVER-IP:8080/admin`, create galleries from folders. [Getting started](docs/GETTING-STARTED.md) walks through this, including permissions and folder layout.
 5. To expose it to the internet put it behind a reverse proxy (SWAG, Nginx Proxy Manager, Cloudflare Tunnel); never forward the port directly. `unraid/gallery.subdomain.conf` is a ready SWAG config; put the container on SWAG's custom network and keep `TRUST_PROXY=true`.
 
 `unraid/my-photogallery.xml.private` is the author's private variant that pulls from a local registry (`192.168.2.3:5000`, published with `deploy.sh`). It deliberately does not end in `.xml` so Community Applications does not scan it as a second app; copy it to `templates-user/my-photogallery.xml` to use it.

@@ -145,6 +145,17 @@ The app was built for one household. Public installs mean unknown setups, no one
 - [ ] **Plain-language template wording and install guide with screenshots** (the template has too many advanced fields for a first look; keep 3 visible).
 - [ ] **Template update path.** When the template changes (new variable, new path) bump nothing silently; list it in the changelog under "Template changes".
 
+**Gaps a new user will likely hit (found by reading the code and docs, not yet built)**
+- [ ] **Say where the password is.** The first-run admin password is only in the container log; the sign-in page could say "see the container log" when no password was configured. (Replaced by the first-run setup page above.)
+- [ ] **Measure and document resource use** (RAM and cache size per 1,000 photos, first-scan time) instead of leaving users to guess; the README now avoids numbers until measured.
+- [ ] **Permission self-check.** The Overview should say plainly "the app cannot read your photo folder / cannot write appdata; run `chown -R 99:100 ...`" with the exact command, since this is the most likely first failure.
+- [ ] **Proxy self-check.** Warn on the Overview when requests arrive through a proxy that is not in `TRUSTED_PROXIES` (forwarded headers present but ignored), the most likely cause of wrong statistics and shared rate limits.
+- [ ] **Built-in help in the app.** There is no Help page in the app; link Getting started and Troubleshooting from the admin menu and from each Overview check.
+- [ ] **Nginx Proxy Manager and Cloudflare Tunnel examples** next to the SWAG config, with the header, upload-size and buffering settings the app needs.
+- [ ] **Other photo formats and video files.** Video files are ignored today; decide whether to support them, or say so in the first-run setup.
+- [ ] **Import and export of settings** so a user can move to a new server without redoing every gallery.
+- [ ] **Optional update notice and a visible version/changelog link** in the admin header.
+
 **Support load and trust**
 - [ ] **Diagnostics bundle.** A button on the Overview page that gathers version, settings (secrets removed) and recent errors into one text block to paste into a bug report.
 - [ ] **No telemetry.** State plainly in the README that the app sends nothing home (captions, link previews and email go only where the admin configures).
