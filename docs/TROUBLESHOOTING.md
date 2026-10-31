@@ -4,11 +4,15 @@ Start with **Admin -> Overview**: it checks most of the problems below and links
 
 ## I cannot sign in to /admin
 
-- You left `ADMIN_PASSWORD` empty: a new random password is made **on every start**. Find it in the log (`Generated admin password`), or set a fixed one in the container and apply.
+- Forgot the password you chose in the app: stop the container, delete the file `admin-password` in the app data folder (`/mnt/user/appdata/photogallery`), start it and open `/admin` to choose a new one. If `ADMIN_PASSWORD` is set in the container, that value is the password.
 - You set `ADMIN_USERNAME`: the form then also asks for the user name.
 - Too many wrong tries: wait a few minutes; the sign-in slows down on purpose.
 - Single sign-on is on and the password form disappeared: set `ADMIN_PASSWORD_LOGIN=true` on the container to bring it back.
 - Sign-in works on `http://IP:8080` but not through your proxy: the proxy must pass `X-Forwarded-Proto` and `Host`, and the proxy's address must be in `TRUSTED_PROXIES`.
+
+## The first-visit page asks for a "setup code"
+
+You opened `/admin` from outside your home network (or through a proxy). Open the container log (Docker tab -> **Logs**) and copy the code from the line "No admin password yet". The code changes each time the container starts. Opening `/admin` from a computer on your home network, directly by `http://SERVER-IP:8080/admin`, needs no code.
 
 ## The gallery is empty or photos are missing
 

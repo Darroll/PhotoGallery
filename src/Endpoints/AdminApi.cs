@@ -9,6 +9,8 @@ namespace PhotoGallery;
 public static class AdminApi
 {
     record LoginRequest(string? Password, string? Username = null);
+    record SetupRequest(string? Password, string? Code = null);
+    record ChangePasswordRequest(string? Current, string? New);
 
     static string Clip(string? s) => new string((s ?? "").Where(c => !char.IsControl(c)).Take(40).ToArray());
     record PeopleInput(List<string>? Emails);
@@ -66,13 +68,13 @@ public static class AdminApi
             return await next(ctx);
         });
 
-        admin.MapPost("/login", async (LoginRequest req, HttpContext ctx, AppConfig cfg, SsoConfig sso, AppDb db, SettingsService settings) =>
+        admin.MapPost("/login", async (LoginRequest req, HttpContext ctx, AppConfig cfg, SsoConfig sso, AppDb db, SettingsService settings, AdminCredentials creds) =>
         {
             var ip = ActivityLog.ClientIp(ctx);
             if (!sso.PasswordLogin) return Results.NotFound();
             // both checks always run so the response time does not reveal which one was wrong
             var userOk = cfg.AdminUsername == null || Passwords.FixedEquals(req.Username?.Trim() ?? "", cfg.AdminUsername);
-            var passOk = Passwords.FixedEquals(req.Password ?? "", cfg.AdminPassword);
+            var passOk = creds.Verify(req.Password) && !creds.SetupRequired;
             if (!(userOk && passOk))
             {
                 var recent = await LoginGuard.FailedAsync(ip);
@@ -92,20 +94,44 @@ public static class AdminApi
             return Results.NoContent();
         }).RequireRateLimiting("login");
 
+        // First visit: the admin chooses a password. Only from the home network, or with the code from the container log.
+        admin.MapPost("/setup", async (SetupRequest req, HttpContext ctx, AdminCredentials creds, SsoConfig sso) =>
+        {
+            if (!creds.SetupRequired || !sso.PasswordLogin) return Results.NotFound();
+            if (!AdminCredentials.IsLocalRequest(ctx) && !Passwords.FixedEquals(req.Code?.Trim() ?? "", creds.SetupCode))
+                return Results.Json(new { error = "code", message = "Enter the setup code shown in the container log (Docker tab -> Logs)." }, statusCode: 403);
+            if (AdminCredentials.Problem(req.Password) is { } why) return Results.Json(new { error = "weak", message = why }, statusCode: 400);
+            creds.Set(req.Password!);
+            var id = new ClaimsIdentity([new Claim(ClaimTypes.Name, "admin"), new Claim(ClaimTypes.Role, AccessService.AdminRole)], CookieAuthenticationDefaults.AuthenticationScheme);
+            await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(id));
+            return Results.NoContent();
+        }).RequireRateLimiting("login");
+
         admin.MapPost("/logout", async (HttpContext ctx) =>
         {
             await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return Results.NoContent();
         });
 
-        admin.MapGet("/me", (HttpContext ctx, AppConfig cfg, SsoConfig sso) => new
+        admin.MapGet("/me", (HttpContext ctx, AppConfig cfg, SsoConfig sso, AdminCredentials creds) => new
         {
             admin = AccessService.IsAdmin(ctx), userRequired = cfg.AdminUsername != null,
+            setupRequired = creds.SetupRequired && sso.PasswordLogin, setupNeedsCode = creds.SetupRequired && !AdminCredentials.IsLocalRequest(ctx),
+            passwordFromContainer = creds.FromContainer,
             passwordLogin = sso.PasswordLogin, sso = sso.Enabled,
             signedInAs = ctx.User.Identity?.IsAuthenticated == true && !AccessService.IsAdmin(ctx) ? ctx.User.Identity?.Name : null
         });
 
         var secured = admin.MapGroup("").RequireAuthorization("Admin");
+
+        secured.MapPost("/password", (ChangePasswordRequest req, AdminCredentials creds) =>
+        {
+            if (creds.FromContainer) return Results.Json(new { error = "container", message = "The password is set by ADMIN_PASSWORD in the container settings; change it there." }, statusCode: 409);
+            if (!creds.Verify(req.Current)) return Results.Json(new { error = "current", message = "The current password is not right." }, statusCode: 403);
+            if (AdminCredentials.Problem(req.New) is { } why) return Results.Json(new { error = "weak", message = why }, statusCode: 400);
+            creds.Set(req.New!);
+            return Results.NoContent();
+        }).RequireRateLimiting("login");
 
         secured.MapGet("/folders", async (AppConfig cfg, AppDb db) =>
         {

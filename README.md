@@ -130,7 +130,7 @@ Grid thumbnails and viewing images are built in the background after every scan 
 
 ## Security model
 
-- Admin: one password (`ADMIN_PASSWORD`), HttpOnly SameSite=Strict cookie, rate-limited login, custom header required on all write calls.
+- Admin: one password (`ADMIN_PASSWORD`, or chosen on first visit and stored as a PBKDF2 hash; the first-visit page works only from your home network or with the setup code from the container log, so a server exposed to the internet cannot be claimed by a stranger), HttpOnly SameSite=Strict cookie, rate-limited login, custom header required on all write calls.
 - Viewers: gallery access is an encrypted, expiring cookie (ASP.NET Data Protection, keys persisted in `/data/keys`). Changing a gallery's password or visibility invalidates existing cookies.
 - Protected photos are never served without a valid grant (images, downloads and ZIPs all check). Specific-people galleries are checked on every request against the signed-in, verified email address, so removing someone takes effect at once.
 - Upload: extension allow-list, size limit, content verified by libvips before acceptance, per-IP rate limit, pending cap.
@@ -155,7 +155,7 @@ Do on your side:
 Once the template is listed, search **PhotoGallery** in the Apps tab and click Install. Until then (or to try it first), install it by hand:
 
 1. Copy `unraid/photogallery.xml` to `/boot/config/plugins/dockerMan/templates-user/`, then Docker tab -> **Add Container** -> select **photogallery**.
-2. Set **Photo library** (read-only) to the folder that holds your photo folders and set `ADMIN_PASSWORD` (if left empty a random one is printed in the container log on every start).
+2. Set **Photo library** (read-only) to the folder that holds your photo folders and choose the admin password: either set `ADMIN_PASSWORD`, or leave it empty and open `/admin` to be asked for one on first visit.
 3. Apply. The image is pulled from `ghcr.io/darroll/photogallery:latest`, which GitHub Actions rebuilds on every push to `main` (`.github/workflows/publish-image.yml`). Updates arrive through Unraid's normal "check for updates".
 4. Open `http://SERVER-IP:8080/admin`, create galleries from folders. [Getting started](docs/GETTING-STARTED.md) walks through this, including permissions and folder layout.
 5. To expose it to the internet put it behind a reverse proxy (SWAG, Nginx Proxy Manager, Cloudflare Tunnel); never forward the port directly. `unraid/gallery.subdomain.conf` is a ready SWAG config; put the container on SWAG's custom network and keep `TRUST_PROXY=true`.
@@ -176,7 +176,7 @@ Files used: `unraid/photogallery.xml` (template), `unraid/icon.png`, `unraid/ca_
 | Variable | Default | Meaning |
 |---|---|---|
 | `ADMIN_USERNAME` | empty (password only) | Admin user name; when set, the sign-in form asks for it. Only settable here, not in the app |
-| `ADMIN_PASSWORD` | random (logged) | Admin login |
+| `ADMIN_PASSWORD` | empty (choose in the app) | Admin login. Leave it empty and the first visit to `/admin` asks you to choose a password (stored scrambled in `/data/admin-password`; change it under Settings -> Site and appearance). When set, the container value always wins |
 | `ADMIN_PASSWORD_LOGIN` | `true` without SSO, `false` once SSO is configured | Set `true` to keep the password form alongside SSO, or `false` to turn it off |
 | `OIDC_AUTHORITY` | empty (sign-in off) | Issuer URL of the OpenID Connect provider, e.g. `https://auth.example.com/realms/gallery` |
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | empty | Client of the gallery in the provider |

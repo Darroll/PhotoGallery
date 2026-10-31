@@ -15,7 +15,7 @@ public static class HealthApi
     {
         var g = app.MapGroup("/api/admin/health").RequireAuthorization("Admin");
 
-        g.MapGet("", async (AppDb db, AppConfig cfg, SsoConfig sso, SettingsService settings, CacheService cache, ThumbnailService thumbs, BackupService backups) =>
+        g.MapGet("", async (AppDb db, AppConfig cfg, SsoConfig sso, SettingsService settings, CacheService cache, ThumbnailService thumbs, BackupService backups, AdminCredentials creds) =>
         {
             var checks = new List<Check>();
             var now = DateTime.UtcNow;
@@ -129,9 +129,11 @@ public static class HealthApi
                 checks.Add(new Check("signin", "Security", "Wrong passwords (24 h)", fails >= 50 ? "bad" : fails >= 10 ? "warn" : "ok", fails.ToString(),
                     fails >= 10 ? "Many wrong gallery passwords were entered. Someone may be guessing." : "Wrong gallery passwords entered in the last 24 hours.", "/admin/stats"));
             }
-            checks.Add(cfg.AdminPasswordGenerated
-                ? new Check("adminpw", "Security", "Admin password", "warn", "Generated", "No ADMIN_PASSWORD is set, so a random one is made on every start. Set ADMIN_PASSWORD in the container settings.")
-                : new Check("adminpw", "Security", "Admin password", "ok", "Set", sso.Enabled ? "Single sign-on is also available." : "Set in the container settings."));
+            checks.Add(cfg.AdminPasswordSet
+                ? new Check("adminpw", "Security", "Admin password", "ok", "Set", sso.Enabled ? "Set in the container settings. Single sign-on is also available." : "Set in the container settings.")
+                : creds.SetupRequired
+                    ? new Check("adminpw", "Security", "Admin password", "warn", "Not set", "No admin password has been chosen yet; the first visitor from your home network can set one. Open /admin without signing in, or set ADMIN_PASSWORD in the container.")
+                    : new Check("adminpw", "Security", "Admin password", "ok", "Set", "Chosen in the app. Change it under Settings -> Site and appearance."));
 
             checks.Add(!sso.Enabled
                 ? new Check("sso", "Security", "Visitor sign-in", "off", "Off", "Visitors cannot sign in, so they cannot suggest changes (and, later, comment).", "/admin/settings/sso")

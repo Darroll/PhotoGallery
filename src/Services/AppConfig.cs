@@ -6,7 +6,8 @@ public class AppConfig
     public string DataDir { get; }
     public string CacheDir => Path.Combine(DataDir, "cache");
     public string AdminPassword { get; }
-    public bool AdminPasswordGenerated { get; }
+    /// <summary>ADMIN_PASSWORD was set in the container. When false, the admin chooses a password on first visit (see AdminCredentials).</summary>
+    public bool AdminPasswordSet { get; }
     /// <summary>Admin user name from ADMIN_USERNAME; null (no user name asked for) when the variable is empty.</summary>
     public string? AdminUsername { get; }
     /// <summary>Password sign-in for the admin; can be switched off once single sign-on works.</summary>
@@ -53,12 +54,8 @@ public class AppConfig
         LibraryRoot = Path.GetFullPath(c["PHOTO_LIBRARY"] ?? "/photos");
         DataDir = Path.GetFullPath(c["DATA_DIR"] ?? "/data");
         var pw = c["ADMIN_PASSWORD"];
-        if (string.IsNullOrWhiteSpace(pw))
-        {
-            pw = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(12)).Replace('+', 'a').Replace('/', 'b').TrimEnd('=');
-            AdminPasswordGenerated = true;
-        }
-        AdminPassword = pw;
+        AdminPasswordSet = !string.IsNullOrWhiteSpace(pw);
+        AdminPassword = AdminPasswordSet ? pw! : "";
         AdminUsername = string.IsNullOrWhiteSpace(c["ADMIN_USERNAME"]) ? null : c["ADMIN_USERNAME"]!.Trim();
         static string? Opt(string? v) => string.IsNullOrWhiteSpace(v) ? null : v.Trim();
         OidcAuthority = Opt(c["OIDC_AUTHORITY"])?.TrimEnd('/');

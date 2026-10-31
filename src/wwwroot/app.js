@@ -1302,6 +1302,7 @@ async function adminLogin(app) {
     app.append(h('div', { class: 'center' }, h('h1', { text: 'Admin' }), note, info.sso ? sso : h('p', { class: 'muted', text: 'Admin sign-in is not available.' })));
     return;
   }
+  if (info.setupRequired) return adminSetup(app, info, note);
   const needUser = !!info.userRequired;
   const user = needUser ? h('input', { type: 'text', placeholder: 'Username', autocomplete: 'username' }) : null;
   const input = h('input', { type: 'password', placeholder: 'Admin password', autocomplete: 'current-password' });
@@ -1314,6 +1315,27 @@ async function adminLogin(app) {
   input.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
   app.append(h('div', { class: 'center' }, h('h1', { text: 'Admin' }), note, user, input, h('button', { class: 'primary', text: 'Sign in', onclick: go }), err, info.sso ? sso : null));
   (user || input).focus();
+}
+
+// First visit with no ADMIN_PASSWORD in the container: the admin chooses one here.
+function adminSetup(app, info, note) {
+  document.title = 'Set up - ' + site.title;
+  const pw = h('input', { type: 'password', placeholder: 'Choose an admin password (10+ characters)', autocomplete: 'new-password' });
+  const pw2 = h('input', { type: 'password', placeholder: 'Type it again', autocomplete: 'new-password' });
+  const code = info.setupNeedsCode ? h('input', { type: 'text', placeholder: 'Setup code from the container log', autocomplete: 'off' }) : null;
+  const err = h('div', { class: 'err' });
+  const go = async () => {
+    if (pw.value !== pw2.value) { err.textContent = 'The two passwords are not the same.'; return; }
+    const r = await api('/api/admin/setup', { method: 'POST', body: { password: pw.value, code: code ? code.value : '' } });
+    if (r.ok) route();
+    else err.textContent = r.status === 429 ? 'Too many attempts, wait a minute.' : (r.data && r.data.message) || 'Could not save the password.';
+  };
+  pw2.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  app.append(h('div', { class: 'center' }, h('h1', { text: 'Welcome' }), note,
+    h('p', { class: 'muted', text: 'Choose the password for this site’s admin. You will use it to sign in at /admin. It is stored scrambled on this server and never shown again.' }),
+    info.setupNeedsCode ? h('p', { class: 'muted', text: 'You are not on your home network, so also enter the setup code printed in the container log (Docker tab, then Logs).' }) : null,
+    pw, pw2, code, h('button', { class: 'primary', text: 'Save and sign in', onclick: go }), err));
+  pw.focus();
 }
 
 const visLabels = { 0: 'Public (listed on home page)', 1: 'Unlisted (anyone with the link)', 2: 'Protected (password or share link)', 3: 'Specific people (listed sign-in emails)' };
@@ -1345,7 +1367,7 @@ async function viewSettings(app, section) {
   const main = await adminPage(app, 'settings/' + section, titles[section]);
   if (!main) return;
   if (section === 'watermark') return watermarkSection(main);
-  if (section === 'general') { main.append(siteNamePanel(), await themePanel(), homePanel(), await linkPreviewPanel()); return; }
+  if (section === 'general') { main.append(siteNamePanel(), await adminPasswordPanel(), await themePanel(), homePanel(), await linkPreviewPanel()); return; }
   if (section === 'review') return main.append(await captionReviewPanel());
   if (section === 'tags') return main.append(await tagPanel());
   if (section === 'groups') return main.append(await groupsPanel());
@@ -1722,6 +1744,26 @@ function siteNamePanel() {
       const r = await api('/api/admin/settings/site', { method: 'PUT', body: { name: name.value } });
       if (!r.ok) { msg.textContent = 'Save failed'; return; }
       site.title = r.data.name; name.value = site.title; renderHeader(); document.title = 'Site settings - ' + site.title; msg.textContent = 'Saved';
+    } }), msg));
+}
+
+async function adminPasswordPanel() {
+  const me = (await api('/api/admin/me')).data || {};
+  if (me.passwordFromContainer) return h('div', { class: 'panel' }, h('h3', { text: 'Admin password' }),
+    h('p', { class: 'muted', text: 'The password is set by ADMIN_PASSWORD in the container settings. Change it there and apply.' }));
+  if (me.passwordLogin === false) return h('div', { class: 'panel' }, h('h3', { text: 'Admin password' }),
+    h('p', { class: 'muted', text: 'Password sign-in is turned off (single sign-on is used).' }));
+  const cur = h('input', { type: 'password', placeholder: 'Current password', autocomplete: 'current-password' });
+  const n1 = h('input', { type: 'password', placeholder: 'New password (10+ characters)', autocomplete: 'new-password' });
+  const n2 = h('input', { type: 'password', placeholder: 'New password again', autocomplete: 'new-password' });
+  const msg = h('span', { class: 'muted' });
+  return h('div', { class: 'panel' }, h('h3', { text: 'Admin password' }),
+    h('p', { class: 'muted', text: 'Forgotten it? Stop the container, delete the file admin-password in the app data folder, start it, and open /admin to choose a new one.' }),
+    h('div', { class: 'row' }, cur, n1, n2, h('button', { class: 'primary', text: 'Change password', onclick: async () => {
+      if (n1.value !== n2.value) { msg.textContent = 'The two new passwords are not the same.'; return; }
+      const r = await api('/api/admin/password', { method: 'POST', body: { current: cur.value, new: n1.value } });
+      if (r.ok) { cur.value = n1.value = n2.value = ''; msg.textContent = 'Password changed.'; }
+      else msg.textContent = r.status === 429 ? 'Too many attempts, wait a minute.' : (r.data && r.data.message) || 'Could not change it.';
     } }), msg));
 }
 

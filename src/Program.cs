@@ -12,6 +12,7 @@ Directory.CreateDirectory(cfg.DataDir);
 builder.Services.AddSingleton(cfg);
 builder.Services.AddDbContext<AppDb>(o => o.UseSqlite($"Data Source={Path.Combine(cfg.DataDir, "photogallery.db")}"));
 builder.Services.AddSingleton<SettingsService>();
+builder.Services.AddSingleton<AdminCredentials>();
 builder.Services.AddSingleton<SsoConfig>();
 builder.Services.AddSingleton<ImageService>();
 builder.Services.AddSingleton<ThumbnailService>();
@@ -89,8 +90,9 @@ using (var scope = app.Services.CreateScope())
 }
 if (cfg.TrustProxy)
     app.Logger.LogInformation("Trusting proxy headers only from: {Nets}", string.Join(", ", cfg.TrustedNetworks.Select(n => n.Net + "/" + n.Prefix)));
-if (cfg.AdminPasswordGenerated)
-    app.Logger.LogWarning("ADMIN_PASSWORD not set. Generated admin password for this run: {Password}", cfg.AdminPassword);
+var adminCreds = app.Services.GetRequiredService<AdminCredentials>();
+if (adminCreds.SetupRequired)
+    app.Logger.LogWarning("No admin password yet. Open /admin in a browser on your home network and choose one. If you are not on your home network, the setup code is: {Code}", adminCreds.SetupCode);
 if (!Directory.Exists(cfg.LibraryRoot))
     app.Logger.LogWarning("Photo library {Root} does not exist", cfg.LibraryRoot);
 if (cfg.ExifTool == null)

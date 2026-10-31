@@ -9,7 +9,7 @@ Install **PhotoGallery** from the Apps tab (or see "Deploy on Unraid" in the [RE
 | Field | What to put |
 |---|---|
 | **Photo library** | The folder that *contains* your photo folders, for example `/mnt/user/Photos`. It is mounted read-only; PhotoGallery never changes, moves or deletes your photos. |
-| **ADMIN_PASSWORD** | A long password of your choice. If you leave it empty, a random one is made **every time the container starts** and printed in the log (Docker tab -> the container's icon -> **Logs**; look for `Generated admin password`). Set your own so it does not change. |
+| **ADMIN_PASSWORD** | Optional. Leave it empty and the app asks you to choose a password the first time you open `/admin` (step 2). Fill it in only if you prefer to keep the password in the container settings; then it always wins and cannot be changed in the app. |
 
 Leave **App data** at `/mnt/user/appdata/photogallery`. It holds the database, cached thumbnails, guest uploads and encryption keys. Include it in your appdata backup.
 
@@ -23,7 +23,10 @@ chown -R 99:100 /mnt/user/appdata/photogallery
 
 ## 2. Sign in
 
-Open `http://YOUR-SERVER-IP:8080/admin` and enter the admin password (and the user name only if you set `ADMIN_USERNAME`). The first page is the **Overview**, which shows green, amber or red checks. Fix any red item first; each one links to where you fix it.
+Open `http://YOUR-SERVER-IP:8080/admin` from a computer on your home network.
+
+- **First time, no `ADMIN_PASSWORD` set:** a **Welcome** page asks you to choose the admin password (at least 10 characters, typed twice). You are signed in straight away. From outside your home network the page also asks for a **setup code**; it is printed in the container log (Docker tab -> the container's icon -> **Logs**), which keeps a stranger from claiming a server you exposed to the internet.
+- **Later:** enter the password (and the user name only if you set `ADMIN_USERNAME`). Change it under **Settings -> Site and appearance**. The first page is the **Overview**, which shows green, amber or red checks. Fix any red item first; each one links to where you fix it.
 
 ## 3. Create your first gallery
 

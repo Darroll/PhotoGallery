@@ -92,12 +92,12 @@ public class AppConfigTests
     }
 
     [Fact]
-    public void Blank_or_missing_admin_password_is_replaced_by_a_generated_one()
+    public void Blank_or_missing_admin_password_means_the_admin_chooses_one_in_the_app()
     {
         var c = Cfg.Make(new() { ["ADMIN_PASSWORD"] = "  " });
-        Assert.True(c.AdminPasswordGenerated);
-        Assert.True(c.AdminPassword.Length >= 12);
-        Assert.False(Cfg.Make().AdminPasswordGenerated);
+        Assert.False(c.AdminPasswordSet);
+        Assert.Equal("", c.AdminPassword);
+        Assert.True(Cfg.Make(new() { ["ADMIN_PASSWORD"] = "a-long-password" }).AdminPasswordSet);
     }
 
     [Fact]

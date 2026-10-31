@@ -140,13 +140,13 @@ The app was built for one household. Public installs mean unknown setups, no one
 - [ ] **Update notice** in the app (roadmap #23) so users learn about new versions, with no phoning home unless they turn it on.
 
 **First-run experience for strangers** (moves roadmap #19, #20 and #22 up)
-- [ ] **No password in the log.** If `ADMIN_PASSWORD` is empty the app prints a random one on every start; switch to a first-run setup page that makes the admin choose one, so nobody is locked out or left with an unknown password.
+- [x] **No password in the log.** If `ADMIN_PASSWORD` is empty the app prints a random one on every start; switch to a first-run setup page that makes the admin choose one, so nobody is locked out or left with an unknown password.
 - [ ] **Safe defaults.** Check that a default install is private (no public gallery until created), the port is not meant for the internet, and the README/template say so near the top.
 - [ ] **Plain-language template wording and install guide with screenshots** (the template has too many advanced fields for a first look; keep 3 visible).
 - [ ] **Template update path.** When the template changes (new variable, new path) bump nothing silently; list it in the changelog under "Template changes".
 
 **Gaps a new user will likely hit (found by reading the code and docs, not yet built)**
-- [ ] **Say where the password is.** The first-run admin password is only in the container log; the sign-in page could say "see the container log" when no password was configured. (Replaced by the first-run setup page above.)
+- [x] **Say where the password is.** The first-run admin password is only in the container log; the sign-in page could say "see the container log" when no password was configured. (Replaced by the first-run setup page above.)
 - [ ] **Measure and document resource use** (RAM and cache size per 1,000 photos, first-scan time) instead of leaving users to guess; the README now avoids numbers until measured.
 - [ ] **Permission self-check.** The Overview should say plainly "the app cannot read your photo folder / cannot write appdata; run `chown -R 99:100 ...`" with the exact command, since this is the most likely first failure.
 - [ ] **Proxy self-check.** Warn on the Overview when requests arrive through a proxy that is not in `TRUSTED_PROXIES` (forwarded headers present but ignored), the most likely cause of wrong statistics and shared rate limits.
