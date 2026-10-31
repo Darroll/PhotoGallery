@@ -166,7 +166,7 @@ Once the template is listed, search **PhotoGallery** in the Apps tab and click I
 
 Files used: `unraid/photogallery.xml` (template), `unraid/icon.png`, `unraid/ca_profile.xml`. Checklist:
 
-1. Push to `main`; the **Publish image** workflow builds the public image. In GitHub -> Packages -> photogallery -> Package settings, set visibility to **Public** (first time only).
+1. Push to `main`; the **Publish image** workflow tests and builds `:edge`. Public users get `:latest` only from a release tag (see Releasing). In GitHub -> Packages -> photogallery -> Package settings, set visibility to **Public** (first time only).
 2. Open a support thread on the Unraid forum (Docker Containers) and put its URL in `<Support>` of the template.
 3. The repository is MIT-licensed (`LICENSE`).
 4. Submit the template repository on the Unraid forum's Community Applications thread (or via the "Add an app" form), pointing at `https://github.com/Darroll/PhotoGallery`. Moderators review it before it appears.
@@ -243,6 +243,16 @@ The gallery ships with a general-purpose photo license (personal, non-commercial
 ## Versioning
 
 The version shown at the bottom right of every page is `<Version>` in `src/PhotoGallery.csproj` plus the git commit it was built from (hover for the build time). Bump `<Version>` for a release; `release.sh` passes the commit and build time into the image.
+
+**Public releases.** Pushing to `main` publishes only `ghcr.io/darroll/photogallery:edge` (and `:sha-<commit>`), after the tests pass. The `:latest` tag, which the Community Apps template installs and Unraid's "check for updates" follows, moves only when you publish a release:
+
+```bash
+# 1. bump <Version> in src/PhotoGallery.csproj and add a CHANGELOG.md entry, commit, push
+# 2. tag the commit with the same number
+git tag v1.1.0 && git push origin v1.1.0
+```
+
+The workflow refuses a tag that does not match `<Version>`, runs the tests, then publishes `:1.1.0`, `:1.1` and `:latest`. Users can pin `:1.1` in the container to stay on one minor version.
 
 ## Development
 

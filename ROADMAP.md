@@ -134,9 +134,9 @@ The app was built for one household. Public installs mean unknown setups, no one
 - [ ] **Screenshots** for the README and the forum thread (home, gallery, slideshow, admin overview).
 
 **Safe updates (most important)**
-- [ ] **Versioned releases.** Tag releases (`v1.0.0`...) so the image also gets `:1.0.0` tags; keep `:latest` for the template. Write a `CHANGELOG.md` and link it from the template and the app's Overview page.
+- [x] **Versioned releases (tags and image tags; the changelog file exists, keep filling it).** Tag releases (`v1.0.0`...) so the image also gets `:1.0.0` tags; keep `:latest` for the template. Write a `CHANGELOG.md` and link it from the template and the app's Overview page.
 - [ ] **Never break existing data on upgrade.** Test every release by upgrading from the previous image with real data; migrations must be additive; the automatic backup runs before a migration is applied.
-- [ ] **Do not let `:latest` break people.** Only push `:latest` from a tag or after tests pass (the publish workflow currently builds on every push to `main`).
+- [x] **Do not let `:latest` break people.** Only push `:latest` from a tag or after tests pass (the publish workflow currently builds on every push to `main`).
 - [ ] **Update notice** in the app (roadmap #23) so users learn about new versions, with no phoning home unless they turn it on.
 
 **First-run experience for strangers** (moves roadmap #19, #20 and #22 up)
