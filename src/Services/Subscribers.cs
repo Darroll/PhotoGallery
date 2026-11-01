@@ -30,7 +30,7 @@ public static class Subscribers
     }
 
     public static bool Available(SettingsService settings) =>
-        settings.Email.Subscribers && settings.Email.Enabled && settings.Email.SiteUrl.Length > 0;
+        settings.Email.Subscribers && settings.Email.Ready && settings.Email.SiteUrl.Length > 0;
 
     public static async Task QueueConfirmationAsync(AppDb db, SettingsService settings, Subscriber s)
     {

@@ -115,6 +115,7 @@ public static class HealthApi
             // --- email ---
             var email = settings.Email;
             if (!email.Enabled) checks.Add(new Check("email", "Email", "Email alerts", "off", "Off", "Alerts are switched off.", "/admin/settings/email"));
+            else if (!email.Ready) checks.Add(new Check("email", "Email", "Email alerts", "warn", "Incomplete", "Alerts are switched on but the mail server or the From address is empty, so nothing is sent. Fill both in, or switch alerts off.", "/admin/settings/email"));
             else
             {
                 var failed = await db.EmailOutbox.CountAsync(m => m.Failed && m.CreatedAt >= now.AddDays(-7));

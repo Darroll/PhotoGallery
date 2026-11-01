@@ -31,6 +31,10 @@ public class EmailSettings
     /// <summary>Readers may subscribe to emails about new public galleries and photos (double opt-in).</summary>
     public bool Subscribers { get; set; } = true;
 
+    /// <summary>Switched on and complete: nothing is queued, sent or offered to visitors until a mail server and a From address are set.</summary>
+    public bool Ready => Enabled && Host.Trim().Length > 0 && FromValid;
+    bool FromValid => PhotoGallery.Subscribers.ValidAddress(From);
+
     public EmailSettings Sanitized()
     {
         static string T(string? s, int max) { s = (s ?? "").Trim(); return s.Length > max ? s[..max] : s; }
@@ -103,7 +107,7 @@ public class EmailService(IServiceScopeFactory scopes, SettingsService settings,
 
     public static async Task QueueAsync(AppDb db, EmailSettings s, string subject, string body)
     {
-        if (string.IsNullOrWhiteSpace(s.To)) return;
+        if (!s.Ready || string.IsNullOrWhiteSpace(s.To)) return;
         db.EmailOutbox.Add(new EmailOutbox { ToAddr = s.To, Subject = subject, Body = body });
         await db.SaveChangesAsync();
     }
@@ -140,7 +144,7 @@ public class EmailService(IServiceScopeFactory scopes, SettingsService settings,
                     using var scope = scopes.CreateScope();
                     var db = scope.ServiceProvider.GetRequiredService<AppDb>();
                     var s = settings.Email;
-                    if (s.Enabled && !string.IsNullOrWhiteSpace(s.To))
+                    if (s.Ready && !string.IsNullOrWhiteSpace(s.To))
                     {
                         if (DateTime.UtcNow - lastChecks > TimeSpan.FromMinutes(2)) { await Alerts.RunAsync(db, s, ct); lastChecks = DateTime.UtcNow; }
                         await DeliverAsync(db, s, ct);

@@ -80,7 +80,7 @@ public static class AdminApi
             {
                 var recent = await LoginGuard.FailedAsync(ip);
                 var mail = settings.Email;
-                if (mail.Enabled && mail.LoginAlerts)
+                if (mail.Ready && mail.LoginAlerts)
                 {
                     var who = cfg.AdminUsername == null ? "" : $" Username tried: \"{Clip(req.Username)}\".";
                     var country = ctx.Request.Headers["CF-IPCountry"].ToString();

@@ -44,7 +44,7 @@ public static class OnboardingApi
                 new("share", "Share a gallery with someone", shared ? "At least one gallery can be opened by people you chose." : "Galleries start private. Open one, set who can see it, and send the link.", shared, false, "/admin/galleries"),
                 new("backup", "Have a backup", !backups.Enabled ? "Automatic backups are switched off (BACKUP_HOURS is 0)." : snapshots > 0 ? "A snapshot of the database exists. Copy the backups folder off this server now and then." : "The first snapshot is made a few minutes after the app starts.", snapshots > 0, false, "/admin/stats"),
                 new("address", "Set the address people use", email.SiteUrl.Length > 0 ? "Emails and the address test use " + email.SiteUrl + "." : "Needed for links in emails, and so the Overview can check that it works from outside.", email.SiteUrl.Length > 0, true, "/admin/setup"),
-                new("email", "Turn on email alerts", email.Enabled ? "Alerts are on." : "Get told about new comments, guest uploads and failed sign-ins.", email.Enabled, true, "/admin/settings/email"),
+                new("email", "Turn on email alerts", email.Ready ? "Alerts are on." : "Get told about new comments, guest uploads and failed sign-ins.", email.Ready, true, "/admin/settings/email"),
                 new("signin", "Let visitors sign in", sso.Enabled ? "Sign-in is on." : "Needed for likes, comments and galleries for specific people.", sso.Enabled, true, "/admin/settings/sso")
             };
             var requiredDone = steps.Where(s => !s.Optional).All(s => s.Done);

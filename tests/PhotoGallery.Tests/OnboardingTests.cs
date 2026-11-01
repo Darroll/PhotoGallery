@@ -182,3 +182,14 @@ public class OnboardingTests(AppFactory app) : IClassFixture<AppFactory>
     static async Task<System.Text.Json.JsonElement> ReachCheckAsync(HttpClient admin) =>
         (await (await admin.GetAsync("/api/admin/health")).ReadAsync()).GetProperty("checks").EnumerateArray().Single(c => c.GetProperty("id").GetString() == "reach");
 }
+
+public class EmailReadyTests
+{
+    [Theory]
+    [InlineData(true, "smtp.example.com", "a@example.com", true)]
+    [InlineData(true, "", "a@example.com", false)]
+    [InlineData(true, "smtp.example.com", "", false)]
+    [InlineData(false, "smtp.example.com", "a@example.com", false)]
+    public void Email_is_ready_only_when_on_and_complete(bool on, string host, string from, bool ready) =>
+        Assert.Equal(ready, new EmailSettings { Enabled = on, Host = host, From = from }.Ready);
+}
