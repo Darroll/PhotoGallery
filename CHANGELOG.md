@@ -4,6 +4,7 @@ Newest first. "Needs attention" marks anything an existing user must do when upd
 
 ## Unreleased
 
+- **Move your settings to another server.** Settings -> Site and appearance has **Export settings** (a file with the site name, theme, watermark, email and sign-in settings, no passwords) and **Load settings from a file**. Saved passwords on the new server are kept, and the sign-in test and "hide the password form" must be done again there.
 - **No email until it is set up.** Nothing is queued or sent, and visitors are not offered the subscribe form, until alerts are on and both a mail server and a From address are filled in. The Overview shows "Incomplete" when alerts are on but not finished.
 - **Email settings start empty.** The mail server and From address no longer default to the author's own; the test button says plainly when either is missing. Saved settings are unchanged.
 - **Permission self-check.** The Overview now reports plainly when the app cannot read the photo library or cannot write its data folder, with the exact `chown -R 99:100 ...` command.

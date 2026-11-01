@@ -80,6 +80,20 @@ public static class OnboardingApi
             return Results.Ok(new { url });
         });
 
+        // Settings to a file and back, for moving to another server. Secrets never leave.
+        g.MapGet("/export", (SettingsService settings) =>
+            Results.File(System.Text.Encoding.UTF8.GetBytes(settings.Export()), "application/json", "photogallery-settings.json"));
+
+        g.MapPost("/import", async (HttpRequest req, SettingsService settings) =>
+        {
+            if (req.ContentLength is > 200_000) return Results.BadRequest("That file is too big to be a settings export.");
+            using var reader = new StreamReader(req.Body);
+            var applied = settings.Import(await reader.ReadToEndAsync());
+            return applied is null
+                ? Results.BadRequest("That is not a PhotoGallery settings file. Use the file from \"Export settings\".")
+                : Results.Ok(new { applied });
+        });
+
         // Tests an address (the one in the request, or the saved one) from this server.
         g.MapPost("/test", async (AddressInput input, Reachability reach) =>
         {

@@ -256,6 +256,60 @@ public class SettingsService
         }
     }
 
+    /// <summary>All settings as JSON for moving to another server. Passwords and secrets are left out, and a sign-in test has to be repeated on the new address.</summary>
+    public string Export()
+    {
+        lock (gate)
+        {
+            var copy = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(data, JsonOpts), JsonOpts)!;
+            copy.Email.Password = "";
+            copy.Sso.ClientSecret = "";
+            copy.Sso.TestedAt = null;
+            return JsonSerializer.Serialize(new { format = "photogallery-settings", version = 1, settings = copy }, JsonOpts);
+        }
+    }
+
+    /// <summary>Applies an exported file. Returns the names of the sections that were replaced, or null when the file is not a settings export.</summary>
+    public List<string>? Import(string json)
+    {
+        AppSettings? incoming;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("format", out var f) || f.GetString() != "photogallery-settings") return null;
+            if (!root.TryGetProperty("settings", out var s) || s.ValueKind != JsonValueKind.Object) return null;
+            incoming = JsonSerializer.Deserialize<AppSettings>(s.GetRawText(), JsonOpts);
+            if (incoming == null) return null;
+            var names = new List<string>();
+            lock (gate)
+            {
+                bool Has(string n) { var has = s.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.Object; if (has) names.Add(n); return has; }
+                if (s.TryGetProperty("SiteName", out var sn) && sn.ValueKind == JsonValueKind.String) { data.SiteName = SanitizeName(sn.GetString()); names.Add("SiteName"); }
+                if (Has("Watermark")) data.Watermark = incoming.Watermark.Sanitized();
+                if (Has("Home")) data.Home = incoming.Home.Sanitized();
+                if (Has("Stats")) data.Stats = incoming.Stats.Sanitized();
+                if (Has("Email")) data.Email = incoming.Email.WithStoredPassword(data.Email).Sanitized();
+                if (Has("License")) data.License = incoming.License.Sanitized();
+                if (Has("Theme")) data.Theme = incoming.Theme.Sanitized();
+                if (Has("LinkPreviews")) data.LinkPreviews = incoming.LinkPreviews.Sanitized();
+                if (Has("Updates")) data.Updates = incoming.Updates.Sanitized();
+                if (Has("Privacy")) data.Privacy = incoming.Privacy.Sanitized();
+                if (Has("Sso"))
+                {
+                    var keep = data.Sso.ClientSecret;
+                    data.Sso = incoming.Sso.Sanitized();
+                    if (data.Sso.ClientSecret.Length == 0) data.Sso.ClientSecret = keep;
+                    data.Sso.TestedAt = null;
+                    data.Sso.HidePasswordLogin = false;   // only allowed after a test sign-in on this server
+                }
+                Save();
+            }
+            return names;
+        }
+        catch (JsonException) { return null; }
+    }
+
     static string SanitizeName(string? n)
     {
         n = (n ?? "").Trim();

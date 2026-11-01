@@ -153,7 +153,7 @@ The app was built for one household. Public installs mean unknown setups, no one
 - [x] **Built-in help in the app.** There is no Help page in the app; link Getting started and Troubleshooting from the admin menu and from each Overview check.
 - [x] **Nginx Proxy Manager and Cloudflare Tunnel examples** next to the SWAG config, with the header, upload-size and buffering settings the app needs.
 - [ ] **Other photo formats and video files.** Video files are ignored today; decide whether to support them, or say so in the first-run setup.
-- [ ] **Import and export of settings** so a user can move to a new server without redoing every gallery.
+- [x] **Import and export of settings** so a user can move to a new server without redoing every setting. (Galleries, likes and comments travel with the database backup or the app data folder.)
 - [x] **Optional update notice and a visible version/changelog link** in the admin header.
 
 **Support load and trust**

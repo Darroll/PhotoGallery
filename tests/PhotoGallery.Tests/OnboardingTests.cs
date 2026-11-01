@@ -183,6 +183,78 @@ public class OnboardingTests(AppFactory app) : IClassFixture<AppFactory>
         (await (await admin.GetAsync("/api/admin/health")).ReadAsync()).GetProperty("checks").EnumerateArray().Single(c => c.GetProperty("id").GetString() == "reach");
 }
 
+public class SettingsMoveTests(AppFactory app) : IClassFixture<AppFactory>
+{
+    SettingsService Settings => (SettingsService)app.Services.GetService(typeof(SettingsService))!;
+
+    [Fact]
+    public async Task An_export_has_the_settings_but_no_passwords()
+    {
+        var admin = await app.AdminAsync();
+        Settings.SetSiteName("Moved Family");
+        Settings.SetEmail(new EmailSettings { Enabled = true, Host = "smtp.example.com", Username = "me", Password = "hunter2-secret", From = "a@example.com" });
+        Settings.SetSso(new SsoSettings { Enabled = true, Authority = "https://sso.example.com/realms/x", ClientId = "pg", ClientSecret = "very-secret-value", HidePasswordLogin = true });
+
+        var r = await admin.GetAsync("/api/admin/onboarding/export");
+        var text = await r.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.Contains("Moved Family", text);
+        Assert.Contains("smtp.example.com", text);
+        Assert.DoesNotContain("hunter2-secret", text);
+        Assert.DoesNotContain("very-secret-value", text);
+    }
+
+    [Fact]
+    public async Task Loading_a_file_replaces_settings_and_keeps_the_saved_passwords()
+    {
+        var admin = await app.AdminAsync();
+        Settings.SetSiteName("Old Name");
+        Settings.SetEmail(new EmailSettings { Enabled = true, Host = "smtp.old.example.com", Username = "me", Password = "keep-this-pw", From = "a@example.com" });
+        var file = await (await admin.GetAsync("/api/admin/onboarding/export")).Content.ReadAsStringAsync();
+
+        Settings.SetSiteName("Changed");
+        Settings.SetEmail(new EmailSettings { Enabled = false, Host = "", Username = "me", Password = "keep-this-pw", From = "" });
+
+        var res = await admin.PostAsync("/api/admin/onboarding/import", new StringContent(file, System.Text.Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal("Old Name", Settings.SiteName);
+        Assert.Equal("smtp.old.example.com", Settings.Email.Host);
+        Assert.Equal("keep-this-pw", Settings.Email.Password);
+    }
+
+    [Fact]
+    public async Task Loading_a_file_never_hides_the_password_login_untested()
+    {
+        var admin = await app.AdminAsync();
+        Settings.SetSso(new SsoSettings { Enabled = true, Authority = "https://sso.example.com/realms/x", ClientId = "pg", ClientSecret = "s", HidePasswordLogin = true });
+        var file = await (await admin.GetAsync("/api/admin/onboarding/export")).Content.ReadAsStringAsync();
+        await admin.PostAsync("/api/admin/onboarding/import", new StringContent(file, System.Text.Encoding.UTF8, "application/json"));
+        Assert.False(Settings.Sso.HidePasswordLogin);
+        Assert.Equal("s", Settings.Sso.ClientSecret);
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("{}")]
+    [InlineData("{\"format\":\"something-else\",\"settings\":{}}")]
+    [InlineData("[1,2]")]
+    public async Task Anything_else_is_refused_and_changes_nothing(string body)
+    {
+        var admin = await app.AdminAsync();
+        Settings.SetSiteName("Untouched");
+        var res = await admin.PostAsync("/api/admin/onboarding/import", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Equal("Untouched", Settings.SiteName);
+    }
+
+    [Fact]
+    public async Task Only_the_admin_can_export_or_load()
+    {
+        var anon = app.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.GetAsync("/api/admin/onboarding/export")).StatusCode);
+    }
+}
+
 public class EmailReadyTests
 {
     [Theory]

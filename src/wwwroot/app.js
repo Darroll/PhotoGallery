@@ -1555,7 +1555,7 @@ async function viewSettings(app, section) {
   const main = await adminPage(app, 'settings/' + section, titles[section]);
   if (!main) return;
   if (section === 'watermark') return watermarkSection(main);
-  if (section === 'general') { main.append(siteNamePanel(), await adminPasswordPanel(), await themePanel(), homePanel(), await linkPreviewPanel(), await updatesPanel()); return; }
+  if (section === 'general') { main.append(siteNamePanel(), await adminPasswordPanel(), await themePanel(), homePanel(), await linkPreviewPanel(), await updatesPanel(), moveSettingsPanel()); return; }
   if (section === 'review') return main.append(await captionReviewPanel());
   if (section === 'tags') return main.append(await tagPanel());
   if (section === 'groups') return main.append(await groupsPanel());
@@ -1565,6 +1565,25 @@ async function viewSettings(app, section) {
   if (section === 'email') return main.append(emailPanel());
   if (section === 'sso') return main.append(await ssoPanel());
   main.append(cachePanel());
+}
+
+// Moves site settings to another server: a file without passwords, and loading one back.
+function moveSettingsPanel() {
+  const msg = h('p', { class: 'muted', role: 'status' });
+  const pick = h('input', { type: 'file', accept: '.json,application/json', style: 'display:none' });
+  pick.addEventListener('change', async () => {
+    const f = pick.files[0]; if (!f) return;
+    if (!confirm(`Load the settings from "${f.name}"?
+
+The settings in the file replace the ones here. Passwords are not in the file, so email and sign-in keep the passwords already saved on this server.`)) { pick.value = ''; return; }
+    const res = await fetch('/api/admin/onboarding/import', { method: 'POST', credentials: 'same-origin', headers: { 'X-Requested-With': 'pg', 'Content-Type': 'application/json' }, body: f });
+    if (res.ok) { alert('Settings loaded. The page will reload.'); location.reload(); return; }
+    const t = await res.text(); msg.className = 'err'; msg.textContent = t.replace(/^"|"$/g, '') || 'That file could not be loaded.'; pick.value = '';
+  });
+  return h('div', { class: 'panel' }, h('h3', { text: 'Move to another server' }),
+    h('p', { class: 'muted', text: 'Saves the site name, theme, watermark text, email and sign-in settings to a file. Passwords and secrets are left out. Galleries, likes and comments are in the database, so copy the app data folder or use a database backup for those.' }),
+    h('p', {}, h('a', { class: 'btn', href: '/api/admin/onboarding/export', download: 'photogallery-settings.json', text: 'Export settings' }), ' ',
+      h('button', { text: 'Load settings from a file...', onclick: () => pick.click() }), pick), msg);
 }
 
 async function watermarkSection(app) {

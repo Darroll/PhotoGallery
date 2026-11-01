@@ -91,3 +91,5 @@ In the Docker tab press **Check for updates**, then **apply update**. Your data 
 ## Removing it
 
 Stop and remove the container. Your photos are untouched. Delete `/mnt/user/appdata/photogallery` only if you also want to discard galleries, likes, comments and settings.
+
+**Moving to a new server?** Copy the app data folder, or restore a database backup there. To carry over only the settings (site name, theme, watermark, email, sign-in), use **Settings -> Site and appearance -> Export settings** and load the file on the new server. Passwords are not in the file.
