@@ -396,7 +396,7 @@ public static class AdminApi
             foreach (var p in g.Photos)
             {
                 var d = Path.Combine(cfg.CacheDir, "variants", p.Id.ToString());
-                if (Directory.Exists(d)) Directory.Delete(d, true);
+                if (Directory.Exists(d)) try { Directory.Delete(d, true); } catch { }   // cache only; a thumbnail may be mid-write
             }
             await db.Favorites.Where(f => f.GalleryId == id).ExecuteDeleteAsync();
             await db.FavoriteOwners.Where(o => o.GalleryId == id).ExecuteDeleteAsync();
@@ -537,7 +537,7 @@ public static class AdminApi
             var path = cfg.ResolvePhoto(p, p.RelPath);
             if (path != null && File.Exists(path)) File.Delete(path);
             var d = Path.Combine(cfg.CacheDir, "variants", p.Id.ToString());
-            if (Directory.Exists(d)) Directory.Delete(d, true);
+            if (Directory.Exists(d)) try { Directory.Delete(d, true); } catch { }
             db.Photos.Remove(p);
             await db.SaveChangesAsync();
             return Results.NoContent();
