@@ -4,6 +4,7 @@ Newest first. "Needs attention" marks anything an existing user must do when upd
 
 ## Unreleased
 
+- **Email settings start empty.** The mail server and From address no longer default to the author's own; the test button says plainly when either is missing. Saved settings are unchanged.
 - **Permission self-check.** The Overview now reports plainly when the app cannot read the photo library or cannot write its data folder, with the exact `chown -R 99:100 ...` command.
 - **Reverse-proxy check.** The Overview warns when requests arrive with proxy headers from an address outside `TRUSTED_PROXIES` (the headers are ignored, so statistics and rate limits are wrong) and names the address to add.
 

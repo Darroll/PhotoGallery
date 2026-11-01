@@ -7,7 +7,7 @@ namespace PhotoGallery;
 public class EmailSettings
 {
     public bool Enabled { get; set; }
-    public string Host { get; set; } = "192.168.2.3";
+    public string Host { get; set; } = "";
     public int Port { get; set; } = 25;
     /// <summary>"none" (plain, for a relay on your own network) or "starttls" (secure, what Gmail and most providers need).</summary>
     public string Security { get; set; } = "none";
@@ -17,7 +17,7 @@ public class EmailSettings
     public string Password { get; set; } = "";
     /// <summary>Which preset the admin picked, only to show the matching instructions again.</summary>
     public string Preset { get; set; } = "";
-    public string From { get; set; } = "gallery@darrollwalsh.com";
+    public string From { get; set; } = "";
     /// <summary>Where alerts are sent (the photographer).</summary>
     public string To { get; set; } = "";
     /// <summary>Public address of the site, used for links inside emails.</summary>
@@ -111,6 +111,8 @@ public class EmailService(IServiceScopeFactory scopes, SettingsService settings,
     /// <summary>Sends one message right now and reports the error text (null on success). Used by the test button.</summary>
     public static async Task<string?> SendAsync(EmailSettings s, string to, string subject, string body, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(s.Host)) return "Enter the mail server address first (for example smtp.gmail.com).";
+        if (!Subscribers.ValidAddress(s.From)) return "Enter the address the alerts should come from (the From address).";
         try
         {
             using var client = new SmtpClient(s.Host, s.Port) { EnableSsl = s.Security == "starttls", Timeout = 20000 };
