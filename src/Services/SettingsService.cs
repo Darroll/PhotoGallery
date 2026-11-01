@@ -50,6 +50,7 @@ class AppSettings
     public LinkPreviewSettings LinkPreviews { get; set; } = new();
     public UpdateSettings Updates { get; set; } = new();
     public PrivacySettings Privacy { get; set; } = new();
+    public SetupSettings Setup { get; set; } = new();
     public SsoSettings Sso { get; set; } = new();
 }
 
@@ -82,6 +83,7 @@ public class SettingsService
                 data.LinkPreviews = (data.LinkPreviews ?? new()).Sanitized();
                 data.Updates = (data.Updates ?? new()).Sanitized();
                 data.Privacy = (data.Privacy ?? new()).Sanitized();
+                data.Setup = (data.Setup ?? new()).Sanitized();
                 data.Sso = (data.Sso ?? new()).Sanitized();
                 if (string.IsNullOrWhiteSpace(data.SiteName)) { data.SiteName = SanitizeName(cfg.SiteTitle); Save(); }
             }
@@ -196,6 +198,21 @@ public class SettingsService
             data.Privacy = s.Sanitized();
             Save();
             return data.Privacy.Sanitized();
+        }
+    }
+
+    public SetupSettings Setup
+    {
+        get { lock (gate) return data.Setup.Sanitized(); }
+    }
+
+    public SetupSettings SetSetup(SetupSettings s)
+    {
+        lock (gate)
+        {
+            data.Setup = s.Sanitized();
+            Save();
+            return data.Setup.Sanitized();
         }
     }
 

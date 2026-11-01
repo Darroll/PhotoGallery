@@ -15,7 +15,7 @@ public static class HealthApi
     {
         var g = app.MapGroup("/api/admin/health").RequireAuthorization("Admin");
 
-        g.MapGet("", async (AppDb db, AppConfig cfg, SsoConfig sso, SettingsService settings, CacheService cache, ThumbnailService thumbs, BackupService backups, AdminCredentials creds, ProxyWatch proxyWatch, UpdateChecker updates) =>
+        g.MapGet("", async (AppDb db, AppConfig cfg, SsoConfig sso, SettingsService settings, CacheService cache, ThumbnailService thumbs, BackupService backups, AdminCredentials creds, ProxyWatch proxyWatch, UpdateChecker updates, Reachability reach) =>
         {
             var checks = new List<Check>();
             var now = DateTime.UtcNow;
@@ -141,6 +141,13 @@ public static class HealthApi
                 : creds.SetupRequired
                     ? new Check("adminpw", "Security", "Admin password", "warn", "Not set", "No admin password has been chosen yet; the first visitor from your home network can set one. Open /admin without signing in, or set ADMIN_PASSWORD in the container.")
                     : new Check("adminpw", "Security", "Admin password", "ok", "Set", "Chosen in the app. Change it under Settings -> Site and appearance."));
+
+            if (reach.Saved == null)
+                checks.Add(new Check("reach", "Security", "Public address", "off", "Not set", "No site address is saved, so nothing tests whether people can reach the site. Add the address you give to friends (for example https://photos.example.com) and this check will try it.", "/admin/setup"));
+            else if (reach.Cached() is { } rc)
+                checks.Add(new Check("reach", "Security", "Public address", rc.Status, rc.Value, rc.Detail, "/admin/setup"));
+            else
+                checks.Add(new Check("reach", "Security", "Public address", "ok", "Checking", "Trying " + reach.Saved + ". Refresh in a moment."));
 
             if (proxyWatch.Recent(now) is { } px)
                 checks.Add(new Check("proxy", "Security", "Reverse proxy", "warn", "Headers ignored",

@@ -32,6 +32,8 @@ Open `http://YOUR-SERVER-IP:8080/admin` from a computer on your home network.
 
 ## 3. Create your first gallery
 
+The first time you open the Overview, the **Setup guide** walks you through this: it names your site, checks that the app can see your photos, turns a folder into your first gallery, and (if you want) tests the address you will give to friends. Every step can be skipped, and you can run it again from **Help -> Setup guide**. The same steps by hand:
+
 1. **Galleries -> Create gallery** and pick a folder under your library. One folder is one gallery; sub-folders are included.
 2. Name it and save. The first scan runs at once; thumbnails are built in the background, so a large folder looks plain for a few minutes (see [Troubleshooting](TROUBLESHOOTING.md)).
 3. Open the gallery's **Settings**. The one choice to make now is **Access**:
@@ -67,6 +69,8 @@ Only do this once the steps above work on your own network.
 - The proxy must (a) pass the `X-Forwarded-For`, `X-Forwarded-Proto` and `Host` headers, (b) allow uploads of at least `MAX_UPLOAD_MB` (default 100 MB; a Cloudflare free plan caps at 100 MB), and (c) not buffer responses, so large ZIP downloads stream.
 - Set **`TRUSTED_PROXIES`** to the address range your proxy connects from. The default only trusts Docker's own networks (`172.16.0.0/12`). If your proxy runs on another machine or has a LAN address such as `192.168.x.x`, add it; otherwise all visitors appear to come from the proxy and rate limits and statistics are wrong.
 - Protect `/admin` as well (Cloudflare Access or a proxy allow-list) and use a long password.
+
+Once the address works, save it in the Setup guide (or under **Settings -> Email alerts**). The Overview then has a **Public address** check that tries it and says in plain words what is wrong: the name does not exist, nothing answers, the certificate is bad, the proxy cannot reach the app, or another site answers. It is tested from the server itself, so ask a friend on mobile data to open it once to be sure.
 
 ## 6. Optional next steps
 

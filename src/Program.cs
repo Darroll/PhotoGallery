@@ -16,6 +16,7 @@ builder.Services.AddSingleton<AdminCredentials>();
 builder.Services.AddSingleton<SsoConfig>();
 builder.Services.AddSingleton<ProxyWatch>();
 builder.Services.AddSingleton<UpdateChecker>();
+builder.Services.AddSingleton<Reachability>();
 var recentLog = new RecentLog();
 builder.Logging.AddProvider(recentLog);
 builder.Services.AddSingleton(recentLog);
@@ -166,12 +167,17 @@ app.UseStaticFiles(new StaticFileOptions
     OnPrepareResponse = ctx => ctx.Context.Response.Headers.CacheControl = "no-cache"
 });
 
-app.MapGet("/healthz", () => Results.Ok("ok"));
+app.MapGet("/healthz", (HttpContext ctx) =>
+{
+    ctx.Response.Headers[Reachability.Header] = "1";   // lets the address test tell this app from another site
+    return Results.Ok("ok");
+});
 PublicApi.Map(app);
 AdminApi.Map(app);
 StatsApi.Map(app);
 HealthApi.Map(app);
 HealthApi.MapDiagnostics(app);
+OnboardingApi.Map(app);
 BackupApi.Map(app);
 AuthApi.Map(app);
 SsoApi.Map(app);

@@ -166,6 +166,7 @@ async function route(force = false) {
   document.title = site.title;
   if (parts[0] === 'admin' && parts[1] === 'stats') return viewStats(app);
   if (parts[0] === 'admin' && parts[1] === 'comments') return viewComments(app);
+  if (parts[0] === 'admin' && parts[1] === 'setup') return viewSetup(app);
   if (parts[0] === 'admin' && parts[1] === 'settings') return viewSettings(app, parts[2]);
   if (parts[0] === 'admin' && parts[1] === 'galleries' && parts[2]) return viewGallerySettings(app, Number(parts[2]));
   if (parts[0] === 'admin' && parts[1] === 'galleries') return viewAdmin(app);
@@ -1192,7 +1193,7 @@ const DOCS = 'https://github.com/Darroll/PhotoGallery/blob/main/docs/';
 // Where the Troubleshooting page explains each Overview check.
 const helpFor = { library: 'permission-denied-or-the-backup-or-uploads-check-is-red', datadir: 'permission-denied-or-the-backup-or-uploads-check-is-red', backup: 'permission-denied-or-the-backup-or-uploads-check-is-red',
   folders: 'the-gallery-is-empty-or-photos-are-missing', thumbs: 'photos-show-grey-boxes-or-load-slowly', proxy: 'every-visitor-shows-the-same-ip-or-rate-limits-hit-everybody',
-  email: 'emails-are-not-sent', sso: 'sign-in-sso-fails', adminpw: 'i-cannot-sign-in-to-admin' };
+  reach: 'the-public-address-check-is-red', email: 'emails-are-not-sent', sso: 'sign-in-sso-fails', adminpw: 'i-cannot-sign-in-to-admin' };
 const helpHref = (id) => id === 'exposure' ? DOCS + 'GETTING-STARTED.md#5-let-people-outside-your-home-reach-it' : DOCS + 'TROUBLESHOOTING.md' + (helpFor[id] ? '#' + helpFor[id] : '');
 const adminNav = [
   { href: '/admin', key: 'overview', label: 'Overview' },
@@ -1212,6 +1213,7 @@ const adminNav = [
   { href: '/admin/settings/sso', key: 'settings/sso', label: 'Sign-in (SSO)' },
   { href: '/admin/settings/cache', key: 'settings/cache', label: 'Thumbnail cache' },
   { heading: 'Help' },
+  { href: '/admin/setup', key: 'setup', label: 'Setup guide' },
   { external: DOCS + 'GETTING-STARTED.md', label: 'Getting started' },
   { external: DOCS + 'TROUBLESHOOTING.md', label: 'Troubleshooting' },
   { external: 'https://github.com/Darroll/PhotoGallery/issues/new/choose', label: 'Report a problem' }];
@@ -1243,7 +1245,8 @@ async function viewOverview(app) {
   if (!main) return;
   const body = h('div');
   const diag = h('div');
-  main.append(body, diag);
+  const todo = h('div');
+  main.append(todo, body, diag);
   let timer;
   let lastChecks = [];
   // Builds a text block for bug reports (secrets and emails are removed on the server) and offers it to copy.
@@ -1265,6 +1268,27 @@ async function viewOverview(app) {
       h('p', { class: 'muted', text: 'Passwords, keys, tokens and email addresses are removed. Look it over before you post it publicly.' }),
       area, h('div', { class: 'row' }, h('button', { class: 'primary', text: 'Copy', onclick: copy }), h('button', { text: 'Close', onclick: () => diag.replaceChildren() }), note)));
     area.focus(); area.select();
+  };
+  // Steps for a new install; gone once the essentials are done, or when the admin hides it.
+  const loadChecklist = async () => {
+    const r = await api('/api/admin/onboarding');
+    if (!todo.isConnected || !r.ok) return;
+    const d = r.data;
+    if (d.wizardPending) {
+      let offered = false;
+      try { offered = sessionStorage.getItem('pg-setup-offered') === '1'; sessionStorage.setItem('pg-setup-offered', '1'); } catch { }
+      if (!offered) { go('/admin/setup'); return; }
+    }
+    if (!d.showChecklist) { todo.replaceChildren(); return; }
+    const need = d.steps.filter(s => !s.optional), opt = d.steps.filter(s => s.optional);
+    const row = (s) => h('div', { class: 'todo-row ' + (s.done ? 'done' : '') },
+      h('span', { class: 'todo-mark', 'aria-hidden': 'true', text: s.done ? '\u2713' : '\u25CB' }),
+      h('div', { class: 'grow' }, h('strong', { text: s.label }), h('div', { class: 'muted', text: s.detail })),
+      s.done ? null : h('a', { class: 'btn', href: s.link, text: s.id === 'gallery' ? 'Setup guide' : 'Open' }));
+    todo.replaceChildren(h('div', { class: 'panel' }, h('h3', { text: 'Getting started' }),
+      h('p', { class: 'muted', text: need.filter(s => s.done).length + ' of ' + need.length + ' essentials done. This goes away when they are.' }),
+      ...need.map(row), h('div', { class: 'muted todo-opt', text: 'Optional' }), ...opt.map(row),
+      h('div', { class: 'row' }, h('button', { text: 'Hide this', onclick: async () => { await api('/api/admin/onboarding', { method: 'PUT', body: { checklistHidden: true } }); todo.replaceChildren(); } }))));
   };
   const load = async () => {
     const r = await api('/api/admin/health');
@@ -1297,7 +1321,124 @@ async function viewOverview(app) {
     timer = setTimeout(() => { if (body.isConnected) load(); }, 60000);
   };
   body.append(h('p', { class: 'muted', text: 'Checking...' }));
+  loadChecklist();
   load();
+}
+
+// The first-run guide: name the site, find the photos, make a gallery, set the address. Every step can be skipped.
+async function viewSetup(app) {
+  document.title = 'Setup guide - ' + site.title;
+  const main = await adminPage(app, 'setup', 'Setup guide');
+  if (!main) return;
+  const [r, folderRes] = await Promise.all([api('/api/admin/onboarding'), api('/api/admin/folders')]);
+  if (!r.ok) return main.append(h('p', { class: 'err', text: 'Could not load the setup guide.' }));
+  const st = r.data;
+  let free = (folderRes.data || []).filter(f => !f.galleryId);
+  let made = null;
+  let step = 0;
+  const titles = ['Name your site', 'Your photos', 'First gallery', 'Site address', 'All set'];
+  const body = h('div');
+  const finish = async (to) => { await api('/api/admin/onboarding', { method: 'PUT', body: { wizardDone: true } }); go(to || '/admin'); };
+  main.append(h('div', { class: 'row' }, h('p', { class: 'muted grow', text: 'A few quick questions to get a first gallery on screen. Every step can be skipped and changed later.' }),
+    h('button', { text: 'Skip the guide', onclick: () => finish('/admin') })), body);
+
+  const nav = (next, opts = {}) => h('div', { class: 'row' },
+    step > 0 ? h('button', { text: 'Back', onclick: () => { step--; draw(); } }) : null,
+    next ? h('button', { class: 'primary', text: next.label || 'Next', onclick: next.onclick || (() => { step++; draw(); }) }) : null,
+    opts.skip ? h('button', { text: 'Skip this step', onclick: () => { step++; draw(); } }) : null,
+    opts.msg || null);
+
+  const stepName = () => {
+    const name = h('input', { type: 'text', value: st.siteName, maxlength: 80, 'aria-label': 'Site name' });
+    const msg = h('span', { class: 'muted' });
+    return [h('p', { text: 'This is the name in the page header, the browser tab and email alerts. Something like "The Walsh Family Photos".' }), h('div', { class: 'row' }, name),
+      nav({ onclick: async () => {
+        const res = await api('/api/admin/settings/site', { method: 'PUT', body: { name: name.value } });
+        if (!res.ok) { msg.textContent = 'Could not save the name.'; return; }
+        st.siteName = res.data.name;
+        const s = await api('/api/site'); if (s.ok) { site = s.data; renderFooter(); }
+        step++; draw();
+      } }, { msg })];
+  };
+
+  const stepPhotos = () => {
+    const again = h('button', { text: 'Check again', onclick: async () => {
+      const f = await api('/api/admin/folders'); free = (f.data || []).filter(x => !x.galleryId);
+      st.library.readable = (await api('/api/admin/onboarding')).data.library.readable; draw();
+    } });
+    const all = folderRes.data || [];
+    let info;
+    if (!st.library.readable) info = [h('div', { class: 'check bad' }, h('strong', { text: 'The app cannot read your photo folder' }),
+      h('div', { class: 'muted', text: 'It looks for photos in ' + st.library.path + ', which is not readable. The container runs as user nobody (uid 99), so that user needs read access to the photo share. ' }),
+      h('a', { href: helpHref('library'), target: '_blank', rel: 'noopener', text: 'How to fix this ↗' })), h('div', { class: 'row' }, again)];
+    else if (!all.length) info = [h('p', { text: 'No folders found yet in ' + st.library.path + '. Each folder of photos becomes one gallery. Put a folder of photos in the share you mapped to ' + st.library.path + ' on your server, then check again.' }),
+      h('div', { class: 'row' }, again)];
+    else info = [h('p', { text: 'The app can read ' + st.library.path + ' and found ' + plural(all.length, 'folder') + '. Each folder can become a gallery:' }),
+      h('ul', { class: 'folder-list' }, all.slice(0, 15).map(f => h('li', { text: f.path + (f.galleryTitle ? ' (already the gallery "' + f.galleryTitle + '")' : '') }))),
+      all.length > 15 ? h('p', { class: 'muted', text: 'and ' + (all.length - 15) + ' more.' }) : null];
+    return [...info, nav({ label: free.length ? 'Next' : 'Next' })];
+  };
+
+  const stepGallery = () => {
+    if (made) return [h('p', { text: 'Created "' + made.title + '" with ' + plural(made.count || 0, 'photo') + '.' }), nav({})];
+    if (!free.length) return [h('p', { text: st.galleries.length ? 'Every folder already has a gallery, so there is nothing to create.' : 'There is no folder to make a gallery from yet. Go back, add a folder of photos, and check again.' }), nav({})];
+    const folder = h('select', { 'aria-label': 'Folder' }, free.map(f => h('option', { value: f.path, text: f.path })));
+    const nice = (p) => p.split('/').pop().replace(/[-_]+/g, ' ').trim();
+    const title = h('input', { type: 'text', value: nice(free[0].path), maxlength: 100, 'aria-label': 'Gallery title' });
+    folder.addEventListener('change', () => { title.value = nice(folder.value); });
+    const opts = [['2', 'Private', 'only people I give the link or password to'], ['1', 'Anyone with the link', 'not listed on the home page'], ['0', 'Public', 'listed on the home page for everyone']];
+    const radios = opts.map(([v, a, b]) => ({ v, el: h('input', { type: 'radio', name: 'setup-vis', value: v, checked: v === '2' }), label: a + ': ' + b }));
+    const msg = h('span', { class: 'muted' });
+    return [h('p', { text: 'Turn one folder into a gallery. You can change everything about it afterwards.' }),
+      h('div', { class: 'row' }, h('label', {}, 'Folder ', folder)), h('div', { class: 'row' }, h('label', {}, 'Title ', title)),
+      h('p', { text: 'Who can see it?' }),
+      ...radios.map(x => h('div', { class: 'row' }, h('label', {}, x.el, ' ' + x.label))),
+      nav({ label: 'Create gallery', onclick: async () => {
+        msg.textContent = 'Reading the photos... this can take a moment.';
+        const res = await api('/api/admin/galleries', { method: 'POST', body: { title: title.value, folder: folder.value, visibility: Number(radios.find(x => x.el.checked).v) } });
+        if (!res.ok) { msg.textContent = typeof res.data === 'string' ? res.data : 'Could not create the gallery.'; return; }
+        made = { id: res.data.gallery.id, title: res.data.gallery.title, count: res.data.gallery.count };
+        step++; draw();
+      } }, { skip: true, msg })];
+  };
+
+  const stepAddress = () => {
+    const url = h('input', { type: 'text', value: st.siteUrl, placeholder: 'https://photos.example.com', maxlength: 200, 'aria-label': 'Site address' });
+    const out = h('div');
+    const msg = h('span', { class: 'muted' });
+    const test = async () => {
+      out.replaceChildren(h('p', { class: 'muted', text: 'Trying it...' }));
+      const res = await api('/api/admin/onboarding/test', { method: 'POST', body: { url: url.value } });
+      if (!res.ok) { out.replaceChildren(h('p', { class: 'err', text: typeof res.data === 'string' ? res.data : 'Could not test that address.' })); return; }
+      const d = res.data;
+      out.replaceChildren(h('div', { class: 'check ' + d.status },
+        h('div', { class: 'check-head' }, h('span', { class: 'dot ' + d.status }), h('strong', { text: d.value })), h('div', { class: 'muted', text: d.detail })));
+    };
+    return [h('p', { text: 'If friends and family will open the site from outside your home, this is the address you give them, for example https://photos.example.com. It is used for links in emails, and the Overview page tests that it works. Leave it empty if you only use the site at home.' }),
+      h('div', { class: 'row' }, url, h('button', { text: 'Test it', onclick: test })), out,
+      nav({ label: 'Save and continue', onclick: async () => {
+        const res = await api('/api/admin/onboarding/address', { method: 'PUT', body: { url: url.value } });
+        if (!res.ok) { msg.textContent = typeof res.data === 'string' ? res.data : 'Could not save the address.'; return; }
+        st.siteUrl = res.data.url; step++; draw();
+      } }, { skip: true, msg }),
+      h('p', { class: 'muted' }, 'Not sure how to make the site reachable from outside? See ', h('a', { href: DOCS + 'PROXY.md', target: '_blank', rel: 'noopener', text: 'the proxy guide ↗' }), '.')];
+  };
+
+  const stepDone = () => [
+    h('p', { text: made ? 'Your site is ready. "' + made.title + '" is the first gallery.' : 'You are set up. Make a gallery whenever you are ready.' }),
+    h('p', { text: 'A few things you may want next:' }),
+    h('ul', {},
+      made ? h('li', {}, h('a', { href: '/admin/galleries/' + made.id, text: 'Open the gallery settings' }), ' to choose who can see it and share the link.') : h('li', {}, h('a', { href: '/admin/galleries', text: 'Make a gallery' }), '.'),
+      h('li', {}, h('a', { href: '/admin/settings/email', text: 'Email alerts' }), ' for new comments and guest uploads.'),
+      h('li', {}, h('a', { href: '/admin/settings/sso', text: 'Visitor sign-in' }), ' for likes, comments and galleries for specific people.'),
+      h('li', {}, 'The ', h('a', { href: '/admin', text: 'Overview' }), ' shows what else needs attention, with a checklist.')),
+    h('div', { class: 'row' }, h('button', { class: 'primary', text: 'Finish', onclick: () => finish(made ? '/admin/galleries/' + made.id : '/admin') }))];
+
+  const draw = () => {
+    const content = [stepName, stepPhotos, stepGallery, stepAddress, stepDone][step]();
+    body.replaceChildren(h('div', { class: 'panel' }, h('p', { class: 'muted', text: 'Step ' + (step + 1) + ' of ' + titles.length }), h('h3', { text: titles[step] }), ...content));
+  };
+  draw();
 }
 
 async function viewAdmin(app) {

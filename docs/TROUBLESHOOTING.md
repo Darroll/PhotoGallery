@@ -50,6 +50,20 @@ Step-by-step proxy settings are in [Sharing outside your home](PROXY.md).
 
 The proxy's address is not in `TRUSTED_PROXIES`, so its forwarded headers are ignored. Add the proxy's network, comma separated, for example `172.16.0.0/12,192.168.1.10/32`.
 
+## The "Public address" check is amber or red
+
+The Overview tries the site address you saved (in the Setup guide, or under Settings -> Email alerts) and reports what it found. It tests from the server itself, so it proves the name, certificate and proxy work, but not that your router or provider lets outsiders in.
+
+- **Name not found:** the DNS record does not exist yet, or the name is misspelled. Add it at your domain provider (or in Cloudflare) and wait a few minutes.
+- **Home network only:** the name points at a private address (192.168.x.x, 10.x.x.x). That works at home, not from outside. See [Sharing outside your home](PROXY.md).
+- **Connection refused / No answer / Cannot connect:** nothing is listening, or something blocks it. Is the proxy or tunnel running? Does the port forward (if you use one) go to the proxy, not to this app?
+- **Certificate problem:** the proxy's certificate is missing, expired or for another name. Renew it, or use the name it was issued for.
+- **Proxy cannot reach the app (502/503/504):** the proxy runs but cannot reach this container. Point it at this container's address and port (usually 8080) and check the container is running.
+- **A different site answers:** the name leads to another service, or the proxy forwards to the wrong place.
+- **Works, not encrypted:** the address is plain `http`. Put https in front, so gallery passwords are not sent in the clear.
+
+To stop the check, clear the address.
+
 ## Emails are not sent
 
 Open **Settings -> Email alerts** and press **Send test email**; it explains the failure in plain words. Gmail needs an app password, and only STARTTLS on port 587 is supported (not 465).
