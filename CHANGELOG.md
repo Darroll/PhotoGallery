@@ -4,7 +4,8 @@ Newest first. "Needs attention" marks anything an existing user must do when upd
 
 ## Unreleased
 
-- **Fixed:** the photographer's own comments showed the word "nullnull" under the buttons.
+- **Fixed:** the word "null" no longer shows up in the admin pages (under the photographer's comments and under Database backups), and the file pickers on Settings and Statistics stay hidden under the content security policy.
+- **Statistics:** Top viewed photos and Top downloads leave out photos that were removed, so they no longer take a spot with a broken thumbnail.
 ## 1.2.0
 
 - **Template changes:** the example address in the `CAPTION_URL` description is generic now. Nothing to do.

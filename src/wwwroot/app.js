@@ -1,4 +1,11 @@
 'use strict';
+// DOM append/prepend/replaceChildren print null as the word "null"; skip empty slots instead (`cond ? node : null` is used everywhere).
+for (const m of ['append', 'prepend', 'replaceChildren']) {
+  for (const proto of [Element.prototype, DocumentFragment.prototype]) {
+    const orig = proto[m];
+    proto[m] = function (...kids) { return orig.apply(this, kids.filter(k => k !== null && k !== undefined && k !== false)); };
+  }
+}
 // ---------- helpers ----------
 const $ = (s) => document.querySelector(s);
 function h(tag, props, ...kids) {
@@ -1570,7 +1577,7 @@ async function viewSettings(app, section) {
 // Moves site settings to another server: a file without passwords, and loading one back.
 function moveSettingsPanel() {
   const msg = h('p', { class: 'muted', role: 'status' });
-  const pick = h('input', { type: 'file', accept: '.json,application/json', style: 'display:none' });
+  const pick = h('input', { type: 'file', accept: '.json,application/json', class: 'hidden' });
   pick.addEventListener('change', async () => {
     const f = pick.files[0]; if (!f) return;
     if (!confirm(`Load the settings from "${f.name}"?
@@ -2989,7 +2996,7 @@ async function viewStats(app) {
         h('td', {}, h('a', { href: `/api/admin/backups/${encodeURIComponent(x.name)}/download`, download: x.name, text: 'Download' }), ' ',
           h('button', { text: 'Restore', onclick: () => restore(x) }))));
       const head = h('tr', {}, ['Taken', 'Size', ''].map(x => h('th', { text: x })));
-      const pick = h('input', { type: 'file', accept: '.db', style: 'display:none' });
+      const pick = h('input', { type: 'file', accept: '.db', class: 'hidden' });
       pick.addEventListener('change', async () => {
         const f = pick.files[0]; if (!f) return;
         if (!confirm(`Restore from the file "${f.name}"?\n\nEverything in the gallery is replaced by what is in this file. The current state is saved first so this can be undone.`)) { pick.value = ''; return; }

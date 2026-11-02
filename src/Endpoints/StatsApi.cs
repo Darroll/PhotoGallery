@@ -59,14 +59,15 @@ public static class StatsApi
                     visitors = grp.Select(r => r.Ip).Distinct().Count()
                 }).OrderByDescending(x => x.views + x.photoViews + x.downloads).Take(15).ToList();
 
-            var photoGroups = rows.Where(r => r.PhotoId != null && r.Kind is "view_photo" or "download").GroupBy(r => r.PhotoId!.Value)
+            // photos that were removed or renamed away keep their old events, but cannot be shown or opened: leave them out so they do not use up the top spots
+            var viewedIds = rows.Where(r => r.PhotoId != null && r.Kind is "view_photo" or "download").Select(r => r.PhotoId!.Value).Distinct().ToList();
+            var photoInfo = await db.Photos.AsNoTracking().Where(p => viewedIds.Contains(p.Id)).Select(p => new { p.Id, p.Name, p.GalleryId }).ToDictionaryAsync(p => p.Id);
+            var photoGroups = rows.Where(r => r.PhotoId != null && photoInfo.ContainsKey(r.PhotoId.Value) && r.Kind is "view_photo" or "download").GroupBy(r => r.PhotoId!.Value)
                 .Select(grp => new { id = grp.Key, views = grp.Count(r => r.Kind == "view_photo"), downloads = grp.Count(r => r.Kind == "download") })
                 .Where(x => x.views > 0).OrderByDescending(x => x.views).ThenByDescending(x => x.downloads).Take(12).ToList();
-            var dlGroups = rows.Where(r => r.PhotoId != null && r.Kind == "download").GroupBy(r => r.PhotoId!.Value)
+            var dlGroups = rows.Where(r => r.PhotoId != null && photoInfo.ContainsKey(r.PhotoId.Value) && r.Kind == "download").GroupBy(r => r.PhotoId!.Value)
                 .Select(grp => new { id = grp.Key, downloads = grp.Count(), visitors = grp.Select(r => r.Ip).Distinct().Count() })
                 .OrderByDescending(x => x.downloads).Take(12).ToList();
-            var photoIds = photoGroups.Select(x => x.id).Concat(dlGroups.Select(x => x.id)).Distinct().ToList();
-            var photoInfo = await db.Photos.AsNoTracking().Where(p => photoIds.Contains(p.Id)).Select(p => new { p.Id, p.Name, p.GalleryId }).ToDictionaryAsync(p => p.Id);
             var slugs = await db.Galleries.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x.Slug);
             var topPhotos = photoGroups.Select(x => new
             {
