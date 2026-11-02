@@ -10,6 +10,14 @@
   <Support>https://forums.unraid.net/topic/201119-support-darroll-photogallery/</Support>
   <Project>https://github.com/Darroll/PhotoGallery</Project>
   <Overview>[b]PhotoGallery[/b] - Self-hosted photo galleries: public / unlisted / password-protected galleries, share links with expiry and download limits, slideshow, lossless PNG/WebP/TIFF size exports, RAW download, ZIP download, watermarks and moderated guest uploads. Your photo library is mounted read-only; nothing in it is ever modified.</Overview>
+  <ReadMe>https://raw.githubusercontent.com/Darroll/PhotoGallery/main/README.md</ReadMe>
+  <ExtraSearchTerms>photos gallery photography share family pictures slideshow raw</ExtraSearchTerms>
+  <License>MIT</License>
+  <Changes>See https://github.com/Darroll/PhotoGallery/blob/main/CHANGELOG.md</Changes>
+  <Screenshot>https://raw.githubusercontent.com/Darroll/PhotoGallery/main/docs/screenshots/home.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/Darroll/PhotoGallery/main/docs/screenshots/gallery.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/Darroll/PhotoGallery/main/docs/screenshots/viewer.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/Darroll/PhotoGallery/main/docs/screenshots/admin-overview.png</Screenshot>
   <Category>MediaServer:Photos Tools:</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/Darroll/PhotoGallery/main/templates/photogallery.xml</TemplateURL>
