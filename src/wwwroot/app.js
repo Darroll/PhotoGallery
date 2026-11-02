@@ -1351,7 +1351,7 @@ async function viewSetup(app) {
   const stepName = () => {
     const name = h('input', { type: 'text', value: st.siteName, maxlength: 80, 'aria-label': 'Site name' });
     const msg = h('span', { class: 'muted' });
-    return [h('p', { text: 'This is the name in the page header, the browser tab and email alerts. Something like "The Walsh Family Photos".' }), h('div', { class: 'row' }, name),
+    return [h('p', { text: 'This is the name in the page header, the browser tab and email alerts. Something like "The Smith Family Photos".' }), h('div', { class: 'row' }, name),
       nav({ onclick: async () => {
         const res = await api('/api/admin/settings/site', { method: 'PUT', body: { name: name.value } });
         if (!res.ok) { msg.textContent = 'Could not save the name.'; return; }

@@ -180,8 +180,6 @@ Once the template is listed, search **PhotoGallery** in the Apps tab and click I
 4. Open `http://SERVER-IP:8080/admin`, create galleries from folders. [Getting started](docs/GETTING-STARTED.md) walks through this, including permissions and folder layout.
 5. To expose it to the internet put it behind a reverse proxy (SWAG, Nginx Proxy Manager, Cloudflare Tunnel); never forward the port directly. `unraid/gallery.subdomain.conf` is a ready SWAG config; put the container on SWAG's custom network and keep `TRUST_PROXY=true`.
 
-`unraid/my-photogallery.xml.private` is the author's private variant that pulls from a local registry (`192.168.2.3:5000`, published with `deploy.sh`). It deliberately does not end in `.xml` so Community Applications does not scan it as a second app; copy it to `templates-user/my-photogallery.xml` to use it.
-
 ### Publishing the template to Community Apps (maintainer notes)
 
 Files used: `unraid/photogallery.xml` (template), `unraid/icon.png`, `ca_profile.xml` (repository root). Checklist:
@@ -225,7 +223,7 @@ Files used: `unraid/photogallery.xml` (template), `unraid/icon.png`, `ca_profile
 
 **Captions and alt text.** Each photo can have a short caption and an alt text (a description for screen readers, which is also used as the image's alt attribute). Visitors who sign in can suggest changes from Details. Suggestions are reviewed in Admin -> Settings -> Caption suggestions, like a merge request: approving applies the text, rejecting drops it, and if the text has changed since the suggestion was made it is marked as a conflict and needs an explicit "Apply anyway". The admin's own edits apply straight away.
 
-*Automatic captions* need a vision model you run yourself. Set `CAPTION_URL` to an Ollama server (for example `http://192.168.2.5:11434`) and optionally `CAPTION_MODEL` (default `llava`). The server writes captions for photos that have none, a few at a time in the background, and gives up on a photo after three tries. Photos are sent only to that address. Leave `CAPTION_URL` empty and nothing leaves the server. Run the model on a machine with enough memory: a vision model on the Unraid server itself can exhaust its RAM.
+*Automatic captions* need a vision model you run yourself. Set `CAPTION_URL` to an Ollama server (for example `http://your-server:11434`) and optionally `CAPTION_MODEL` (default `llava`). The server writes captions for photos that have none, a few at a time in the background, and gives up on a photo after three tries. Photos are sent only to that address. Leave `CAPTION_URL` empty and nothing leaves the server. Run the model on a machine with enough memory: a vision model on the Unraid server itself can exhaust its RAM.
 
 **Home page for the admin.** Visitors see only public galleries that have not expired. Signed in as admin, the home page lists every gallery whatever its visibility (unlisted, protected, specific people) or expiry, and every gallery card, the top of every gallery page and the admin row in the photo viewer show its visibility level (Public, Unlisted, Protected or Specific people, plus Expired when it is) with a **Settings** link straight to that gallery's settings. Visitors see none of this. Search still shows only what visitors can find.
 
@@ -312,7 +310,7 @@ From the dev machine, on `main` with everything committed and pushed:
 ./deploy.sh
 ```
 
-It runs the tests, checks that `main` matches GitHub, copies that commit to the Unraid server (`DEPLOY_HOST`, default `voltron`), builds the image there with `release.sh` and pushes it to the local registry. Then use "check for updates" / "apply update" on the container in Unraid. `SKIP_TESTS=1 ./deploy.sh` skips the test run.
+It runs the tests, checks that `main` matches GitHub, copies that commit to the Unraid server (`DEPLOY_HOST` and `REGISTRY`, set in a `.deploy.env` file that is not in git), builds the image there with `release.sh` and pushes it to the local registry. Then use "check for updates" / "apply update" on the container in Unraid. `SKIP_TESTS=1 ./deploy.sh` skips the test run.
 
 ### Database backups
 

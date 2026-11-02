@@ -23,7 +23,7 @@ public class DiagnosticsTests(AppFactory app) : IClassFixture<AppFactory>
         Assert.Contains("Library readable: True", text);
         Assert.Contains("Admin password in container: set", text);
         Assert.DoesNotContain(AppFactory.AdminPassword, text);
-        Assert.DoesNotContain("gallery@darrollwalsh.com", text);
+        Assert.DoesNotContain("gallery@example.com", text);
     }
 
     [Theory]

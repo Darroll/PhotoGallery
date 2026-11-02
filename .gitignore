@@ -5,3 +5,7 @@ testdata/
 .vs/
 wmcrop.png
 .gitsha
+
+# Personal deploy settings and private templates stay on this machine
+.deploy.env
+unraid/*.private

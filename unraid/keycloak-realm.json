@@ -21,9 +21,9 @@
   "ssoSessionMaxLifespan": 2592000,
   "accessTokenLifespan": 300,
   "smtpServer": {
-    "host": "192.168.2.3",
+    "host": "mail.example.com",
     "port": "25",
-    "from": "gallery@darrollwalsh.com",
+    "from": "gallery@example.com",
     "fromDisplayName": "Photo Gallery",
     "auth": "false",
     "ssl": "false",
@@ -46,13 +46,13 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
-      "rootUrl": "https://gallery.darrollwalsh.com",
+      "rootUrl": "https://gallery.example.com",
       "baseUrl": "/",
-      "redirectUris": [ "https://gallery.darrollwalsh.com/signin-oidc" ],
-      "webOrigins": [ "https://gallery.darrollwalsh.com" ],
+      "redirectUris": [ "https://gallery.example.com/signin-oidc" ],
+      "webOrigins": [ "https://gallery.example.com" ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "https://gallery.darrollwalsh.com/*"
+        "post.logout.redirect.uris": "https://gallery.example.com/*"
       },
       "defaultClientScopes": [ "web-origins", "profile", "roles", "email" ]
     }
