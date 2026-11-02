@@ -717,7 +717,7 @@ async function commentsPanel(photo, changed) {
         } }));
     }
     if (me.admin) {
-      acts.append(
+      acts.append(...[
         h('button', { class: 'linkish', text: c.hidden ? 'Show again' : 'Hide', onclick: async () => {
           const e = await api(`/api/admin/comments/${c.id}/hidden`, { method: 'PUT', body: { hidden: !c.hidden } });
           if (e.ok) changed(); else msg.textContent = cmErr(e, 'Could not change it.');
@@ -732,7 +732,7 @@ async function commentsPanel(photo, changed) {
           if (!confirm('Block ' + c.author + ' from commenting on this site?' + (hideAll ? ' Their other comments will be hidden.' : '') + '\nYou can undo this under Comments in the admin menu.')) return;
           const e = await api(`/api/admin/comments/${c.id}/block`, { method: 'POST', body: { reason: '', hideAll } });
           if (e.ok) changed(); else msg.textContent = cmErr(e, 'Could not block.');
-        } }));
+        } })].filter(Boolean));
     }
     return h('div', { class: 'cm' + (c.isAdmin ? ' cm-admin' : '') + (c.hidden ? ' cm-hidden' : '') },
       head,

@@ -4,6 +4,7 @@ Newest first. "Needs attention" marks anything an existing user must do when upd
 
 ## Unreleased
 
+- **Fixed:** the photographer's own comments showed the word "nullnull" under the buttons.
 ## 1.2.0
 
 - **Template changes:** the example address in the `CAPTION_URL` description is generic now. Nothing to do.
