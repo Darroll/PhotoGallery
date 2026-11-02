@@ -23,11 +23,7 @@
   <TemplateURL>https://raw.githubusercontent.com/Darroll/PhotoGallery/main/templates/photogallery.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/Darroll/PhotoGallery/main/unraid/icon.png</Icon>
   <ExtraParams>--user 99:100 --restart=unless-stopped --security-opt no-new-privileges --cap-drop ALL --read-only --tmpfs /tmp</ExtraParams>
-  <PostArgs/>
-  <CPUset/>
   <DateInstalled/>
-  <DonateText/>
-  <DonateLink/>
   <Requires>An Unraid share of photos to publish. Put the container behind a reverse proxy (SWAG, Nginx Proxy Manager, Cloudflare Tunnel) before exposing it to the internet; do not forward the port directly.</Requires>
   <Config Name="WebUI Port" Target="8080" Default="8080" Mode="tcp" Description="Port for the web interface. With a reverse proxy on a custom Docker network the proxy reaches the container by name and this mapping is only for LAN access." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
   <Config Name="Photo library (read-only)" Target="/photos" Default="/mnt/user/Photos" Mode="ro" Description="Root folder that contains your photo folders. Each gallery points at a sub-folder." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/Photos</Config>
