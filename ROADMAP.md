@@ -32,11 +32,11 @@ An item is finished only when it has: tests, a database migration if the model c
 
 ## Unraid Community Apps listing (your steps)
 
-Done in the repo and on GitHub: template `unraid/photogallery.xml`, icon, `ca_profile.xml` (repository root), **Publish image** workflow, public package `ghcr.io/darroll/photogallery`, MIT `LICENSE`. What is left needs your Unraid forum account:
+Done in the repo and on GitHub: template `templates/photogallery.xml`, icon, `ca_profile.xml` (repository root), **Publish image** workflow, public package `ghcr.io/darroll/photogallery`, MIT `LICENSE`. What is left needs your Unraid forum account:
 
 - [x] **Open a support thread** on the Unraid forum (Docker Containers section) for PhotoGallery: what it is, screenshots, how to install, where to report bugs.
-- [x] **Put the thread URL in the template.** Set `<Support>` in `unraid/photogallery.xml` (it points at GitHub issues now), commit and push.
-- [ ] **Test the template on a clean setup.** Copy `unraid/photogallery.xml` to `/boot/config/plugins/dockerMan/templates-user/` on the server, Add Container -> photogallery, leave `ADMIN_PASSWORD` empty, confirm it pulls from ghcr.io, starts, and the password appears in the log.
+- [x] **Put the thread URL in the template.** Set `<Support>` in `templates/photogallery.xml` (it points at GitHub issues now), commit and push.
+- [ ] **Test the template on a clean setup.** Copy `templates/photogallery.xml` to `/boot/config/plugins/dockerMan/templates-user/` on the server, Add Container -> photogallery, leave `ADMIN_PASSWORD` empty, confirm it pulls from ghcr.io, starts, and the password appears in the log.
 - [x] **Submit to Community Applications.** Auto-approved; goes live in the next Community Applications update. Post the repository (`https://github.com/Darroll/PhotoGallery`) in the Community Applications thread / submission form and answer the moderators' review comments.
 - [ ] **Keep the image fresh.** Each push to `main` rebuilds `:latest`; check the Actions tab after a release (a failed build leaves users on the old image). Dependabot already covers NuGet and Docker.
 - [ ] (optional) Replace the placeholder `unraid/icon.png` with your own artwork; add screenshots to the README for the listing.

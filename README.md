@@ -174,7 +174,7 @@ Do on your side:
 
 Once the template is listed, search **PhotoGallery** in the Apps tab and click Install. Until then (or to try it first), install it by hand:
 
-1. Copy `unraid/photogallery.xml` to `/boot/config/plugins/dockerMan/templates-user/`, then Docker tab -> **Add Container** -> select **photogallery**.
+1. Copy `templates/photogallery.xml` to `/boot/config/plugins/dockerMan/templates-user/`, then Docker tab -> **Add Container** -> select **photogallery**.
 2. Set **Photo library** (read-only) to the folder that holds your photo folders and choose the admin password: either set `ADMIN_PASSWORD`, or leave it empty and open `/admin` to be asked for one on first visit.
 3. Apply. The image is pulled from `ghcr.io/darroll/photogallery:latest`, which GitHub Actions rebuilds on every push to `main` (`.github/workflows/publish-image.yml`). Updates arrive through Unraid's normal "check for updates".
 4. Open `http://SERVER-IP:8080/admin`, create galleries from folders. [Getting started](docs/GETTING-STARTED.md) walks through this, including permissions and folder layout.
@@ -182,7 +182,7 @@ Once the template is listed, search **PhotoGallery** in the Apps tab and click I
 
 ### Publishing the template to Community Apps (maintainer notes)
 
-Files used: `unraid/photogallery.xml` (template), `unraid/icon.png`, `ca_profile.xml` (repository root). Checklist:
+Files used: `templates/photogallery.xml` (template), `unraid/icon.png`, `ca_profile.xml` (repository root). Checklist:
 
 1. Push to `main`; the **Publish image** workflow tests and builds `:edge`. Public users get `:latest` only from a release tag (see Releasing). In GitHub -> Packages -> photogallery -> Package settings, set visibility to **Public** (first time only).
 2. Open a support thread on the Unraid forum (Docker Containers) and put its URL in `<Support>` of the template.

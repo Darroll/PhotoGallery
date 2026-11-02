@@ -12,7 +12,7 @@
   <Overview>[b]PhotoGallery[/b] - Self-hosted photo galleries: public / unlisted / password-protected galleries, share links with expiry and download limits, slideshow, lossless PNG/WebP/TIFF size exports, RAW download, ZIP download, watermarks and moderated guest uploads. Your photo library is mounted read-only; nothing in it is ever modified.</Overview>
   <Category>MediaServer:Photos Tools:</Category>
   <WebUI>http://[IP]:[PORT:8080]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/Darroll/PhotoGallery/main/unraid/photogallery.xml</TemplateURL>
+  <TemplateURL>https://raw.githubusercontent.com/Darroll/PhotoGallery/main/templates/photogallery.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/Darroll/PhotoGallery/main/unraid/icon.png</Icon>
   <ExtraParams>--user 99:100 --restart=unless-stopped --security-opt no-new-privileges --cap-drop ALL --read-only --tmpfs /tmp</ExtraParams>
   <PostArgs/>

@@ -1,7 +1,6 @@
-<?xml version="1.0" encoding="utf-8"?>
-<Maintainer>
-  <Profile>PhotoGallery - self-hosted photo galleries for Unraid</Profile>
+<CommunityApplications>
+  <Profile>PhotoGallery - self-hosted photo galleries for Unraid. Share photos with friends and family: public, unlisted or private galleries, share links, slideshow, lossless downloads, watermarks and moderated guest uploads. Your photo library is mounted read-only. Support and questions: see the forum thread.</Profile>
+  <Icon>https://raw.githubusercontent.com/Darroll/PhotoGallery/main/unraid/icon.png</Icon>
   <WebPage>https://github.com/Darroll/PhotoGallery</WebPage>
   <Forum>https://forums.unraid.net/topic/201119-support-darroll-photogallery/</Forum>
-  <GitHub>https://github.com/Darroll</GitHub>
-</Maintainer>
+</CommunityApplications>
