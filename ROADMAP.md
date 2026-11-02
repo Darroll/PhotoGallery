@@ -32,7 +32,7 @@ An item is finished only when it has: tests, a database migration if the model c
 
 ## Unraid Community Apps listing (your steps)
 
-Done in the repo and on GitHub: template `unraid/photogallery.xml`, icon, `ca_profile.xml`, **Publish image** workflow, public package `ghcr.io/darroll/photogallery`, MIT `LICENSE`. What is left needs your Unraid forum account:
+Done in the repo and on GitHub: template `unraid/photogallery.xml`, icon, `ca_profile.xml` (repository root), **Publish image** workflow, public package `ghcr.io/darroll/photogallery`, MIT `LICENSE`. What is left needs your Unraid forum account:
 
 - [x] **Open a support thread** on the Unraid forum (Docker Containers section) for PhotoGallery: what it is, screenshots, how to install, where to report bugs.
 - [x] **Put the thread URL in the template.** Set `<Support>` in `unraid/photogallery.xml` (it points at GitHub issues now), commit and push.

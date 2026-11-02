@@ -184,7 +184,7 @@ Once the template is listed, search **PhotoGallery** in the Apps tab and click I
 
 ### Publishing the template to Community Apps (maintainer notes)
 
-Files used: `unraid/photogallery.xml` (template), `unraid/icon.png`, `unraid/ca_profile.xml`. Checklist:
+Files used: `unraid/photogallery.xml` (template), `unraid/icon.png`, `ca_profile.xml` (repository root). Checklist:
 
 1. Push to `main`; the **Publish image** workflow tests and builds `:edge`. Public users get `:latest` only from a release tag (see Releasing). In GitHub -> Packages -> photogallery -> Package settings, set visibility to **Public** (first time only).
 2. Open a support thread on the Unraid forum (Docker Containers) and put its URL in `<Support>` of the template.
