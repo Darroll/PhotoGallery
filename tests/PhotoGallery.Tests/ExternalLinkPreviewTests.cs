@@ -109,7 +109,7 @@ public class ExternalLinkPreviewTests(AppFactory app) : IClassFixture<AppFactory
 
             var visitor = app.NewClient();
             System.Text.Json.JsonElement link = default;
-            for (var i = 0; i < 50; i++)   // the fetch runs in the background
+            for (var i = 0; i < 200; i++)   // the fetch runs in the background; the first run after a build can take a few seconds
             {
                 link = (await (await visitor.GetAsync($"/api/g/{slug}")).ReadAsync()).GetProperty("links")[0];
                 if (link.GetProperty("preview").ValueKind != System.Text.Json.JsonValueKind.Null) break;
