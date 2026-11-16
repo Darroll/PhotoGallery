@@ -4,6 +4,11 @@ Newest first. "Needs attention" marks anything an existing user must do when upd
 
 ## Unreleased
 
+## 1.4.1
+
+- **Bolder section tabs**, with an accent underline and a clearly highlighted open tab.
+- **Counts on the tabs.** While the Curated filter is on, each tab shows curated/all (for example 57/305: 57 edited photos of 305 frames); with the filter off, or when a section has no RAW-only frames, just the number of photos. With Favorites showing, the tab shows its favorites. Hover a tab to see what the number means.
+
 ## 1.4.0
 
 - **Sections are tabs now.** A gallery split into sections shows one tab per section (with its photo count) and only the open tab's photos on the page, so a tournament with thousands of frames opens fast. The open tab is in the address (`/g/my-gallery#s=Game_2`), so a link can open a given game, and a photo's own link opens the tab it is in. Slideshow, Select all and the viewer work on the open tab; the ZIP button in the tab downloads just that section.

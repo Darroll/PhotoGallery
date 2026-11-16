@@ -558,10 +558,12 @@ table.data td:last-child { text-align: right; font-variant-numeric: tabular-nums
 .folder-list { margin: .25rem 0 .75rem 1.25rem; padding: 0; }
 
 /* gallery sections: one tab per sub folder (e.g. each game of a tournament), one section on the page at a time */
-.sec-nav { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; border-bottom: 1px solid var(--line); }
-.sec-tab { border: 1px solid var(--line); border-bottom: none; border-radius: 8px 8px 0 0; padding: 8px 14px; background: transparent; }
-.sec-tab.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-.sec-count { margin-left: 8px; font-size: 12px; opacity: .75; }
+.sec-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; padding-top: 6px; border-bottom: 3px solid var(--accent); }
+.sec-tab { display: inline-flex; align-items: center; gap: 10px; padding: 12px 20px; font-size: 16px; font-weight: 600; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-bottom: none; border-radius: 12px 12px 0 0; box-shadow: 0 -2px 6px rgba(0,0,0,.08); cursor: pointer; }
+.sec-tab:hover { border-color: var(--accent); color: var(--accent); }
+.sec-tab.on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg, #fff); font-weight: 700; padding-top: 14px; margin-bottom: -1px; box-shadow: 0 -3px 10px rgba(0,0,0,.18); }
+.sec-count { padding: 2px 9px; font-size: 13px; font-weight: 600; border-radius: 999px; background: rgba(128,128,128,.22); }
+.sec-tab.on .sec-count { background: rgba(255,255,255,.25); }
 .g-section { margin: 0 0 28px; }
 .sec-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin: 6px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .sec-head h2 { margin: 0; font-size: 22px; }

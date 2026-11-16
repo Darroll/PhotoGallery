@@ -536,6 +536,17 @@ async function viewGallery(app, slug) {
     if (lb && lb.sync) lb.sync();
   };
 
+  // The number on a tab: curated/all (57/305) while the Curated filter hides RAW frames, otherwise just the number of photos.
+  // With favorites showing it is the number of favorites in that section.
+  const inTab = (key) => approved.filter(p => p.approved && secKey(p) === key);
+  const tabCounts = (key) => {
+    if (favOnly) { const n = inTab(key).filter(p => favs.has(p.id)).length; return { n, total: n }; }
+    const all = inTab(key);
+    return { n: curated.checked ? all.filter(p => !p.rawOnly).length : all.length, total: all.length };
+  };
+  const tabCount = (key) => { const c = tabCounts(key); return curated.checked && !favOnly && c.n !== c.total ? `${c.n}/${c.total}` : String(c.n); };
+  const tabCountTitle = (key) => { const c = tabCounts(key); return curated.checked && !favOnly && c.n !== c.total ? `${plural(c.n, 'curated photo')} of ${c.total} (the rest are unedited RAW frames)` : plural(c.n, favOnly ? 'favorite' : 'photo'); };
+
   function fill() {
     const showRaw = !curated.checked;
     let photos = showRaw ? approved : approved.filter(p => !p.rawOnly);
@@ -581,7 +592,7 @@ async function viewGallery(app, slug) {
         const key = s.folder.toLowerCase(), on = key === activeSec;
         return h('button', { class: 'sec-tab' + (on ? ' on' : ''), role: 'tab', 'aria-selected': on ? 'true' : 'false', title: s.title,
           onclick: () => { activeSec = key; try { history.replaceState(history.state, '', location.pathname + location.search + '#s=' + encodeURIComponent(s.folder)); } catch { } fill(); } },
-          s.title, h('span', { class: 'sec-count', text: String(perSection.get(key).filter(p => p.approved).length) }));
+          s.title, h('span', { class: 'sec-count', title: tabCountTitle(key), text: tabCount(key) }));
       }));
       if (!openSec) grid.replaceChildren(h('p', { class: 'muted', text: 'Nothing to show.' }));
       else {
