@@ -2609,7 +2609,7 @@ async function viewGallerySettings(app, id) {
       field('Rescan', h('div', { class: 'row' }, h('button', { text: 'Rescan folder now', onclick: async () => {
         scanMsg.textContent = 'Scanning...';
         const r = await api(`/api/admin/galleries/${g.id}/scan`, { method: 'POST' });
-        scanMsg.textContent = r.ok ? `Added ${r.data.added}, removed ${r.data.removed}; ${r.data.paired} paired with RAW, ${r.data.rawOnly} RAW-only` : (typeof r.data === 'string' ? r.data : 'Failed');
+        scanMsg.textContent = r.ok ? `Added ${r.data.added}, removed ${r.data.removed}; ${r.data.paired} paired with RAW, ${r.data.rawOnly} RAW-only` + (r.data.retimed ? `; read the shooting time of ${r.data.retimed} photos from their RAW files` : '') : (typeof r.data === 'string' ? r.data : 'Failed');
       } }), scanMsg), 'Folders are also rescanned automatically.'),
       field('Thumbnails', thumbControl(g), 'Built automatically in the background after each scan. Rebuild after fixing or replacing photos.'),
       field('Delete', h('button', { class: 'danger', text: 'Delete gallery...', onclick: async () => {

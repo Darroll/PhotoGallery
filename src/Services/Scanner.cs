@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PhotoGallery;
 
-public record ScanResult(int Added, int Removed, int Total, int SkippedRaw, int Paired, int RawOnly, int Moved = 0);
+public record ScanResult(int Added, int Removed, int Total, int SkippedRaw, int Paired, int RawOnly, int Moved = 0, int Retimed = 0);
 
 public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs, ILogger<Scanner> log)
 {
@@ -114,7 +114,7 @@ public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs
             same.RelPath = rel;
             same.Name = name;
             if (same.RawLocked && same.RawRelPath != null && cfg.ResolvePhoto(same, same.RawRelPath) is { } oldRaw && !File.Exists(oldRaw))
-            { same.RawLocked = false; same.RawRelPath = rawRel; }   // the hand-made RAW link pointed at a file that moved too
+            { same.RawLocked = false; same.RawRelPath = rawRel; same.TakenFromRaw = false; }   // the hand-made RAW link pointed at a file that moved too
             byRel[rel] = same;
             moved++;
         }
@@ -129,7 +129,7 @@ public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs
             var isRawOnly = rawRel == rel;
             if (byRel.TryGetValue(rel, out var ex))
             {
-                if (!ex.RawLocked && ex.RawRelPath != rawRel) ex.RawRelPath = rawRel;
+                if (!ex.RawLocked && ex.RawRelPath != rawRel) { ex.RawRelPath = rawRel; ex.TakenFromRaw = false; }
                 if (string.IsNullOrEmpty(ex.Name)) ex.Name = Path.GetFileName(primary.Full);
                 continue;
             }
@@ -189,6 +189,26 @@ public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs
         await db.SaveChangesAsync();
         await FileIdentity.ForgetOldAsync(db);
 
+        // Photos with a RAW file take their shooting time from it: an edited export has the time it was saved, a RAW-only photo
+        // only the file's date. Once a photo has been looked at it is not read again.
+        int retimed = 0;
+        if (images.CanReadRawTimes)
+        {
+            var todo = await db.Photos.Where(p => p.GalleryId == g.Id && !p.IsGuest && p.RawRelPath != null && !p.TakenFromRaw).ToListAsync();
+            var files = todo.Select(p => (photo: p, path: cfg.ResolvePhoto(p, p.RawRelPath!))).Where(x => x.path != null && File.Exists(x.path)).ToList();
+            if (files.Count > 0)
+            {
+                var times = await images.ReadRawTimesAsync(files.Select(x => x.path!).Distinct().ToList());
+                foreach (var (photo, path) in files)
+                {
+                    if (!times.TryGetValue(path!, out var shot)) continue;   // not read: try again next scan
+                    if (shot != null && photo.TakenAt != shot.Value) { photo.TakenAt = shot.Value; retimed++; }
+                    photo.TakenFromRaw = true;
+                }
+                await db.SaveChangesAsync();
+            }
+        }
+
         if (g.CoverPhotoId == null || !await db.Photos.AnyAsync(p => p.Id == g.CoverPhotoId))
         {
             g.CoverMode = CoverMode.WithPhotos;   // the cover-only photo is gone; the automatic cover is a normal photo
@@ -200,7 +220,7 @@ public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs
         var total = await db.Photos.CountAsync(p => p.GalleryId == g.Id);
         var paired = await db.Photos.CountAsync(p => p.GalleryId == g.Id && p.RawRelPath != null && p.RawRelPath != p.RelPath);
         var rawOnly = await db.Photos.CountAsync(p => p.GalleryId == g.Id && p.RawRelPath != null && p.RawRelPath == p.RelPath);
-        return new ScanResult(added, gone.Count, total, skippedRaw, paired, rawOnly, moved);
+        return new ScanResult(added, gone.Count, total, skippedRaw, paired, rawOnly, moved, retimed);
     }
 
     static string TryFingerprint(string path)

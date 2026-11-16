@@ -583,6 +583,7 @@ public static class AdminApi
             if (!raw.RawOnly) return Results.BadRequest("Selected item is not a RAW-only photo");
             if (target.RawOnly) return Results.BadRequest("Pick a processed image (PNG/JPEG) as the target");
             target.RawRelPath = raw.RelPath;
+            target.TakenFromRaw = false;   // its shooting time now comes from the newly linked RAW
             target.RawLocked = true;
             var d = Path.Combine(cfg.CacheDir, "variants", raw.Id.ToString());
             if (Directory.Exists(d)) try { Directory.Delete(d, true); } catch { }

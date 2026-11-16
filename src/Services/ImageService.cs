@@ -65,6 +65,62 @@ public class ImageService(AppConfig cfg, SettingsService settings, ILogger<Image
         return false;
     }
 
+    /// <summary>Shooting times of RAW files, keyed by path. Tests replace this so no ExifTool is needed.</summary>
+    public static Func<IReadOnlyList<string>, Task<Dictionary<string, DateTime?>>>? RawTimesOverride;
+
+    public bool CanReadRawTimes => cfg.ExifTool != null || RawTimesOverride != null;
+
+    /// <summary>
+    /// When each RAW file was shot (DateTimeOriginal plus the sub-second part, so frames of a burst keep their order), read with
+    /// a few ExifTool runs for the whole list. A path whose file has no time maps to null; a path that could not be read is left out,
+    /// so it is tried again on the next scan.
+    /// </summary>
+    public async Task<Dictionary<string, DateTime?>> ReadRawTimesAsync(IReadOnlyList<string> paths)
+    {
+        if (RawTimesOverride != null) return await RawTimesOverride(paths);
+        var result = new Dictionary<string, DateTime?>(StringComparer.Ordinal);
+        if (cfg.ExifTool == null) return result;
+        // ExifTool prints paths with forward slashes; answer with the paths exactly as they were given
+        var given = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var p in paths) given[p.Replace("\\", "/")] = p;
+        foreach (var chunk in paths.Chunk(300))
+        {
+            var args = Path.Combine(Path.GetTempPath(), "pg-exif-" + Guid.NewGuid().ToString("N") + ".args");
+            try
+            {
+                await File.WriteAllLinesAsync(args, chunk, new System.Text.UTF8Encoding(false));
+                var psi = new ProcessStartInfo(cfg.ExifTool) { RedirectStandardOutput = true, UseShellExecute = false, StandardOutputEncoding = System.Text.Encoding.UTF8 };
+                foreach (var a in new[] { "-q", "-charset", "filename=utf8", "-f", "-fast2", "-d", "%Y-%m-%dT%H:%M:%S", "-p", "$Directory/$FileName|$DateTimeOriginal|$SubSecTimeOriginal", "-@", args }) psi.ArgumentList.Add(a);
+                using var proc = Process.Start(psi)!;
+                using var limit = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                try
+                {
+                    string? line;
+                    while ((line = await proc.StandardOutput.ReadLineAsync(limit.Token)) != null)
+                    {
+                        var i2 = line.LastIndexOf('|'); var i1 = i2 > 0 ? line.LastIndexOf('|', i2 - 1) : -1;
+                        if (i1 <= 0) continue;
+                        if (given.TryGetValue(line[..i1].Replace("\\", "/"), out var original)) result[original] = ParseShot(line[(i1 + 1)..i2], line[(i2 + 1)..]);
+                    }
+                    await proc.WaitForExitAsync(limit.Token);
+                }
+                catch (OperationCanceledException) { try { proc.Kill(true); } catch { } throw; }
+            }
+            catch (Exception ex) { log.LogWarning(ex, "Could not read capture times with exiftool"); }
+            finally { try { File.Delete(args); } catch { } }
+        }
+        return result;
+    }
+
+    /// <summary>"2026-11-14T10:53:37" and the sub-second digits "15" (a hundredth) as one time; "-" (ExifTool's mark for nothing) is null.</summary>
+    public static DateTime? ParseShot(string time, string subsec)
+    {
+        if (!DateTime.TryParseExact(time.Trim(), "yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out var t)) return null;
+        var digits = new string((subsec ?? "").Where(char.IsDigit).Take(6).ToArray());
+        if (digits.Length > 0 && double.TryParse("0." + digits, NumberStyles.Float, CultureInfo.InvariantCulture, out var frac)) t = t.AddTicks((long)(frac * TimeSpan.TicksPerSecond));
+        return t;
+    }
+
     /// <summary>Largest image accepted (about 150 megapixels); stops tiny files that expand into huge pictures.</summary>
     public const long MaxPixels = 150_000_000;
 

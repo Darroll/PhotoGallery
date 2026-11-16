@@ -83,6 +83,8 @@ public class Photo
     public int Width { get; set; }
     public int Height { get; set; }
     public DateTime TakenAt { get; set; }
+    /// <summary>TakenAt was read from the camera's RAW file (the exact shooting time, to the hundredth of a second), so the photo sorts by when it was taken. False until a scan has looked.</summary>
+    public bool TakenFromRaw { get; set; }
     public long SizeBytes { get; set; }
     public bool Approved { get; set; } = true;
     public bool IsGuest { get; set; }

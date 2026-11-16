@@ -4,6 +4,12 @@ Newest first. "Needs attention" marks anything an existing user must do when upd
 
 ## Unreleased
 
+## 1.5.0
+
+- **Photos are ordered by when they were taken, from the RAW file.** Every photo that has a RAW partner, the edited export as well as the RAW-only frame, now takes its shooting time from the RAW file's own metadata, including the hundredths of a second, so the frames of a burst keep their order and an edited PNG sits where it was shot instead of where it was saved. Photos without a RAW file keep the time in their own metadata, or the file date. This needs ExifTool, which the container already includes.
+- **Needs attention:** after updating, press **Rescan folder now** on each gallery (or wait for the automatic rescan). The first scan reads the shooting time of every RAW file once (about 40 seconds for 2,500 photos) and says "read the shooting time of N photos from their RAW files". Later scans only read new files. If the order still looks wrong, check **Photo order** in the gallery settings is **Capture time**.
+- Updating adds one column to the database; a copy of the database is saved first.
+
 ## 1.4.1
 
 - **Bolder section tabs**, with an accent underline and a clearly highlighted open tab.

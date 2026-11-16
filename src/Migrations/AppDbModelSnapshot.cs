@@ -650,6 +650,9 @@ namespace PhotoGallery.Migrations
                     b.Property<DateTime>("TakenAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("TakenFromRaw")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("Width")
                         .HasColumnType("INTEGER");
 

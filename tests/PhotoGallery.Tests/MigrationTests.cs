@@ -127,6 +127,7 @@ public class MigrationTests : IDisposable
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"Sections\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"EventEndDate\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"CoverMode\"");
+        db.Database.ExecuteSqlRaw("ALTER TABLE \"Photos\" DROP COLUMN \"TakenFromRaw\"");
     }
 
     [Fact]
