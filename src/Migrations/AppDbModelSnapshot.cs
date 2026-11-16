@@ -412,6 +412,9 @@ namespace PhotoGallery.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("CoverMode")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int?>("CoverPhotoId")
                         .HasColumnType("INTEGER");
 
@@ -423,6 +426,9 @@ namespace PhotoGallery.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("EventDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("EventEndDate")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("ExpiresAt")

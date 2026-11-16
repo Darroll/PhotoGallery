@@ -4,6 +4,15 @@ Newest first. "Needs attention" marks anything an existing user must do when upd
 
 ## Unreleased
 
+## 1.4.0
+
+- **Sections are tabs now.** A gallery split into sections shows one tab per section (with its photo count) and only the open tab's photos on the page, so a tournament with thousands of frames opens fast. The open tab is in the address (`/g/my-gallery#s=Game_2`), so a link can open a given game, and a photo's own link opens the tab it is in. Slideshow, Select all and the viewer work on the open tab; the ZIP button in the tab downloads just that section.
+- **Unedited RAW frames in a section.** A tab whose folder holds only RAW files (no edited copy next to them) used to look empty because the Curated filter hides those. It now says how many RAW frames are hidden and has a **Show the N RAW frames** button. To show them for everyone by default, untick **Curated filter** under RAW files in the gallery settings.
+- **A cover that is not one of the photos.** Gallery settings -> Cover image has a new choice under the cover picker: **Also one of the photos** (as before), **Only the cover**, or **Only the cover, shown as a banner at the top**. A cover-only picture (a tournament logo, say) stays out of the photo grid, the slideshow, the photo counts, search and the ZIP downloads, but is still the picture on the home page card. Choosing a different cover puts the old one back among the photos.
+- **Events that last several days.** Event date takes a first and a last day (the weekend of a tournament, a week away). It reads "May 8 - 10, 2026" everywhere the date shows. Search and the From / To filter find the gallery on any one of its days, combine the day filter with a text, place or tag search, and a month search ("August 2026") finds an event that runs into that month. Photos are still filtered by the day they were taken.
+- **Needs attention:** nothing to do. Updating adds two columns to the database; a copy of the database is saved first.
+- **Fixed:** an error in the browser console after closing the photo viewer and moving the mouse.
+
 ## 1.3.0
 
 - **Sections: one gallery, several events.** For a gallery that holds, say, the four games of a tournament, keep each game in its own folder inside the gallery folder. In the gallery settings, **Sections** has **Find subfolders**; give each section a heading (for example "Game 1 vs Eagles"), put its YouTube link under it, and order them with the arrows. Visitors see each folder under its own heading with its video above its photos, a jump bar at the top, and a **Download** button for just that section (a ZIP of that game). Photos that sit outside any subfolder show last under "Other photos". Remove every section to go back to one grid. A gallery with no sections looks and works exactly as before.

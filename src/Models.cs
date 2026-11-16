@@ -10,6 +10,8 @@ public enum GallerySort { Taken = 0, Name = 1, Added = 2 }
 
 /// <summary>How a RAW file is matched to its processed image by file name.</summary>
 public enum RawMatch { SameFolder = 0, Anywhere = 1, Fuzzy = 2 }
+/// <summary>How the gallery cover photo is used: also one of the photos, only the cover, or the cover plus a banner at the top of the gallery page.</summary>
+public enum CoverMode { WithPhotos = 0, CoverOnly = 1, Banner = 2 }
 
 public class Gallery
 {
@@ -37,6 +39,8 @@ public class Gallery
     public GallerySort SortMode { get; set; } = GallerySort.Taken;
     public bool SortDesc { get; set; }
     public DateTime? EventDate { get; set; }
+    /// <summary>Last day of an event that spans several days (the weekend of a tournament). Null for a one-day event.</summary>
+    public DateTime? EventEndDate { get; set; }
     public string Location { get; set; } = "";
     /// <summary>Comma separated long-edge sizes offered for download; empty = all configured sizes.</summary>
     public string AllowedSizes { get; set; } = "";
@@ -57,6 +61,8 @@ public class Gallery
     public bool WatermarkView { get; set; }
     public bool WatermarkDownload { get; set; }
     public int? CoverPhotoId { get; set; }
+    /// <summary>With CoverOnly or Banner the cover photo is left out of the photo grid, slideshow, counts and ZIPs.</summary>
+    public CoverMode CoverMode { get; set; } = CoverMode.WithPhotos;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public List<Photo> Photos { get; set; } = new();
     public List<ShareLink> Links { get; set; } = new();

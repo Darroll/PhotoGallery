@@ -274,8 +274,17 @@ const eventLines = (g) => eventParts(g).map(t => h('span', { class: 'muted', tex
 function eventLine(g) { return eventParts(g).join(' · '); }
 // The date and the place of a gallery as separate pieces (either may be missing).
 function eventParts(g) {
-  const d = g.eventDate ? new Date(/Z$|[+-]\d\d:\d\d$/.test(g.eventDate) ? g.eventDate : g.eventDate + 'Z').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' }) : '';
-  return [d, g.location].filter(Boolean);
+  return [eventDateText(g), g.location].filter(Boolean);
+}
+// One day ("March 14, 2026") or the days of an event that lasts longer ("March 14 – 16, 2026").
+function eventDateText(g) {
+  if (!g.eventDate) return '';
+  const utc = (s) => new Date(/Z$|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z');
+  const a = utc(g.eventDate), b = g.eventEndDate ? utc(g.eventEndDate) : null;
+  const fmt = { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' };
+  if (!b || b <= a) return a.toLocaleDateString(undefined, fmt);
+  const f = new Intl.DateTimeFormat(undefined, fmt);
+  return f.formatRange ? f.formatRange(a, b) : f.format(a) + ' – ' + f.format(b);
 }
 
 // ---------- home ----------
@@ -431,6 +440,7 @@ async function viewGallery(app, slug) {
   const status = adminStatus(G, G.admin, false);
   if (status) app.append(status);
   if (G.eventDate || G.location) app.append(h('p', { class: 'muted', text: eventLine(G) }));
+  if (G.coverMode === 2 && G.cover) app.append(h('img', { class: 'g-banner', src: `/img/${G.cover}/view`, alt: '' }));
   const headerTags = tagLine(G.tags, galleryTagEdit(G));
   if (headerTags) app.append(headerTags);
   if (G.description) app.append(h('p', { class: 'sub', text: G.description }));
@@ -467,7 +477,10 @@ async function viewGallery(app, slug) {
   const sections = G.sections || [];
   const secKey = (p) => (p.section || '').toLowerCase();
   const grid = h('div', { class: sections.length ? 'sections' : 'grid' });
-  const secNav = sections.length > 1 ? h('nav', { class: 'sec-nav', 'aria-label': 'Sections' }) : null;
+  // one tab per section; only the open tab's photos are on the page (#s=<folder> in the address opens a tab directly)
+  const secNav = sections.length > 1 ? h('div', { class: 'sec-nav', role: 'tablist', 'aria-label': 'Sections' }) : null;
+  const wantedSec = (() => { const m = location.hash.match(/^#s=(.*)$/); try { return m ? decodeURIComponent(m[1]).toLowerCase() : null; } catch { return null; } })();
+  let activeSec = sections.some(s => s.folder.toLowerCase() === wantedSec) ? wantedSec : null;
 
   // most-liked sort and strip (only where the counts are visible and someone has liked something)
   const likesVisible = G.allowLikes !== false && !!G.showLikeCounts;
@@ -528,10 +541,14 @@ async function viewGallery(app, slug) {
     let photos = showRaw ? approved : approved.filter(p => !p.rawOnly);
     if (favOnly) photos = approved.filter(p => favs.has(p.id));
     if (likedFirst && !favOnly) photos = byLikes(photos);
+    // With sections only the open tab's photos are on the page; the viewer, slideshow and Select all work on those.
+    let tabs = sections, openSec = null, perSection = new Map();
     if (sections.length) {
-      // the viewer steps through photos in the order they appear on the page, so group by section first (stable within a section)
-      const rank = new Map(sections.map((s, i) => [s.folder.toLowerCase(), i]));
-      photos = photos.map((p, i) => [p, i]).sort((a, b) => (rank.get(secKey(a[0])) ?? sections.length) - (rank.get(secKey(b[0])) ?? sections.length) || a[1] - b[1]).map(x => x[0]);
+      sections.forEach(s => perSection.set(s.folder.toLowerCase(), photos.filter(p => secKey(p) === s.folder.toLowerCase())));
+      tabs = favOnly ? sections.filter(s => perSection.get(s.folder.toLowerCase()).length) : sections;   // favorites: only tabs that have one
+      if (!tabs.some(s => s.folder.toLowerCase() === activeSec)) activeSec = tabs.length ? tabs[0].folder.toLowerCase() : null;
+      openSec = tabs.find(s => s.folder.toLowerCase() === activeSec) || null;
+      photos = openSec ? perSection.get(activeSec) : [];
     }
     G.list = photos;
     countLabel.textContent = favOnly ? `${photos.length} favorites` : plural(photos.filter(p => p.approved).length, 'photo');
@@ -560,27 +577,31 @@ async function viewGallery(app, slug) {
     };
     if (!sections.length) grid.replaceChildren(...photos.map(makeTile));
     else {
-      const blocks = [];
-      let start = 0;
-      for (const s of sections) {
-        const part = photos.filter(p => secKey(p) === s.folder.toLowerCase());
+      if (secNav) secNav.replaceChildren(...tabs.map(s => {
+        const key = s.folder.toLowerCase(), on = key === activeSec;
+        return h('button', { class: 'sec-tab' + (on ? ' on' : ''), role: 'tab', 'aria-selected': on ? 'true' : 'false', title: s.title,
+          onclick: () => { activeSec = key; try { history.replaceState(history.state, '', location.pathname + location.search + '#s=' + encodeURIComponent(s.folder)); } catch { } fill(); } },
+          s.title, h('span', { class: 'sec-count', text: String(perSection.get(key).filter(p => p.approved).length) }));
+      }));
+      if (!openSec) grid.replaceChildren(h('p', { class: 'muted', text: 'Nothing to show.' }));
+      else {
+        const s = openSec;
+        const hiddenRaw = curated.checked ? approved.filter(p => p.rawOnly && secKey(p) === activeSec).length : 0;   // unedited RAW frames the Curated filter is hiding here
         const vids = (s.links || []).filter(l => l.videoId), others = (s.links || []).filter(l => !l.videoId);
-        const first = start;
-        start += part.length;
-        if (!part.length && (favOnly || !(s.links || []).length)) continue;
-        const tilesEl = part.length ? h('div', { class: 'grid' }, part.map((p, j) => makeTile(p, first + j))) : h('p', { class: 'muted', text: 'No curated photos here yet.' });
-        blocks.push(h('section', { class: 'g-section', id: 'sec-' + blocks.length, 'aria-label': s.title },
+        const tilesEl = photos.length ? h('div', { class: 'grid' }, photos.map(makeTile))
+          : h('div', { class: 'panel' },
+              h('p', { class: 'muted', text: hiddenRaw ? `This section has ${plural(hiddenRaw, 'unedited RAW frame')}, which the Curated filter hides until there is an edited copy.` : 'No photos here yet.' }),
+              hiddenRaw ? h('button', { class: 'primary', text: `Show the ${hiddenRaw} RAW frames`, onclick: () => { curated.checked = false; fill(); } }) : null);
+        grid.replaceChildren(h('section', { class: 'g-section', 'aria-label': s.title },
           h('div', { class: 'sec-head' },
             h('h2', { text: s.title }),
-            h('span', { class: 'muted', text: plural(part.filter(p => p.approved).length, 'photo') }),
+            h('span', { class: 'muted', text: plural(photos.filter(p => p.approved).length, 'photo') + (hiddenRaw && photos.length ? ` (${hiddenRaw} unedited RAW hidden)` : '') }),
             h('span', { class: 'grow' }),
-            G.allowDownload && G.allowZip && part.length ? h('button', { text: 'Download…', title: 'Download this section as a ZIP', onclick: () => openDownloadSheet({ section: s, scope: 'section' }) }) : null),
+            G.allowDownload && G.allowZip && photos.length ? h('button', { text: 'Download…', title: 'Download this section as a ZIP', onclick: () => openDownloadSheet({ section: s, scope: 'section' }) }) : null),
           vids.length ? videoCards(vids) : null,
           others.length ? h('div', { class: 'footage' }, others.map(l => h('a', { class: 'btn footage-link', href: l.url, target: '_blank', rel: 'noopener noreferrer', title: l.note || '', text: '▶ ' + l.label }))) : null,
           tilesEl));
       }
-      grid.replaceChildren(...blocks);
-      if (secNav) secNav.replaceChildren(...blocks.map(b => h('button', { text: b.getAttribute('aria-label'), onclick: () => b.scrollIntoView({ behavior: 'smooth', block: 'start' }) })));
     }
     updateStates();
   }
@@ -601,7 +622,12 @@ async function viewGallery(app, slug) {
         h('span', { class: 'ext-host muted', text: hostOf(l.url) }),
         l.note ? h('span', { class: 'ext-note', text: l.note }) : null)))));
   fill();
-  G.revealAll = () => { curated.checked = false; favOnly = false; fill(); };
+  // Open the photo's own tab first, and lift the Curated filter only if that is not enough.
+  G.revealAll = (pid) => {
+    const p = pid ? approved.find(x => x.id === pid) : null;
+    if (p && sections.length) { activeSec = secKey(p); favOnly = false; fill(); if (G.list.some(x => x.id === pid)) return; }
+    curated.checked = false; favOnly = false; fill();
+  };
   galleryView = slug;
 }
 
@@ -1006,7 +1032,7 @@ const photoTitle = (p) => `${p.name}${G.photos.filter(x => x.name === p.name).le
 function syncViewer(pid, mode = 'sync') {
   if (!pid) { closeLightbox(); return; }
   let i = G.list.findIndex(p => p.id === pid);
-  if (i < 0 && G.revealAll) { G.revealAll(); i = G.list.findIndex(p => p.id === pid); }
+  if (i < 0 && G.revealAll) { G.revealAll(pid); i =G.list.findIndex(p => p.id === pid); }
   if (i < 0) { history.replaceState(null, '', gridPath()); closeLightbox(); return; }
   if (lb) lb.show(i, false); else openLightbox(i, false, mode);
 }
@@ -1147,7 +1173,7 @@ function openLightbox(index, play, mode = 'push') {
   lb.show = show;
   closeBtn.onclick = requestClose;
   fsBtn.onclick = () => document.fullscreenElement ? document.exitFullscreen() : root.requestFullscreen?.();
-  const wake = () => { root.classList.remove('idle'); clearTimeout(lb.idle); lb.idle = setTimeout(() => lb.playing && root.classList.add('idle'), 3000); };
+  const wake = () => { if (!lb) return; root.classList.remove('idle'); clearTimeout(lb.idle); lb.idle = setTimeout(() => lb.playing && root.classList.add('idle'), 3000); };
   root.onmousemove = wake;
   lb.key = (e) => {
     if (!lb) return;
@@ -1512,7 +1538,7 @@ function galleryRow(g, move) {
       h('div', { class: 'chips' },
         h('span', { class: 'chip v' + g.visibility, text: visShort[g.visibility] }),
         h('span', { class: 'chip', text: plural(g.count, 'photo') }),
-        g.eventDate ? h('span', { class: 'chip', text: eventLine({ eventDate: g.eventDate }) }) : null,
+        g.eventDate ? h('span', { class: 'chip', text: eventDateText(g) }) : null,
         g.pending ? h('span', { class: 'chip warn', text: `${g.pending} pending` }) : null,
         expired ? h('span', { class: 'chip warn', text: 'Expired' }) : null,
         g.hasPassword ? h('span', { class: 'chip', text: 'Password' }) : null),
@@ -2427,7 +2453,9 @@ async function viewGallerySettings(app, id) {
   const title = track(h('input', { type: 'text', value: g.title }));
   const slug = track(h('input', { type: 'text', value: g.slug }));
   const desc = track(h('textarea', { value: g.description || '' }));
-  const eventDate = track(h('input', { type: 'date', value: g.eventDate ? g.eventDate.slice(0, 10) : '' }));
+  const eventDate = track(h('input', { type: 'date', value: g.eventDate ? g.eventDate.slice(0, 10) : '', 'aria-label': 'First day' }));
+  const eventEnd = track(h('input', { type: 'date', value: g.eventEndDate ? g.eventEndDate.slice(0, 10) : '', 'aria-label': 'Last day' }));
+  const coverMode = track(h('select', { 'aria-label': 'How the cover photo is used' }, [[0, 'Also one of the photos'], [1, 'Only the cover (not in the photos)'], [2, 'Only the cover, shown as a banner at the top']].map(([v, t]) => h('option', { value: v, text: t, selected: v === (g.coverMode || 0) }))));
   const location_ = track(h('input', { type: 'text', value: g.location || '', placeholder: 'e.g. Field 3, Springfield' }));
   const sortMode = track(h('select', {}, [[0, 'Capture time'], [1, 'File name'], [2, 'Date added']].map(([v, t]) => h('option', { value: v, text: t, selected: v === g.sortMode }))));
   const sortDesc = track(h('input', { type: 'checkbox', checked: g.sortDesc }));
@@ -2560,11 +2588,12 @@ async function viewGallerySettings(app, id) {
   const general = section('General', 'Name, date, order, cover', true,
     h('div', { class: 'form1' },
       field('Title', title), field('URL name', slug, `Gallery address: /g/${g.slug}`), field('Description', desc),
-      field('Event date', eventDate), field('Location', location_), field('Tags', tagsInput, 'Click + to add a label that helps visitors find this gallery in search. Start typing to pick one already in use.'),
+      field('Event date', h('div', { class: 'row' }, eventDate, h('span', { class: 'muted', text: 'to' }), eventEnd), 'The first day, and the last day if the event lasts longer (a weekend, a week). Leave the last day empty for a one-day event. Search finds the gallery on any of its days.'),
+      field('Location', location_), field('Tags', tagsInput, 'Click + to add a label that helps visitors find this gallery in search. Start typing to pick one already in use.'),
       field('Videos and links', footage, 'Paste YouTube links to show the recordings together on the gallery page (leave the title empty to use the video\'s own title). Preview images are re-checked on YouTube every 12 hours; use Refresh thumbnails and previews to update them now. Choose a category for each link: Video links show in a grid above the photos, External links show below the gallery. Tick Button under title to also show a link as a button beside the title. Only http and https links are kept, up to 30.'),
       field('Sections', sectionsBox, 'For a gallery that holds several events, such as the games of a tournament, keep each in its own folder inside the gallery folder. Press Find subfolders, give each section a heading, and add its YouTube link. Visitors then see each folder under its own heading, with its video above the photos and its own ZIP download. Photos outside any subfolder show last. Remove every section to go back to one grid.'),
       field('Photo order', h('div', { class: 'row' }, sortMode, h('label', {}, sortDesc, ' Reverse (newest / Z-A first)'))),
-      field('Cover image', h('div', {}, h('div', { class: 'row' }, coverImg, coverBtn), pickerBox)),
+      field('Cover image', h('div', {}, h('div', { class: 'row' }, coverImg, coverBtn), pickerBox, h('div', { class: 'row' }, coverMode)), 'Choose any photo of the gallery. Use "Only the cover" for a logo or title picture that should not appear among the photos, in the slideshow, the counts or the ZIP downloads. Choosing a different cover puts the old one back among the photos.'),
       field('Library folder', folderSelect, 'Which library folder this gallery shows. Changing it rescans the gallery and resets the cover.'),
       field('Rescan', h('div', { class: 'row' }, h('button', { text: 'Rescan folder now', onclick: async () => {
         scanMsg.textContent = 'Scanning...';
@@ -2650,7 +2679,7 @@ async function viewGallerySettings(app, id) {
     if (folderSelect.value !== g.folder && !confirm(`Point this gallery at "${folderSelect.value}"? It will rescan, the cover resets, and hand-made RAW links are lost. Your files are not touched.`)) return;
     const body = {
       folder: folderSelect.value, title: title.value, slug: slug.value, description: desc.value, location: location_.value,
-      eventDate: eventDate.value || '', sortMode: Number(sortMode.value), sortDesc: sortDesc.checked,
+      eventDate: eventDate.value || '', eventEndDate: eventEnd.value || '', coverMode: Number(coverMode.value), sortMode: Number(sortMode.value), sortDesc: sortDesc.checked,
       visibility: Number(vis.value), expiresAt: expires.value ? new Date(expires.value).toISOString() : '',
       allowDownload: allowDl.checked, allowZip: allowZip.checked,
       allowedSizes: sizeBoxes.every(x => x.box.checked) ? '' : sizeBoxes.filter(x => x.box.checked).map(x => x.px).join(','),

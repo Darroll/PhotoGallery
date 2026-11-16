@@ -55,12 +55,12 @@ public static class PublicApi
             var now = DateTime.UtcNow;
             var admin = AccessService.IsAdmin(ctx);
             var rows = await db.Galleries.Where(g => admin || (g.Visibility == Visibility.Public && (g.ExpiresAt == null || g.ExpiresAt > now)))
-                .Select(g => new { g, count = g.Photos.Count(p => p.Approved) }).ToListAsync();
+                .Select(g => new { g, count = g.Photos.Count(p => p.Approved && (g.CoverMode == CoverMode.WithPhotos || g.CoverPhotoId == null || p.Id != g.CoverPhotoId)) }).ToListAsync();
             var counts = rows.ToDictionary(r => r.g.Id, r => r.count);
             var galleryTags = await Tags.NamesByGalleryAsync(db, rows.Select(r => r.g.Id).ToList());
             var list = GalleryRules.OrderGalleries(rows.Select(r => r.g), settings.Home.Order).Select(g => new
             {
-                g.Id, g.Slug, g.Title, g.Description, g.Location, eventDate = g.EventDate, cover = g.CoverPhotoId, count = counts[g.Id],
+                g.Id, g.Slug, g.Title, g.Description, g.Location, eventDate = g.EventDate, eventEndDate = g.EventEndDate, cover = g.CoverPhotoId, count = counts[g.Id],
                 g.Visibility, expired = g.ExpiresAt != null && g.ExpiresAt <= now,
                 tags = galleryTags.TryGetValue(g.Id, out var gt) ? gt : new List<string>()
             });
@@ -86,7 +86,8 @@ public static class PublicApi
             await Likes.AdoptAsync(db, ctx, vid);
             var favoriteIds = await Likes.Mine(db, vid, Likes.IdentityKey(ctx)).AsNoTracking().Where(f => f.GalleryId == g.Id).Select(f => f.PhotoId).Distinct().ToListAsync();
             var favoriteName = vid == "" ? "" : await db.FavoriteOwners.AsNoTracking().Where(o => o.GalleryId == g.Id && o.VisitorId == vid).Select(o => o.Name).FirstOrDefaultAsync() ?? "";
-            var photos = await db.Photos.Where(p => p.GalleryId == g.Id && (p.Approved || admin))
+            var hiddenCover = GalleryRules.HiddenCoverId(g);
+            var photos = await db.Photos.Where(p => p.GalleryId == g.Id && p.Id != hiddenCover && (p.Approved || admin))
                 .Select(p => new { p.Id, p.RelPath, w = p.Width, h = p.Height, p.Name, raw = p.RawRelPath != null, rawOnly = p.RawRelPath != null && p.RawRelPath == p.RelPath, taken = p.TakenAt, added = p.AddedAt, p.Approved, p.Caption, p.AltText, p.CommentsOff })
                 .ToListAsync();
             photos = GalleryRules.Sort(photos, g, x => x.taken, x => x.Name, x => x.added);
@@ -107,7 +108,7 @@ public static class PublicApi
             return Results.Ok(new
             {
                 g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId, tags = gTags, tagColors,
-                g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, allowLikes = g.AllowLikes, allowComments = g.AllowComments, showLikeCounts = g.ShowLikeCounts || admin, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note, preview = previews && GalleryRules.CategoryOf(l) == "external" ? ExternalLinkPreviews.ForPage(cfg, l.Url) : null }), sections = layout.Select(s => new { folder = s.Folder, s.Title, count = sectionCounts.GetValueOrDefault(s.Folder), links = (s.Links ?? new()).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }) }), favorites = favoriteIds, favoriteName, sizes =GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
+                g.Location, eventDate = g.EventDate, eventEndDate = g.EventEndDate, coverMode = g.CoverMode, hideRawOnly = g.HideRawOnly, allowLikes = g.AllowLikes, allowComments = g.AllowComments, showLikeCounts = g.ShowLikeCounts || admin, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note, preview = previews && GalleryRules.CategoryOf(l) == "external" ? ExternalLinkPreviews.ForPage(cfg, l.Url) : null }), sections = layout.Select(s => new { folder = s.Folder, s.Title, count = sectionCounts.GetValueOrDefault(s.Folder), links = (s.Links ?? new()).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }) }), favorites = favoriteIds, favoriteName, sizes =GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
                 allowDownload = g.AllowDownload,
                 allowOriginal = g.AllowDownload && !locked,
                 allowRaw = g.AllowDownload && g.AllowRaw && !locked,
@@ -348,7 +349,8 @@ public static class PublicApi
             if (original && wmLock) return Results.StatusCode(403);
             var includeRaw = raw == true && (a.Admin || (g.AllowRaw && !wmLock));
 
-            var photos = await db.Photos.Where(p => p.GalleryId == g.Id && (p.Approved || a.Admin))
+            var hiddenCover = GalleryRules.HiddenCoverId(g);
+            var photos = await db.Photos.Where(p => p.GalleryId == g.Id && p.Id != hiddenCover && (p.Approved || a.Admin))
                 .ToListAsync();
             if (!string.IsNullOrEmpty(ids))
             {

@@ -62,7 +62,7 @@ public static class LinkPreview
 
     static string EventLine(Gallery g)
     {
-        var date = g.EventDate?.ToString("MMMM d, yyyy");
+        var date = GalleryRules.DateRangeText(g.EventDate, g.EventEndDate);
         return string.Join(" · ", new[] { date, g.Location }.Where(x => !string.IsNullOrWhiteSpace(x)));
     }
 

@@ -61,7 +61,7 @@ The first time you open the Overview, the **Setup guide** walks you through this
 
 Supported pictures: JPG, PNG, TIFF, WebP, HEIC, AVIF. Supported RAW files: CR2, CR3, NEF, ARW, DNG, RAF, ORF, RW2, PEF, SRW. Video files are not supported (add YouTube links in the gallery settings instead).
 
-One gallery can also hold several events: put each in its own subfolder (for example `OSS-TBSC/Game_1`, `OSS-TBSC/Game_2`), then in the gallery settings open **Sections** and press **Find subfolders**. Each folder becomes a section with its own heading, YouTube link and ZIP download.
+One gallery can also hold several events: put each in its own subfolder (for example `OSS-TBSC/Game_1`, `OSS-TBSC/Game_2`), then in the gallery settings open **Sections** and press **Find subfolders**. Each folder becomes a tab with its own heading, YouTube link and ZIP download. Folders that hold only RAW files show their frames when you press **Show the RAW frames**, or when you untick the gallery's **Curated filter**.
 
 ## 5. Let people outside your home reach it
 

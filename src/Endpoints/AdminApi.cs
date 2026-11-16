@@ -19,7 +19,7 @@ public static class AdminApi
         string? Password, bool? AllowDownload, bool? AllowRaw, bool? AllowZip, bool? AllowGuestUpload, bool? AllowLikes, bool? ShowLikeCounts, bool? AllowComments,
         bool? WatermarkView, bool? WatermarkDownload, RawMatch? RawMatchMode,
         bool? HideRawOnly, GallerySort? SortMode, bool? SortDesc, string? EventDate, string? Location,
-        string? AllowedSizes, string? AllowedFormats, string? ExpiresAt, List<LinkItem>? FootageLinks, List<SectionItem>? Sections);
+        string? AllowedSizes, string? AllowedFormats, string? ExpiresAt, List<LinkItem>? FootageLinks, List<SectionItem>? Sections, string? EventEndDate, CoverMode? CoverMode);
     record SectionItem(string? Folder, string? Title, List<LinkItem>? Links);
     record LinkRawInput(int RawPhotoId);
     record CommentSwitch(bool Off);
@@ -53,7 +53,7 @@ public static class AdminApi
         hasPassword = !string.IsNullOrEmpty(g.PasswordHash),
         g.AllowDownload, g.AllowRaw, g.AllowZip, g.AllowGuestUpload, g.AllowLikes, g.ShowLikeCounts, g.AllowComments, g.WatermarkView, g.WatermarkDownload,
         rawMatchMode = g.RawMatchMode, hideRawOnly = g.HideRawOnly, sortMode = g.SortMode, sortDesc = g.SortDesc,
-        eventDate = g.EventDate, g.Location, g.AllowedSizes, g.AllowedFormats, expiresAt = g.ExpiresAt,
+        eventDate = g.EventDate, eventEndDate = g.EventEndDate, coverMode = g.CoverMode, g.Location, g.AllowedSizes, g.AllowedFormats, expiresAt = g.ExpiresAt,
         footageLinks = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }), cover = g.CoverPhotoId, count, pending, rawOnly,
         sections = GalleryRules.Sections(g).Select(s => new { s.Folder, s.Title, links = (s.Links ?? new()).Select(l => new { l.Label, l.Url, category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }) })
     };
@@ -388,6 +388,10 @@ public static class AdminApi
             }
             if (input.EventDate != null) g.EventDate = DateTime.TryParse(input.EventDate, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ed) ? ed : null;
             if (input.ExpiresAt != null) g.ExpiresAt = DateTime.TryParse(input.ExpiresAt, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ex) ? ex : null;
+            if (input.EventEndDate != null) g.EventEndDate = DateTime.TryParse(input.EventEndDate, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ee) ? ee : null;
+            // the last day only means something after the first day
+            if (g.EventEndDate != null && (g.EventDate == null || g.EventEndDate.Value.Date <= g.EventDate.Value.Date)) g.EventEndDate = null;
+            if (input.CoverMode != null && Enum.IsDefined(input.CoverMode.Value)) g.CoverMode = input.CoverMode.Value;
             if (input.AllowedSizes != null) g.AllowedSizes = string.Join(',', input.AllowedSizes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(s => int.TryParse(s, out _)));
             if (input.AllowedFormats != null) g.AllowedFormats = string.Join(',', input.AllowedFormats.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(s => s.ToLowerInvariant()).Where(s => ImageService.LosslessFormats.Contains(s)));
             await db.SaveChangesAsync();
@@ -395,6 +399,7 @@ public static class AdminApi
             if (folderChanged)
             {
                 g.CoverPhotoId = null; // old cover belonged to the previous folder
+                g.CoverMode = CoverMode.WithPhotos;
                 await db.SaveChangesAsync();
                 await scanner.ScanAsync(db, g);
             }
@@ -447,6 +452,7 @@ public static class AdminApi
             var g = await db.Galleries.FindAsync(id);
             if (g == null || !await db.Photos.AnyAsync(p => p.Id == input.PhotoId && p.GalleryId == id && p.Approved)) return Results.NotFound();
             g.CoverPhotoId = input.PhotoId;
+            g.CoverMode = CoverMode.WithPhotos;   // a newly chosen cover is a normal photo until the admin sets it to cover only
             await db.SaveChangesAsync();
             return Results.NoContent();
         });

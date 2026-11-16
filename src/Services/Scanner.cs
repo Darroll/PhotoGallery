@@ -191,6 +191,7 @@ public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs
 
         if (g.CoverPhotoId == null || !await db.Photos.AnyAsync(p => p.Id == g.CoverPhotoId))
         {
+            g.CoverMode = CoverMode.WithPhotos;   // the cover-only photo is gone; the automatic cover is a normal photo
             g.CoverPhotoId = await db.Photos.Where(p => p.GalleryId == g.Id && p.Approved)
                 .OrderBy(p => p.TakenAt).Select(p => (int?)p.Id).FirstOrDefaultAsync();
             await db.SaveChangesAsync();

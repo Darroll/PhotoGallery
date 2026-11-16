@@ -51,7 +51,8 @@ public static class SearchApi
             var byId = galleries.ToDictionary(g => g.Id);
             var ids = byId.Keys.ToList();
 
-            var photos = await db.Photos.AsNoTracking().Where(p => p.Approved && ids.Contains(p.GalleryId))
+            var coverOnly = galleries.Select(GalleryRules.HiddenCoverId).Where(x => x != 0).ToList();
+            var photos = await db.Photos.AsNoTracking().Where(p => p.Approved && ids.Contains(p.GalleryId) && !coverOnly.Contains(p.Id))
                 .Select(p => new { p.Id, p.GalleryId, p.Name, p.Caption, p.AltText, p.TakenAt }).ToListAsync();
             var tags = await Tags.NamesByPhotoAsync(db, photos.Select(p => p.Id).ToList());
             var galleryTags = await Tags.NamesByGalleryAsync(db, ids);
@@ -64,7 +65,7 @@ public static class SearchApi
                 var photoTags = tags.TryGetValue(p.Id, out var list) ? list : new List<string>();
                 var inherited = galleryTags.TryGetValue(g.Id, out var gt) ? gt : new List<string>();
                 if (place.Length > 0 && !(g.Location.Contains(place, StringComparison.OrdinalIgnoreCase)
-                    || (g.EventDate?.ToString("MMMM yyyy").Contains(place, StringComparison.OrdinalIgnoreCase) ?? false))) return false;
+                    || GalleryRules.MonthsSpanned(g).Any(m => m.Contains(place, StringComparison.OrdinalIgnoreCase)))) return false;
                 if (tagName.Length > 0 && !photoTags.Concat(inherited).Any(x => x.Equals(tagName, StringComparison.OrdinalIgnoreCase))) return false;
                 if (start != null && p.TakenAt < start) return false;
                 if (end != null && p.TakenAt >= end) return false;
@@ -80,11 +81,16 @@ public static class SearchApi
             }).ToList();
 
             static List<string> TagsOf(Dictionary<int, List<string>> map, int id) => map.TryGetValue(id, out var list) ? list : new List<string>();
-            var matchedGalleries = !withGalleries || (term.Length == 0 && place.Length == 0 && tagName.Length == 0) ? new List<object>() : galleries
-                .Where(g => (term.Length > 0 && (Hit(g.Title) || Hit(g.Description) || TagsOf(galleryTags, g.Id).Any(x => Hit(x))))
-                    || (place.Length > 0 && g.Location.Contains(place, StringComparison.OrdinalIgnoreCase))
-                    || (tagName.Length > 0 && TagsOf(galleryTags, g.Id).Any(x => x.Equals(tagName, StringComparison.OrdinalIgnoreCase))))
-                .Take(12).Select(g => (object)new { g.Id, g.Slug, g.Title, location = g.Location, eventDate = g.EventDate, cover = g.CoverPhotoId, tags = TagsOf(galleryTags, g.Id) }).ToList();
+            // An event of several days matches any day filter that touches one of its days; the day filter combines with the text, place and tag matches.
+            var anyText = term.Length > 0 || place.Length > 0 || tagName.Length > 0;
+            var dated = start != null || end != null;
+            DateTime? lastDay = end?.AddDays(-1);
+            var matchedGalleries = !withGalleries || (!anyText && !dated) ? new List<object>() : galleries
+                .Where(g => GalleryRules.EventOverlaps(g, start, lastDay) && (!anyText
+                    || (term.Length > 0 && (Hit(g.Title) || Hit(g.Description) || TagsOf(galleryTags, g.Id).Any(x => Hit(x))))
+                    || (place.Length > 0 && (g.Location.Contains(place, StringComparison.OrdinalIgnoreCase) || GalleryRules.MonthsSpanned(g).Any(m => m.Contains(place, StringComparison.OrdinalIgnoreCase))))
+                    || (tagName.Length > 0 && TagsOf(galleryTags, g.Id).Any(x => x.Equals(tagName, StringComparison.OrdinalIgnoreCase)))))
+                .Take(12).Select(g => (object)new { g.Id, g.Slug, g.Title, location = g.Location, eventDate = g.EventDate, eventEndDate = g.EventEndDate, cover = g.CoverPhotoId, tags = TagsOf(galleryTags, g.Id) }).ToList();
 
             return Results.Ok(new { galleries = matchedGalleries, photos = hits });
         });

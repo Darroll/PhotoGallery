@@ -177,6 +177,38 @@ public static class GalleryRules
         }
     }
 
+    /// <summary>Id of the cover photo when it is kept out of the photo grid (cover only, or banner); 0 when every photo shows. Ids start at 1.</summary>
+    public static int HiddenCoverId(Gallery g) => g.CoverMode != CoverMode.WithPhotos && g.CoverPhotoId is { } id ? id : 0;
+
+    /// <summary>The day or days of an event: "March 14, 2026", "March 14-16, 2026", "March 30 - April 2, 2026" or across a year end.</summary>
+    public static string DateRangeText(DateTime? start, DateTime? end)
+    {
+        if (start is not { } s) return "";
+        var c = System.Globalization.CultureInfo.InvariantCulture;
+        if (end is not { } e || e.Date <= s.Date) return s.ToString("MMMM d, yyyy", c);
+        if (s.Year != e.Year) return $"{s.ToString("MMMM d, yyyy", c)} - {e.ToString("MMMM d, yyyy", c)}";
+        if (s.Month != e.Month) return $"{s.ToString("MMMM d", c)} - {e.ToString("MMMM d, yyyy", c)}";
+        return $"{s.ToString("MMMM d", c)}-{e.Day}, {s.Year}";
+    }
+
+    /// <summary>Every "MMMM yyyy" the event touches, so a search for the month of any of its days finds it.</summary>
+    public static IEnumerable<string> MonthsSpanned(Gallery g)
+    {
+        if (g.EventDate is not { } s) yield break;
+        var last = (g.EventEndDate ?? s).Date;
+        var m = new DateTime(s.Year, s.Month, 1);
+        for (int i = 0; i < 24 && m <= last; i++, m = m.AddMonths(1)) yield return m.ToString("MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Does the event (its first to its last day) overlap the days from..to inclusive? Either end may be open.</summary>
+    public static bool EventOverlaps(Gallery g, DateTime? from, DateTime? to)
+    {
+        if (from == null && to == null) return true;
+        if (g.EventDate is not { } s) return false;
+        var firstDay = s.Date; var lastDay = (g.EventEndDate ?? s).Date;
+        return (to == null || firstDay <= to.Value.Date) && (from == null || lastDay >= from.Value.Date);
+    }
+
     public static bool IsExpired(Gallery g) => g.ExpiresAt != null && g.ExpiresAt <= DateTime.UtcNow;
 
     public static List<T> Sort<T>(IEnumerable<T> items, Gallery g, Func<T, DateTime> taken, Func<T, string> name, Func<T, DateTime> added)
