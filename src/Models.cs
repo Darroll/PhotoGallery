@@ -58,6 +58,8 @@ public class Gallery
     public bool ShowLikeCounts { get; set; } = true;
     /// <summary>Signed-in visitors with a verified email may comment on photos here. Off until the admin turns it on.</summary>
     public bool AllowComments { get; set; }
+    /// <summary>Visitors may send the photographer a short message from this gallery. Off until the admin turns it on.</summary>
+    public bool AllowFeedback { get; set; }
     public bool WatermarkView { get; set; }
     public bool WatermarkDownload { get; set; }
     public int? CoverPhotoId { get; set; }
@@ -196,6 +198,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<CommentEvent> CommentEvents => Set<CommentEvent>();
     public DbSet<CommentBlock> CommentBlocks => Set<CommentBlock>();
+    public DbSet<FeedbackMessage> FeedbackMessages => Set<FeedbackMessage>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -206,6 +209,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<Comment>().HasIndex(c => new { c.Sub, c.CreatedAt });
         b.Entity<CommentEvent>().HasIndex(e => e.CommentId);
         b.Entity<CommentEvent>().HasIndex(e => e.At);
+        b.Entity<FeedbackMessage>().HasIndex(x => new { x.GalleryId, x.CreatedAt });
         b.Entity<CommentBlock>().HasIndex(x => x.Sub);
         b.Entity<CommentBlock>().HasIndex(x => x.Email);
         b.Entity<PhotoRetired>().HasIndex(r => r.Fingerprint);
@@ -230,4 +234,16 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<Photo>().HasOne(p => p.Gallery).WithMany(g => g.Photos).HasForeignKey(p => p.GalleryId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<ShareLink>().HasOne(l => l.Gallery).WithMany(g => g.Links).HasForeignKey(l => l.GalleryId).OnDelete(DeleteBehavior.Cascade);
     }
+}
+
+/// <summary>A message a visitor sent to the photographer from a gallery. The contact line is optional and only for replying.</summary>
+public class FeedbackMessage
+{
+    public int Id { get; set; }
+    public int GalleryId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public string Name { get; set; } = "";
+    public string Contact { get; set; } = "";
+    public string Text { get; set; } = "";
+    public bool Read { get; set; }
 }

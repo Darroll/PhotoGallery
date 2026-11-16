@@ -190,12 +190,12 @@ public class BackupService(IServiceScopeFactory scopes, AppConfig cfg, ILogger<B
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        if (!Enabled) return;
         try { await Task.Delay(TimeSpan.FromMinutes(2), ct); } catch (OperationCanceledException) { return; }
         while (!ct.IsCancellationRequested)
         {
             try
             {
+                if (!Enabled) { await Task.Delay(TimeSpan.FromMinutes(1), ct); continue; }
                 var newest = List().FirstOrDefault();
                 if (newest == null || DateTime.UtcNow - newest.Time >= TimeSpan.FromHours(cfg.BackupHours)) await RunAsync(ct);
             }

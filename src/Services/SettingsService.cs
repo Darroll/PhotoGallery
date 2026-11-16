@@ -38,6 +38,23 @@ public class HomeSettings
     public HomeSettings Sanitized() => new() { Order = Orders.Contains(Order) ? Order : "created-desc" };
 }
 
+/// <summary>Schedule settings the admin can change in the app. Null means "not chosen here": the container variable or the built-in default applies.</summary>
+public class TuningSettings
+{
+    public int? RescanMinutes { get; set; }
+    public int? BackupHours { get; set; }
+    public int? BackupDaily { get; set; }
+    public int? BackupWeekly { get; set; }
+
+    public TuningSettings Sanitized() => new()
+    {
+        RescanMinutes = RescanMinutes is { } r ? Math.Clamp(r, 0, 1440) : null,
+        BackupHours = BackupHours is { } h ? Math.Clamp(h, 0, 720) : null,
+        BackupDaily = BackupDaily is { } d ? Math.Clamp(d, 1, 60) : null,
+        BackupWeekly = BackupWeekly is { } w ? Math.Clamp(w, 0, 52) : null
+    };
+}
+
 class AppSettings
 {
     public string SiteName { get; set; } = "";
@@ -52,6 +69,7 @@ class AppSettings
     public PrivacySettings Privacy { get; set; } = new();
     public SetupSettings Setup { get; set; } = new();
     public SsoSettings Sso { get; set; } = new();
+    public TuningSettings Tuning { get; set; } = new();
 }
 
 /// <summary>App-level settings kept in DATA_DIR/settings.json (editable from the admin Settings page).</summary>
@@ -64,6 +82,7 @@ public class SettingsService
     public SettingsService(AppConfig cfg)
     {
         path = Path.Combine(cfg.DataDir, "settings.json");
+        appCfg = cfg;
         try
         {
             if (File.Exists(path))
@@ -85,6 +104,8 @@ public class SettingsService
                 data.Privacy = (data.Privacy ?? new()).Sanitized();
                 data.Setup = (data.Setup ?? new()).Sanitized();
                 data.Sso = (data.Sso ?? new()).Sanitized();
+                data.Tuning = (data.Tuning ?? new()).Sanitized();
+                cfg.ApplyTuning(data.Tuning);
                 if (string.IsNullOrWhiteSpace(data.SiteName)) { data.SiteName = SanitizeName(cfg.SiteTitle); Save(); }
             }
             else
@@ -189,6 +210,30 @@ public class SettingsService
     public PrivacySettings Privacy
     {
         get { lock (gate) return data.Privacy.Sanitized(); }
+    }
+
+    readonly AppConfig appCfg;
+
+    public TuningSettings Tuning
+    {
+        get { lock (gate) return data.Tuning.Sanitized(); }
+    }
+
+    /// <summary>Saves the schedule settings and applies them at once. Values a container variable fixes are kept out of the file.</summary>
+    public TuningSettings SetTuning(TuningSettings s)
+    {
+        lock (gate)
+        {
+            var t = s.Sanitized();
+            if (appCfg.Locked.Contains("rescanMinutes")) t.RescanMinutes = data.Tuning.RescanMinutes;
+            if (appCfg.Locked.Contains("backupHours")) t.BackupHours = data.Tuning.BackupHours;
+            if (appCfg.Locked.Contains("backupDaily")) t.BackupDaily = data.Tuning.BackupDaily;
+            if (appCfg.Locked.Contains("backupWeekly")) t.BackupWeekly = data.Tuning.BackupWeekly;
+            data.Tuning = t;
+            Save();
+            appCfg.ApplyTuning(t);
+            return t.Sanitized();
+        }
     }
 
     public PrivacySettings SetPrivacy(PrivacySettings s)

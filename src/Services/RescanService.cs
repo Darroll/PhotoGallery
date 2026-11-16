@@ -7,10 +7,14 @@ public class RescanService(IServiceScopeFactory scopes, AppConfig cfg, ILogger<R
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        if (cfg.RescanMinutes <= 0) return;
         try { await Task.Delay(TimeSpan.FromMinutes(1), ct); } catch (OperationCanceledException) { return; }
         while (!ct.IsCancellationRequested)
         {
+            if (cfg.RescanMinutes <= 0)   // switched off (possibly just now in the app): look again in a minute
+            {
+                try { await Task.Delay(TimeSpan.FromMinutes(1), ct); } catch (OperationCanceledException) { return; }
+                continue;
+            }
             try
             {
                 using var scope = scopes.CreateScope();

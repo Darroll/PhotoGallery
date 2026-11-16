@@ -29,11 +29,13 @@ public class AppConfig
     public int MaxUploadMb { get; }
     public int MaxPendingPerGallery { get; }
     public string LegacyWatermarkText { get; }
-    public int RescanMinutes { get; }
+    public int RescanMinutes { get; private set; }
     /// <summary>Hours between database backups (0 = off), and how many daily and weekly snapshots to keep.</summary>
-    public int BackupHours { get; }
-    public int BackupDaily { get; }
-    public int BackupWeekly { get; }
+    public int BackupHours { get; private set; }
+    public int BackupDaily { get; private set; }
+    public int BackupWeekly { get; private set; }
+    /// <summary>Settings fixed by a variable in the container: the app shows them but cannot change them. Names as in <see cref="TuningSettings"/>.</summary>
+    public HashSet<string> Locked { get; } = new();
     /// <summary>A second folder (another disk, a share, a USB drive) that every snapshot is also copied to. Empty means off.</summary>
     public string? BackupCopyDir { get; }
     public string WatermarkImagePath => Path.Combine(DataDir, "watermark.png");
@@ -80,6 +82,8 @@ public class AppConfig
         BackupDaily = int.TryParse(c["BACKUP_DAILY"], out var bd) ? Math.Max(1, bd) : 7;
         BackupWeekly = int.TryParse(c["BACKUP_WEEKLY"], out var bw) ? Math.Max(0, bw) : 4;
         BackupCopyDir = Opt(c["BACKUP_COPY_DIR"]) is { } bc ? Path.GetFullPath(bc) : null;
+        foreach (var (key, env) in new[] { ("rescanMinutes", "RESCAN_MINUTES"), ("backupHours", "BACKUP_HOURS"), ("backupDaily", "BACKUP_DAILY"), ("backupWeekly", "BACKUP_WEEKLY") })
+            if (!string.IsNullOrWhiteSpace(c[env])) Locked.Add(key);
         SiteTitle = c["SITE_TITLE"] ?? "Photos";
         TrustProxy = !string.Equals(c["TRUST_PROXY"], "false", StringComparison.OrdinalIgnoreCase);
         var nets = new List<(System.Net.IPAddress, int)>();
@@ -96,6 +100,15 @@ public class AppConfig
         Commit = c["APP_COMMIT"] ?? "dev";
         BuildDate = c["APP_BUILD_DATE"] ?? "";
         ExifTool = FindExifTool();
+    }
+
+    /// <summary>Applies the values saved in the app, except for any a container variable fixes.</summary>
+    public void ApplyTuning(TuningSettings t)
+    {
+        if (t.RescanMinutes is { } r && !Locked.Contains("rescanMinutes")) RescanMinutes = r;
+        if (t.BackupHours is { } h && !Locked.Contains("backupHours")) BackupHours = h;
+        if (t.BackupDaily is { } d && !Locked.Contains("backupDaily")) BackupDaily = d;
+        if (t.BackupWeekly is { } w && !Locked.Contains("backupWeekly")) BackupWeekly = w;
     }
 
     static string? FindExifTool()

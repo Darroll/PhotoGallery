@@ -190,6 +190,8 @@ public class MigrationTests : IDisposable
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"EventEndDate\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"CoverMode\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Photos\" DROP COLUMN \"TakenFromRaw\"");
+        db.Database.ExecuteSqlRaw("DROP TABLE \"FeedbackMessages\"");
+        db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"AllowFeedback\"");
     }
 
     [Fact]

@@ -16,7 +16,7 @@ public static class AdminApi
     record PeopleInput(List<string>? Emails);
     record PrivacyDeleteInput(string Email, bool RemoveBlock);
     record GalleryInput(string? Title, string? Description, string? Folder, string? Slug, Visibility? Visibility,
-        string? Password, bool? AllowDownload, bool? AllowRaw, bool? AllowZip, bool? AllowGuestUpload, bool? AllowLikes, bool? ShowLikeCounts, bool? AllowComments,
+        string? Password, bool? AllowDownload, bool? AllowRaw, bool? AllowZip, bool? AllowGuestUpload, bool? AllowLikes, bool? ShowLikeCounts, bool? AllowComments, bool? AllowFeedback,
         bool? WatermarkView, bool? WatermarkDownload, RawMatch? RawMatchMode,
         bool? HideRawOnly, GallerySort? SortMode, bool? SortDesc, string? EventDate, string? Location,
         string? AllowedSizes, string? AllowedFormats, string? ExpiresAt, List<LinkItem>? FootageLinks, List<SectionItem>? Sections, string? EventEndDate, CoverMode? CoverMode);
@@ -51,7 +51,7 @@ public static class AdminApi
     {
         g.Id, g.Slug, g.Title, g.Description, g.Folder, g.Visibility,
         hasPassword = !string.IsNullOrEmpty(g.PasswordHash),
-        g.AllowDownload, g.AllowRaw, g.AllowZip, g.AllowGuestUpload, g.AllowLikes, g.ShowLikeCounts, g.AllowComments, g.WatermarkView, g.WatermarkDownload,
+        g.AllowDownload, g.AllowRaw, g.AllowZip, g.AllowGuestUpload, g.AllowLikes, g.ShowLikeCounts, g.AllowComments, g.AllowFeedback, g.WatermarkView, g.WatermarkDownload,
         rawMatchMode = g.RawMatchMode, hideRawOnly = g.HideRawOnly, sortMode = g.SortMode, sortDesc = g.SortDesc,
         eventDate = g.EventDate, eventEndDate = g.EventEndDate, coverMode = g.CoverMode, g.Location, g.AllowedSizes, g.AllowedFormats, expiresAt = g.ExpiresAt,
         footageLinks = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }), cover = g.CoverPhotoId, count, pending, rawOnly,
@@ -195,6 +195,17 @@ public static class AdminApi
             return Results.File(path, ImageService.ContentType(Path.GetExtension(path).TrimStart('.')));
         });
         secured.MapGet("/settings/link-previews", (SettingsService settings) => Results.Ok(settings.LinkPreviews));
+        // Schedule settings (rescan, backups): editable here unless the container variable fixes them
+        secured.MapGet("/settings/library", (SettingsService settings, AppConfig cfg) => Results.Ok(new
+        {
+            rescanMinutes = cfg.RescanMinutes, backupHours = cfg.BackupHours, backupDaily = cfg.BackupDaily, backupWeekly = cfg.BackupWeekly,
+            locked = cfg.Locked.ToArray(), libraryRoot = cfg.LibraryRoot
+        }));
+        secured.MapPut("/settings/library", (TuningSettings input, SettingsService settings, AppConfig cfg) =>
+        {
+            settings.SetTuning(input);
+            return Results.Ok(new { rescanMinutes = cfg.RescanMinutes, backupHours = cfg.BackupHours, backupDaily = cfg.BackupDaily, backupWeekly = cfg.BackupWeekly, locked = cfg.Locked.ToArray(), libraryRoot = cfg.LibraryRoot });
+        });
         secured.MapGet("/settings/privacy", (SettingsService settings) => Results.Ok(new { privacy = settings.Privacy, defaultText = PrivacySettings.DefaultText, maxText = PrivacySettings.MaxText }));
         secured.MapPut("/settings/privacy", (PrivacySettings input, SettingsService settings) => Results.Ok(settings.SetPrivacy(input)));
         secured.MapGet("/privacy/people", async (string? q, AppDb db) => Results.Ok(await Privacy.SearchAsync(db, q ?? "")));
@@ -353,6 +364,7 @@ public static class AdminApi
             if (input.AllowGuestUpload != null) g.AllowGuestUpload = input.AllowGuestUpload.Value;
             if (input.AllowLikes != null) g.AllowLikes = input.AllowLikes.Value;
             if (input.AllowComments != null) g.AllowComments = input.AllowComments.Value;
+            if (input.AllowFeedback != null) g.AllowFeedback = input.AllowFeedback.Value;
             if (input.ShowLikeCounts != null) g.ShowLikeCounts = input.ShowLikeCounts.Value;
             if (input.WatermarkView != null) g.WatermarkView = input.WatermarkView.Value;
             if (input.WatermarkDownload != null) g.WatermarkDownload = input.WatermarkDownload.Value;

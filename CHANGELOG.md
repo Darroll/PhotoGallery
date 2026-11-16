@@ -4,6 +4,13 @@ Newest first. "Needs attention" marks anything an existing user must do when upd
 
 ## Unreleased
 
+## 1.7.0
+
+- **Messages from visitors.** Turn on **Let visitors send me a message** in a gallery's settings and the gallery gets a **Message** button. Visitors write a few words, with an optional name and a way to reply; no account is needed. You read, mark and delete them under **Messages** in the admin menu, and the optional email alert tells you when new ones arrive (**Email alerts** -> *Visitors have sent you messages*). A hidden trap field and a limit of 10 messages a minute per address keep spam out.
+- **Subscriber emails as a daily or weekly digest.** Subscribers no longer get one email for every new gallery or batch of photos. By default they get **one email a day** with everything new, and none on days with nothing new; choose **once a week** or **straight away** under **Email alerts** -> *Subscribers get new galleries and photos*. **Needs attention:** if you relied on the old immediate emails, choose *straight away* there.
+- **Library and schedule settings in the app.** New page **Library and schedule** (site settings): how often to look for new photos, how often to back up the database and how many daily and weekly backups to keep. A value set by a variable in the container (for example `RESCAN_MINUTES`) wins and shows as locked with the variable's name. Changes apply at once, without restarting. The page also shows which folder the photos are read from.
+- Updating adds a table and a column to the database; a copy of the database is saved first.
+
 ## 1.6.0
 
 - **Share button.** Every gallery has a **Share** button: the link (with Copy link), a QR code to show or print, a message ready to paste, and for a gallery with sections a choice of sharing the whole gallery or just one game, which opens straight on that tab. The link uses the address set in Setup when there is one. The QR code is only given to people who can open the gallery.

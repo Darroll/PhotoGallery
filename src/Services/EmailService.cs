@@ -24,12 +24,16 @@ public class EmailSettings
     public string SiteUrl { get; set; } = "";
     public bool GuestUploads { get; set; } = true;
     public bool LinkAlerts { get; set; } = true;
+    /// <summary>Tell the photographer when visitors have sent messages.</summary>
+    public bool FeedbackAlerts { get; set; } = true;
     public bool GalleryExpiring { get; set; } = true;
     public int ExpiryDays { get; set; } = 3;
     public bool WeeklySummary { get; set; }
     public bool LoginAlerts { get; set; } = true;
     /// <summary>Readers may subscribe to emails about new public galleries and photos (double opt-in).</summary>
     public bool Subscribers { get; set; } = true;
+    /// <summary>How often subscribers hear about new galleries and photos: "now" (each one), "daily" or "weekly" (one email with everything new).</summary>
+    public string SubscriberMail { get; set; } = "daily";
 
     /// <summary>Switched on and complete: nothing is queued, sent or offered to visitors until a mail server and a From address are set.</summary>
     public bool Ready => Enabled && Host.Trim().Length > 0 && FromValid;
@@ -43,8 +47,9 @@ public class EmailSettings
             Enabled = Enabled, Host = T(Host, 200), Port = Math.Clamp(Port, 1, 65535), From = T(From, 200), To = T(To, 200),
             Security = Security == "starttls" ? "starttls" : "none", Username = T(Username, 200), Password = CleanPassword(Password, Host),
             Preset = EmailHelp.Presets.Any(p => p.Id == Preset) ? Preset : "",
-            SiteUrl = T(SiteUrl, 200).TrimEnd('/'), GuestUploads = GuestUploads, LinkAlerts = LinkAlerts,
-            GalleryExpiring = GalleryExpiring, ExpiryDays = Math.Clamp(ExpiryDays, 1, 30), WeeklySummary = WeeklySummary, LoginAlerts = LoginAlerts, Subscribers = Subscribers
+            SiteUrl = T(SiteUrl, 200).TrimEnd('/'), GuestUploads = GuestUploads, LinkAlerts = LinkAlerts, FeedbackAlerts = FeedbackAlerts,
+            GalleryExpiring = GalleryExpiring, ExpiryDays = Math.Clamp(ExpiryDays, 1, 30), WeeklySummary = WeeklySummary, LoginAlerts = LoginAlerts, Subscribers = Subscribers,
+            SubscriberMail = SubscriberMail is "now" or "weekly" ? SubscriberMail : "daily"
         };
     }
 
@@ -61,8 +66,8 @@ public class EmailSettings
     /// <summary>What the admin page gets: everything except the password, which is only reported as set or not.</summary>
     public object ForAdmin() => new
     {
-        Enabled, Host, Port, Security, Username, PasswordSet = Password.Length > 0, Preset, From, To, SiteUrl, GuestUploads, LinkAlerts,
-        GalleryExpiring, ExpiryDays, WeeklySummary, LoginAlerts, Subscribers
+        Enabled, Host, Port, Security, Username, PasswordSet = Password.Length > 0, Preset, From, To, SiteUrl, GuestUploads, LinkAlerts, FeedbackAlerts,
+        GalleryExpiring, ExpiryDays, WeeklySummary, LoginAlerts, Subscribers, SubscriberMail
     };
 
     /// <summary>A save or a test that leaves the password empty keeps the stored one, unless the sign-in name changed.</summary>
@@ -144,6 +149,7 @@ public class EmailService(IServiceScopeFactory scopes, SettingsService settings,
                     using var scope = scopes.CreateScope();
                     var db = scope.ServiceProvider.GetRequiredService<AppDb>();
                     var s = settings.Email;
+                    if (s.Ready) await Subscribers.SendDigestAsync(db, settings);
                     if (s.Ready && !string.IsNullOrWhiteSpace(s.To))
                     {
                         if (DateTime.UtcNow - lastChecks > TimeSpan.FromMinutes(2)) { await Alerts.RunAsync(db, s, ct); lastChecks = DateTime.UtcNow; }
@@ -199,6 +205,7 @@ static class Alerts
     {
         if (s.GuestUploads) await Uploads(db, s);
         if (s.LinkAlerts) await Links(db, s);
+        if (s.FeedbackAlerts) await Feedback(db, s);
         if (s.GalleryExpiring) await Expiring(db, s);
         if (s.WeeklySummary) await Weekly(db, s);
     }
@@ -226,6 +233,22 @@ static class Alerts
         var stale = await db.AlertStates.Where(a => a.Key.StartsWith("pending:")).ToListAsync();
         var gone = stale.Where(a => !live.Contains(a.Key)).ToList();
         if (gone.Count > 0) { db.AlertStates.RemoveRange(gone); await db.SaveChangesAsync(); }
+    }
+
+    /// <summary>One email per run that finds new unread messages, counting only what was not already mentioned.</summary>
+    static async Task Feedback(AppDb db, EmailSettings s)
+    {
+        var unread = await db.FeedbackMessages.CountAsync(m => !m.Read);
+        var st = await State(db, "feedback");
+        var told = st != null && int.TryParse(st.Value, out var n) ? n : 0;
+        if (unread > told)
+        {
+            var fresh = unread - told;
+            await EmailService.QueueAsync(db, s, $"{fresh} new message{(fresh == 1 ? "" : "s")} from your visitors",
+                $"{fresh} visitor message{(fresh == 1 ? " is" : "s are")} waiting for you ({unread} unread in all)." + Link(s, "/admin/feedback"));
+            await Mark(db, "feedback", unread.ToString());
+        }
+        else if (unread < told) await Mark(db, "feedback", unread.ToString());   // some were read: only newer ones alert again
     }
 
     static async Task Links(AppDb db, EmailSettings s)

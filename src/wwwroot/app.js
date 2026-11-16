@@ -173,6 +173,7 @@ async function route(force = false) {
   document.title = site.title;
   if (parts[0] === 'admin' && parts[1] === 'stats') return viewStats(app);
   if (parts[0] === 'admin' && parts[1] === 'comments') return viewComments(app);
+  if (parts[0] === 'admin' && parts[1] === 'feedback') return viewFeedback(app);
   if (parts[0] === 'admin' && parts[1] === 'setup') return viewSetup(app);
   if (parts[0] === 'admin' && parts[1] === 'settings') return viewSettings(app, parts[2]);
   if (parts[0] === 'admin' && parts[1] === 'galleries' && parts[2]) return viewGallerySettings(app, Number(parts[2]));
@@ -625,6 +626,7 @@ async function viewGallery(app, slug) {
 
   const tb = h('div', { class: 'toolbar gallery-bar' }, countLabel, slideBtn, selectBtn, favBtn, likedBtn);
   if (G.allowDownload) tb.append(dlBtn);
+  if (G.allowFeedback) tb.append(h('button', { text: 'Message', title: 'Send a message to the photographer', onclick: () => openFeedbackSheet() }));
   tb.append(h('button', { text: 'Share', title: 'Link and QR code for this gallery', onclick: () => openShareSheet(sections.length > 1 && activeSec ? (sections.find(x => x.folder.toLowerCase() === activeSec) || null) : null) }));
   if (rawOnlyCount > 0) tb.append(rawBtn);
   tb.append(h('span', { class: 'grow' }));
@@ -669,6 +671,33 @@ function closeSheet() {
   if (!s) return;
   document.removeEventListener('keydown', s._key, true);
   s.remove();
+}
+
+// A short message to the photographer. No account needed; the name and a way to reply are optional.
+function openFeedbackSheet() {
+  closeSheet();
+  const name = h('input', { type: 'text', maxlength: 60, autocomplete: 'name', 'aria-label': 'Your name (optional)', placeholder: 'Your name (optional)' });
+  const contact = h('input', { type: 'text', maxlength: 120, autocomplete: 'email', 'aria-label': 'How to reply (optional)', placeholder: 'Email or phone, if you want a reply (optional)' });
+  const text = h('textarea', { rows: 5, maxlength: 1500, 'aria-label': 'Your message', placeholder: 'Your message' });
+  const trap = h('input', { type: 'text', class: 'hp', tabindex: '-1', autocomplete: 'off', 'aria-hidden': 'true' });
+  const msg = h('p', { class: 'muted' });
+  const send = h('button', { class: 'primary', text: 'Send', onclick: async () => {
+    if (text.value.trim().length < 2) { msg.textContent = 'Write a few words first.'; return; }
+    send.disabled = true;
+    const r = await api(`/api/g/${encodeURIComponent(G.slug)}/feedback`, { method: 'POST', body: { name: name.value, contact: contact.value, text: text.value, website: trap.value } });
+    if (r.ok) { closeSheet(); toast('Thank you, your message was sent'); }
+    else { send.disabled = false; msg.textContent = typeof r.data === 'string' && r.data ? r.data : r.status === 429 ? 'Too many messages just now. Try again in a minute.' : 'Could not send. Try again.'; }
+  } });
+  const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } },
+    h('div', { class: 'sheet', role: 'dialog', 'aria-label': 'Message the photographer' },
+      h('div', { class: 'sheet-grab' }),
+      h('h3', { text: 'Message the photographer' }),
+      h('div', { class: 'form1' }, text, name, contact, trap), msg,
+      h('div', { class: 'row sheet-actions' }, send, h('button', { text: 'Close', onclick: closeSheet }))));
+  sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
+  document.addEventListener('keydown', sheet._key, true);
+  document.body.append(sheet);
+  text.focus();
 }
 
 // Share: the address of the gallery (or of the open section), a message ready to paste, and a QR code to show or print.
@@ -1321,6 +1350,7 @@ const adminNav = [
   { href: '/admin/galleries', key: 'galleries', label: 'Galleries' },
   { href: '/admin/stats', key: 'stats', label: 'Statistics' },
   { href: '/admin/comments', key: 'comments', label: 'Comments' },
+  { href: '/admin/feedback', key: 'feedback', label: 'Messages' },
   { heading: 'Settings' },
   { href: '/admin/settings', key: 'settings/general', label: 'Site and appearance' },
   { href: '/admin/settings/watermark', key: 'settings/watermark', label: 'Watermark' },
@@ -1332,6 +1362,7 @@ const adminNav = [
   { href: '/admin/settings/visitor-stats', key: 'settings/visitor-stats', label: 'Visitor tracking' },
   { href: '/admin/settings/email', key: 'settings/email', label: 'Email alerts' },
   { href: '/admin/settings/sso', key: 'settings/sso', label: 'Sign-in (SSO)' },
+  { href: '/admin/settings/library', key: 'settings/library', label: 'Library and schedule' },
   { href: '/admin/settings/cache', key: 'settings/cache', label: 'Thumbnail cache' },
   { heading: 'Help' },
   { href: '/admin/setup', key: 'setup', label: 'Setup guide' },
@@ -1671,7 +1702,7 @@ function newGalleryPanel(folders) {
 
 async function viewSettings(app, section) {
   document.title = 'Site settings - ' + site.title;
-  const titles = { general: 'Site and appearance', watermark: 'Watermark', review: 'Caption suggestions', tags: 'Tags', groups: 'Groups', license: 'License', privacy: 'Privacy', 'visitor-stats': 'Visitor tracking', email: 'Email alerts', sso: 'Sign-in (SSO)', cache: 'Thumbnail cache' };
+  const titles = { general: 'Site and appearance', watermark: 'Watermark', review: 'Caption suggestions', tags: 'Tags', groups: 'Groups', license: 'License', privacy: 'Privacy', 'visitor-stats': 'Visitor tracking', email: 'Email alerts', sso: 'Sign-in (SSO)', cache: 'Thumbnail cache', library: 'Library and schedule' };
   if (!titles[section]) section = 'general';
   const main = await adminPage(app, 'settings/' + section, titles[section]);
   if (!main) return;
@@ -1685,6 +1716,7 @@ async function viewSettings(app, section) {
   if (section === 'visitor-stats') return main.append(statsSettingsPanel());
   if (section === 'email') return main.append(emailPanel());
   if (section === 'sso') return main.append(await ssoPanel());
+  if (section === 'library') return main.append(await libraryPanel());
   main.append(cachePanel());
 }
 
@@ -2311,7 +2343,8 @@ async function ssoPanel() {
 
 function emailPanel() {
   const cb = (checked) => h('input', { type: 'checkbox', checked });
-  const loginAlerts = cb(true), enabled = cb(false), uploads = cb(true), linkAlerts = cb(true), expiring = cb(true), weekly = cb(false), subscribers = cb(true);
+  const loginAlerts = cb(true), enabled = cb(false), uploads = cb(true), linkAlerts = cb(true), feedbackAlerts = cb(true), expiring = cb(true), weekly = cb(false), subscribers = cb(true);
+  const subMail = h('select', { 'aria-label': 'How often subscribers get email' }, [['daily', 'once a day'], ['weekly', 'once a week'], ['now', 'straight away, one email for each']].map(([v, t]) => h('option', { value: v, text: t })));
   const subCount = h('span', { class: 'muted' });
   api('/api/admin/subscribers/count').then(r => { if (r.ok) subCount.textContent = `${r.data.confirmed} confirmed, ${r.data.pending} waiting to confirm`; });
   const host = h('input', { type: 'text', placeholder: 'smtp.example.com' });
@@ -2356,9 +2389,9 @@ function emailPanel() {
   const current = () => ({
     enabled: enabled.checked, host: host.value, port: Number(port.value) || 25, security: secure.checked ? 'starttls' : 'none',
     username: user.value, password: pass.value, preset, from: from.value, to: to.value,
-    siteUrl: url.value || location.origin, guestUploads: uploads.checked, linkAlerts: linkAlerts.checked,
+    siteUrl: url.value || location.origin, guestUploads: uploads.checked, linkAlerts: linkAlerts.checked, feedbackAlerts: feedbackAlerts.checked,
     galleryExpiring: expiring.checked, expiryDays: Number(days.value) || 3, weeklySummary: weekly.checked, loginAlerts: loginAlerts.checked,
-    subscribers: subscribers.checked
+    subscribers: subscribers.checked, subscriberMail: subMail.value
   });
   const loadOutbox = async () => {
     const r = await api('/api/admin/settings/email/outbox');
@@ -2374,7 +2407,7 @@ function emailPanel() {
     user.value = d.username || ''; passwordSet = !!d.passwordSet; pass.placeholder = passwordSet ? 'Saved (leave empty to keep it)' : ''; preset = d.preset || '';
     presetPick.value = preset; showSteps(); lastAutoFrom = '';
     from.value = d.from; to.value = d.to; url.value = d.siteUrl || '';
-    uploads.checked = d.guestUploads; linkAlerts.checked = d.linkAlerts; expiring.checked = d.galleryExpiring; days.value = d.expiryDays; weekly.checked = d.weeklySummary; loginAlerts.checked = d.loginAlerts !== false; subscribers.checked = d.subscribers !== false;
+    uploads.checked = d.guestUploads; linkAlerts.checked = d.linkAlerts; feedbackAlerts.checked = d.feedbackAlerts !== false; expiring.checked = d.galleryExpiring; days.value = d.expiryDays; weekly.checked = d.weeklySummary; loginAlerts.checked = d.loginAlerts !== false; subscribers.checked = d.subscribers !== false; subMail.value = d.subscriberMail || 'daily';
   });
   loadOutbox();
   return h('div', { class: 'panel' }, h('h3', { text: 'Email alerts' }),
@@ -2390,9 +2423,11 @@ function emailPanel() {
     h('div', { class: 'row' }, h('label', {}, 'Site address for links ', url)),
     h('div', { class: 'row' }, h('label', {}, uploads, ' A guest uploads photos that need approval')),
     h('div', { class: 'row' }, h('label', {}, linkAlerts, ' A share link is nearly or fully used up')),
+    h('div', { class: 'row' }, h('label', {}, feedbackAlerts, ' Visitors have sent you messages')),
     h('div', { class: 'row' }, h('label', {}, expiring, ' A gallery expires within ', days, ' days')),
     h('div', { class: 'row' }, h('label', {}, loginAlerts, ' Every wrong admin sign-in attempt')),
     h('div', { class: 'row' }, h('label', {}, subscribers, ' Let readers subscribe to emails about new galleries and photos'), subCount),
+    h('div', { class: 'row' }, h('label', {}, 'Subscribers get new galleries and photos ', subMail), h('span', { class: 'muted', text: ' (once a day or a week is one email with everything new, and none when nothing is)' })),
     h('div', { class: 'row' }, h('label', {}, weekly, ' Weekly visitor summary (Mondays, after 08:00 server time)')),
     h('div', { class: 'row' },
       h('button', { class: 'primary', text: 'Save', onclick: async () => {
@@ -2419,6 +2454,33 @@ function photoLink(p, viewer = false) {
     ? h('a', { href: viewer ? `/g/${encodeURIComponent(p.slug)}` : page, text: p.gallery, title: viewer ? 'Open the gallery' : 'Open in the gallery viewer' })
     : p.gallery;
   return h('span', {}, main, gal ? h('span', { class: 'muted' }, ' (', gal, ')') : null);
+}
+
+// Schedule settings. A value fixed by a variable in the container shows locked, with the variable's name.
+async function libraryPanel() {
+  const r = await api('/api/admin/settings/library');
+  if (!r.ok) return h('p', { class: 'err', text: 'Could not load these settings.' });
+  const d = r.data, locked = new Set(d.locked);
+  const envName = { rescanMinutes: 'RESCAN_MINUTES', backupHours: 'BACKUP_HOURS', backupDaily: 'BACKUP_DAILY', backupWeekly: 'BACKUP_WEEKLY' };
+  const num = (key, min, max) => {
+    const el = h('input', { type: 'number', min, max, value: d[key], disabled: locked.has(key), 'aria-label': key });
+    return { el, key, note: locked.has(key) ? h('span', { class: 'muted', text: ' Set in the container (' + envName[key] + '); change it there.' }) : null };
+  };
+  const rescan = num('rescanMinutes', 0, 1440), hours = num('backupHours', 0, 720), daily = num('backupDaily', 1, 60), weekly = num('backupWeekly', 0, 52);
+  const msg = h('span', { class: 'muted' });
+  const save = h('button', { class: 'primary', text: 'Save', onclick: async () => {
+    const body = {};
+    for (const f of [rescan, hours, daily, weekly]) if (!locked.has(f.key)) body[f.key] = Number(f.el.value);
+    const s = await api('/api/admin/settings/library', { method: 'PUT', body });
+    msg.textContent = s.ok ? 'Saved. It applies now.' : 'Could not save.';
+  } });
+  return h('div', { class: 'panel' }, h('h3', { text: 'Library and schedule' }),
+    h('p', { class: 'muted' }, 'Photos are read from ', h('code', { text: d.libraryRoot }), '. That folder is chosen when the container is set up (the photo path in the Docker template); a gallery is one folder inside it.'),
+    h('div', { class: 'form1' },
+      field('Look for new photos', h('label', {}, 'every ', rescan.el, ' minutes', rescan.note), 'New files are found without pressing Rescan. 0 turns it off.'),
+      field('Back up the database', h('label', {}, 'every ', hours.el, ' hours', hours.note), 'Galleries, settings and likes are in the database; the photos are not copied. 0 turns backups off.'),
+      field('Keep', h('label', {}, daily.el, ' daily and ', weekly.el, ' weekly backups', daily.note, weekly.note), 'Older backups are removed.')),
+    h('div', { class: 'row' }, save, msg));
 }
 
 function cachePanel() {
@@ -2698,6 +2760,7 @@ async function viewGallerySettings(app, id) {
   const allowLikes = track(h('input', { type: 'checkbox', checked: g.allowLikes !== false }));
   const showLikes = track(h('input', { type: 'checkbox', checked: g.showLikeCounts !== false }));
   const allowComments = track(h('input', { type: 'checkbox', checked: g.allowComments === true }));
+  const allowFeedback = track(h('input', { type: 'checkbox', checked: g.allowFeedback === true }));
   const wmUp = section('Watermark & uploads', 'Branding and guest photos', true,
     h('div', { class: 'form1' },
       field('On screen', h('label', {}, wmView, ' Watermark photos shown in the gallery'), 'Style is set in Site settings.'),
@@ -2713,6 +2776,7 @@ async function viewGallerySettings(app, id) {
 
   const commentSection = section('Comments', 'Let signed-in visitors comment', false,
     h('div', { class: 'form1' },
+      field('Messages', h('label', {}, allowFeedback, ' Let visitors send me a message'), 'Adds a Message button to the gallery. No account needed; you read the messages under Messages in the admin menu.'),
       field('Comments', h('label', {}, allowComments, ' Let signed-in visitors comment on photos'),
         'Only people who sign in through your sign-in provider with a verified email can comment, under a display name they choose (never their email). You can always reply, marked as the photographer, and switch comments off for a single photo while viewing it. Needs sign-in set up in Settings, Sign-in (SSO).')));
 
@@ -2736,7 +2800,7 @@ async function viewGallerySettings(app, id) {
       allowDownload: allowDl.checked, allowZip: allowZip.checked,
       allowedSizes: sizeBoxes.every(x => x.box.checked) ? '' : sizeBoxes.filter(x => x.box.checked).map(x => x.px).join(','),
       allowedFormats: fmtBoxes.every(x => x.box.checked) ? '' : fmtBoxes.filter(x => x.box.checked).map(x => x.f).join(','),
-      watermarkView: wmView.checked, watermarkDownload: wmDl.checked, allowGuestUpload: guestUp.checked, allowLikes: allowLikes.checked, showLikeCounts: showLikes.checked, allowComments: allowComments.checked,
+      watermarkView: wmView.checked, watermarkDownload: wmDl.checked, allowGuestUpload: guestUp.checked, allowLikes: allowLikes.checked, showLikeCounts: showLikes.checked, allowComments: allowComments.checked, allowFeedback: allowFeedback.checked,
       rawMatchMode: Number(rawMode.value), allowRaw: allowRaw.checked, hideRawOnly: hideRaw.checked, footageLinks: collectLinks(), sections: collectSections()
     };
     if (pw.value) body.password = pw.value === '-' ? '' : pw.value;
@@ -2897,6 +2961,33 @@ function rawLinker(g) {
 // ---------- statistics ----------
 // --- admin: comments, the comment log and blocked people ---
 const eventLabels = { post: 'Posted', edit: 'Edited', delete: 'Deleted', hide: 'Hidden', unhide: 'Shown again', block: 'Blocked a person', unblock: 'Unblocked a person' };
+
+async function viewFeedback(app) {
+  document.title = 'Messages - ' + site.title;
+  const main = await adminPage(app, 'feedback', 'Messages');
+  if (!main) return;
+  const list = h('div', { class: 'fb-list' });
+  let onlyUnread = false;
+  const load = async () => {
+    const r = await api('/api/admin/feedback' + (onlyUnread ? '?unread=true' : ''));
+    if (!r.ok) { list.replaceChildren(h('p', { class: 'err', text: 'Could not load the messages.' })); return; }
+    const { messages, unread } = r.data;
+    head.replaceChildren(h('h1', { text: 'Messages' }), h('span', { class: 'grow' }),
+      h('label', {}, h('input', { type: 'checkbox', checked: onlyUnread, onchange: (e) => { onlyUnread = e.target.checked; load(); } }), ' Unread only'),
+      h('button', { text: 'Mark all read', disabled: !unread, onclick: async () => { await api('/api/admin/feedback/read-all', { method: 'POST' }); load(); } }));
+    if (!messages.length) { list.replaceChildren(h('p', { class: 'muted', text: onlyUnread ? 'Nothing unread.' : 'No messages yet. Turn on Messages in a gallery\u2019s settings to let visitors write to you.' })); return; }
+    list.replaceChildren(...messages.map(m => h('div', { class: 'fb-item' + (m.read ? '' : ' unread') },
+      h('div', { class: 'muted' }, h('b', { text: m.name || 'Anonymous' }), ' \u00B7 ', h('a', { href: '/g/' + encodeURIComponent(m.slug), text: m.gallery }), ' \u00B7 ' + new Date(m.at + (/Z$/.test(m.at) ? '' : 'Z')).toLocaleString(),
+        m.contact ? ' \u00B7 reply to: ' : null, m.contact ? h('span', { text: m.contact }) : null),
+      h('p', { class: 'fb-text', text: m.text }),
+      h('div', { class: 'row' },
+        h('button', { text: m.read ? 'Mark unread' : 'Mark read', onclick: async () => { await api(`/api/admin/feedback/${m.id}/read?read=${m.read ? 'false' : 'true'}`, { method: 'PUT' }); load(); } }),
+        h('button', { class: 'danger', text: 'Delete', onclick: async () => { if (confirm('Delete this message?')) { await api(`/api/admin/feedback/${m.id}`, { method: 'DELETE' }); load(); } } })))));
+  };
+  const head = h('div', { class: 'toolbar' });
+  main.append(head, list);
+  await load();
+}
 
 async function viewComments(app) {
   document.title = 'Comments - ' + site.title;

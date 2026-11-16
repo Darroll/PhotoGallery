@@ -372,6 +372,40 @@ namespace PhotoGallery.Migrations
                     b.ToTable("FavoriteOwners");
                 });
 
+            modelBuilder.Entity("PhotoGallery.FeedbackMessage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Contact")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("GalleryId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Read")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GalleryId", "CreatedAt");
+
+                    b.ToTable("FeedbackMessages");
+                });
+
             modelBuilder.Entity("PhotoGallery.Gallery", b =>
                 {
                     b.Property<int>("Id")
@@ -386,6 +420,9 @@ namespace PhotoGallery.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("AllowDownload")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AllowFeedback")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("AllowGuestUpload")

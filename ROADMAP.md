@@ -190,14 +190,14 @@ If time is short, the smallest set that delivers the vision is **#1, #4, #6, #7,
 - [x] **Comment moderation.** Admin can review, hide and delete any comment; turn comments off per photo and per gallery; and block a person from commenting. Rate-limited and spam-guarded.
 - [x] **Comment log (who, what, when, where).** Every comment, edit, hide, delete and block is recorded: verified email and display name, the text (and previous text on edit), time, gallery and photo, and IP address and browser (the IP is stored, never displayed). The log is saved with the comment (decided). A deleted comment disappears from the page but its record stays in the admin log until its gallery is deleted. Viewable and searchable by the admin.
 - [ ] **Email alert for new comments**, as a daily digest by default so it never floods the inbox (reuses the existing alerts).
-- [ ] **Gallery message.** A single feedback / thank-you note to the photographer for the whole gallery.
+- [x] **Gallery message.** (1.7.0) A single feedback / thank-you note to the photographer for the whole gallery.
 
 ## 2. Setup anyone can do
 
 - [x] **First-run setup wizard.** Choose the admin password, pick the photo folder from a list, name the site, create the first gallery. No config files. Optional later steps: email, sign-in (SSO), backups.
 - [x] **Sign-in made simple.** Single sign-on through Keycloak is the only way to comment (decided, Q11), and a non-technical person will not know how to set it up. Built as Admin -> Settings -> Sign-in (SSO): what to create in Keycloak with this site's addresses to copy, a connection check, a "test sign-in" button, no restart needed, and the password form can only be hidden after a test as an admin worked. Still to do: the same steps inside the first-run wizard (#20), and Keycloak screenshots in the README.
 - [x] **Email setup helper.** Invites, comment digests and subscriptions all need a mail relay, which is the hardest step for a non-technical person. Provide presets (for example Gmail or Outlook with an app password), a send-a-test button, and a plain explanation of any error. *proposed*
-- [ ] **Settings in the app instead of container variables** where possible (sizes, rescan interval, backup retention). Rule: a value set in the container always wins and is shown as locked in the app.
+- [ ] **Settings in the app instead of container variables** (rescan and backup schedule done in 1.7.0; still to do: image sizes, upload limits, and choosing the photo folder or several folders, which needs extra Docker path mappings and a design of its own) where possible (sizes, rescan interval, backup retention). Rule: a value set in the container always wins and is shown as locked in the app.
 - [ ] **Plain-language Unraid template.** Short field descriptions, safe defaults, only a handful of fields shown.
 - [x] **"Is my site reachable?" check** on the Overview page, with a plain explanation when it is not.
 - [x] **Getting-started checklist** on the Overview page for a new install (create a gallery, share it, set up email, back up) that disappears when done. *proposed*
@@ -226,7 +226,7 @@ If time is short, the smallest set that delivers the vision is **#1, #4, #6, #7,
 ## 5. Sharing with family
 
 - [ ] **Invite by email** with a friendly message. (?) Q6. Note: if the invite link is personal and sent to one address, opening it can also count as verifying that address for comments.
-- [ ] **"New photos" email** per gallery to everyone invited.
+- [ ] **"New photos" email** per gallery to everyone invited. (Subscribers already get a daily or weekly digest since 1.7.0.)
 - [ ] **Family groups** shown by name in the invite flow (groups already exist).
 
 ## 6. Reliability, privacy and housekeeping
