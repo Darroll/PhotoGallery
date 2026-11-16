@@ -95,7 +95,7 @@ public static class HealthApi
                 var broken = new List<string>();
                 var all = await db.Galleries.AsNoTracking().Where(x => x.ExpiresAt == null || x.ExpiresAt > now).ToListAsync();
                 foreach (var gal in all)
-                    foreach (var l in GalleryRules.Links(gal))
+                    foreach (var l in GalleryRules.AllLinks(gal))
                         if (LinkHealth.Get(cfg, l.Url) is { Status: "broken" }) broken.Add($"{l.Label} ({gal.Title})");
                 checks.Add(broken.Count > 0
                     ? new Check("links", "Galleries", "Links", "warn", $"{broken.Count} not opening", "These links did not open at the last check: " + string.Join(", ", broken.Take(5)) + (broken.Count > 5 ? ", ..." : ""), "/admin/galleries")

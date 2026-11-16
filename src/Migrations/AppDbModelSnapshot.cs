@@ -15,7 +15,7 @@ namespace PhotoGallery.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "9.0.22");
+            modelBuilder.HasAnnotation("ProductVersion", "9.0.23");
 
             modelBuilder.Entity("PhotoGallery.AlertState", b =>
                 {
@@ -448,6 +448,10 @@ namespace PhotoGallery.Migrations
 
                     b.Property<int>("RawMatchMode")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("Sections")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
 
                     b.Property<bool>("ShowLikeCounts")
                         .HasColumnType("INTEGER");

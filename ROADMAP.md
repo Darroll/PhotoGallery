@@ -24,6 +24,7 @@ An item is finished only when it has: tests, a database migration if the model c
 - [x] Slideshow, sized lossless downloads, RAW pairing, ZIP, watermarks
 - [x] Share links with expiry and download limits, guest uploads (moderated)
 - [x] YouTube videos per gallery, other links as buttons
+- [x] Sections: one gallery split by subfolder (e.g. each game of a tournament), each with its own videos and ZIP
 - [x] Favorites (heart) per visitor, reviewed by the photographer
 - [x] Tags, search, themes, email alerts, subscriptions, captions and alt text
 - [x] Single sign-on, groups, license agreement, visitor statistics

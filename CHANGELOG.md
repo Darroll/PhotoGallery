@@ -4,8 +4,13 @@ Newest first. "Needs attention" marks anything an existing user must do when upd
 
 ## Unreleased
 
+## 1.3.0
+
+- **Sections: one gallery, several events.** For a gallery that holds, say, the four games of a tournament, keep each game in its own folder inside the gallery folder. In the gallery settings, **Sections** has **Find subfolders**; give each section a heading (for example "Game 1 vs Eagles"), put its YouTube link under it, and order them with the arrows. Visitors see each folder under its own heading with its video above its photos, a jump bar at the top, and a **Download** button for just that section (a ZIP of that game). Photos that sit outside any subfolder show last under "Other photos". Remove every section to go back to one grid. A gallery with no sections looks and works exactly as before.
+- **Needs attention:** nothing to do. Updating adds one column to the database; a copy of the database is saved first, as for every schema change.
 - **Fixed:** the word "null" no longer shows up in the admin pages (under the photographer's comments and under Database backups), and the file pickers on Settings and Statistics stay hidden under the content security policy.
 - **Statistics:** Top viewed photos and Top downloads leave out photos that were removed, so they no longer take a spot with a broken thumbnail.
+
 ## 1.2.0
 
 - **Template changes:** the example address in the `CAPTION_URL` description is generic now. Nothing to do.

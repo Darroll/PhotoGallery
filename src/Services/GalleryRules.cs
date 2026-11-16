@@ -66,6 +66,9 @@ public static class GalleryRules
         catch { return new(); }
     }
 
+    /// <summary>The gallery's own links plus the links of every section.</summary>
+    public static List<FootageLink> AllLinks(Gallery g) => Links(g).Concat(Sections(g).SelectMany(s => s.Links ?? new())).ToList();
+
     /// <summary>Keeps only http(s) links (never javascript: and friends), trimmed, at most 30.</summary>
     public static string CleanLinks(IEnumerable<FootageLink>? links)
     {
@@ -82,6 +85,96 @@ public static class GalleryRules
             if (clean.Count == 30) break;
         }
         return System.Text.Json.JsonSerializer.Serialize(clean);
+    }
+
+    /// <summary>A sub folder of the gallery folder shown under its own heading. <c>Folder</c> "" is the photos that sit directly in the gallery folder.</summary>
+    public record GallerySection(string Folder, string Title, List<FootageLink>? Links = null);
+
+    public static List<GallerySection> Sections(Gallery g)
+    {
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<GallerySection>>(g.Sections ?? "[]", new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new(); }
+        catch { return new(); }
+    }
+
+    /// <summary>One entry per sub folder name (any case), a title for each, links cleaned like gallery links, at most 50.</summary>
+    public static string CleanSections(IEnumerable<GallerySection>? sections)
+    {
+        var clean = new List<GallerySection>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in sections ?? [])
+        {
+            var folder = (s.Folder ?? "").Trim().Trim('/');
+            if (folder.Contains('/') || folder.Contains('\\') || folder == ".." || folder == ".") continue;
+            if (!seen.Add(folder)) continue;
+            var title = (s.Title ?? "").Trim();
+            if (title.Length == 0) title = Pretty(folder);
+            var links = Links(new Gallery { FootageLinks = CleanLinks(s.Links) });
+            clean.Add(new GallerySection(folder, title.Length > 80 ? title[..80] : title, links));
+            if (clean.Count == 50) break;
+        }
+        return System.Text.Json.JsonSerializer.Serialize(clean);
+    }
+
+    static string Pretty(string folder) => folder.Length == 0 ? "Other photos" : folder.Replace('_', ' ').Trim();
+
+    /// <summary>The first sub folder of the gallery folder that holds this file; "" for a file directly in the gallery folder.</summary>
+    public static string SectionOf(Gallery g, string relPath)
+    {
+        var root = (g.Folder ?? "").Trim('/');
+        var rest = relPath.Replace('\\', '/').TrimStart('/');
+        if (root.Length > 0)
+        {
+            if (!rest.StartsWith(root + "/", StringComparison.OrdinalIgnoreCase)) return "";
+            rest = rest[(root.Length + 1)..];
+        }
+        var i = rest.IndexOf('/');
+        return i < 0 ? "" : rest[..i];
+    }
+
+    /// <summary>
+    /// The sections to show, top to bottom: the ones the admin set up, in their order, then any other sub folder that holds photos
+    /// (by name, so Game 2 comes before Game 10), then loose photos. Empty when no sections are set up, which keeps the flat grid.
+    /// </summary>
+    public static List<GallerySection> Layout(Gallery g, IEnumerable<string> foldersWithPhotos)
+    {
+        var configured = Sections(g);
+        if (configured.Count == 0) return new();
+        var present = foldersWithPhotos.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var result = configured.Where(s => s.Folder.Length > 0).ToList();
+        var known = result.Select(s => s.Folder).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        result.AddRange(present.Where(f => f.Length > 0 && !known.Contains(f)).OrderBy(f => f, new NaturalComparer()).Select(f => new GallerySection(f, Pretty(f))));
+        if (present.Contains("")) result.Add(new GallerySection("", configured.FirstOrDefault(s => s.Folder.Length == 0)?.Title is { Length: > 0 } t ? t : "Other photos", configured.FirstOrDefault(s => s.Folder.Length == 0)?.Links));
+        return result;
+    }
+
+    /// <summary>Compares names so numbers inside them count by value: "Game 2" before "Game 10".</summary>
+    public class NaturalComparer : IComparer<string>
+    {
+        public int Compare(string? a, string? b)
+        {
+            a ??= ""; b ??= "";
+            int i = 0, j = 0;
+            while (i < a.Length && j < b.Length)
+            {
+                if (char.IsDigit(a[i]) && char.IsDigit(b[j]))
+                {
+                    int si = i, sj = j;
+                    while (i < a.Length && char.IsDigit(a[i])) i++;
+                    while (j < b.Length && char.IsDigit(b[j])) j++;
+                    var na = a[si..i].TrimStart('0'); var nb = b[sj..j].TrimStart('0');
+                    if (na.Length != nb.Length) return na.Length.CompareTo(nb.Length);
+                    var c = string.CompareOrdinal(na, nb);
+                    if (c != 0) return c;
+                }
+                else
+                {
+                    var c = char.ToLowerInvariant(a[i]).CompareTo(char.ToLowerInvariant(b[j]));
+                    if (c != 0) return c;
+                    i++; j++;
+                }
+            }
+            return (a.Length - i).CompareTo(b.Length - j);
+        }
     }
 
     public static bool IsExpired(Gallery g) => g.ExpiresAt != null && g.ExpiresAt <= DateTime.UtcNow;

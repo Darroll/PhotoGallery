@@ -72,7 +72,7 @@ public static class LinkHealth
 
     /// <summary>The links of a gallery, paired with what is known about each.</summary>
     public static object Report(AppConfig cfg, Gallery g) =>
-        GalleryRules.Links(g).Select(l => Get(cfg, l.Url) is { } r
+        GalleryRules.AllLinks(g).Select(l => Get(cfg, l.Url) is { } r
             ? new { url = l.Url, status = r.Status, lastChecked = (DateTime?)r.LastChecked, code = r.Code }
             : new { url = l.Url, status = "new", lastChecked = (DateTime?)null, code = (int?)null }).ToList();
 }
@@ -98,7 +98,7 @@ public class LinkHealthService(IServiceScopeFactory scopes, AppConfig cfg, ILogg
         var db = scope.ServiceProvider.GetRequiredService<AppDb>();
         var now = DateTime.UtcNow;
         var galleries = await db.Galleries.AsNoTracking().Where(g => g.ExpiresAt == null || g.ExpiresAt > now).ToListAsync(ct);
-        foreach (var url in galleries.SelectMany(GalleryRules.Links).Select(l => l.Url).Distinct())
+        foreach (var url in galleries.SelectMany(GalleryRules.AllLinks).Select(l => l.Url).Distinct())
         {
             ct.ThrowIfCancellationRequested();
             if (LinkHealth.IsDue(cfg, url)) await LinkHealth.CheckAsync(cfg, url, manual: false);

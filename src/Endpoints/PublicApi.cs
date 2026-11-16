@@ -87,14 +87,16 @@ public static class PublicApi
             var favoriteIds = await Likes.Mine(db, vid, Likes.IdentityKey(ctx)).AsNoTracking().Where(f => f.GalleryId == g.Id).Select(f => f.PhotoId).Distinct().ToListAsync();
             var favoriteName = vid == "" ? "" : await db.FavoriteOwners.AsNoTracking().Where(o => o.GalleryId == g.Id && o.VisitorId == vid).Select(o => o.Name).FirstOrDefaultAsync() ?? "";
             var photos = await db.Photos.Where(p => p.GalleryId == g.Id && (p.Approved || admin))
-                .Select(p => new { p.Id, w = p.Width, h = p.Height, p.Name, raw = p.RawRelPath != null, rawOnly = p.RawRelPath != null && p.RawRelPath == p.RelPath, taken = p.TakenAt, added = p.AddedAt, p.Approved, p.Caption, p.AltText, p.CommentsOff })
+                .Select(p => new { p.Id, p.RelPath, w = p.Width, h = p.Height, p.Name, raw = p.RawRelPath != null, rawOnly = p.RawRelPath != null && p.RawRelPath == p.RelPath, taken = p.TakenAt, added = p.AddedAt, p.Approved, p.Caption, p.AltText, p.CommentsOff })
                 .ToListAsync();
             photos = GalleryRules.Sort(photos, g, x => x.taken, x => x.Name, x => x.added);
 
             var tagNames = await Tags.NamesByPhotoAsync(db, photos.Select(x => x.Id).ToList());
             var likeCounts = g.AllowLikes && (g.ShowLikeCounts || admin) ? await Likes.CountsAsync(db, g.Id) : new Dictionary<int, int>();
             var commentCounts = g.AllowComments ? await Comments.CountsAsync(db, g.Id) : new Dictionary<int, int>();
-            var shaped = photos.Select(x => new { x.Id, x.w, x.h, x.Name, x.raw, x.rawOnly, x.taken, x.added, x.Approved, x.Caption, x.AltText, likes = likeCounts.GetValueOrDefault(x.Id), comments = commentCounts.GetValueOrDefault(x.Id), commentsOff = x.CommentsOff,
+            var layout = GalleryRules.Layout(g, photos.Select(x => GalleryRules.SectionOf(g, x.RelPath)));
+            var sectionCounts = photos.GroupBy(x => GalleryRules.SectionOf(g, x.RelPath), StringComparer.OrdinalIgnoreCase).ToDictionary(x => x.Key, x => x.Count(), StringComparer.OrdinalIgnoreCase);
+            var shaped = photos.Select(x => new { x.Id, section = layout.Count == 0 ? "" : GalleryRules.SectionOf(g, x.RelPath), x.w, x.h, x.Name, x.raw, x.rawOnly, x.taken, x.added, x.Approved, x.Caption, x.AltText, likes = likeCounts.GetValueOrDefault(x.Id), comments = commentCounts.GetValueOrDefault(x.Id), commentsOff = x.CommentsOff,
                 tags = tagNames.TryGetValue(x.Id, out var t) ? t : new List<string>() }).ToList();
 
             var gTags = (await Tags.NamesByGalleryAsync(db, new List<int> { g.Id })).GetValueOrDefault(g.Id) ?? new List<string>();
@@ -105,7 +107,7 @@ public static class PublicApi
             return Results.Ok(new
             {
                 g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId, tags = gTags, tagColors,
-                g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, allowLikes = g.AllowLikes, allowComments = g.AllowComments, showLikeCounts = g.ShowLikeCounts || admin, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note, preview = previews && GalleryRules.CategoryOf(l) == "external" ? ExternalLinkPreviews.ForPage(cfg, l.Url) : null }), favorites = favoriteIds, favoriteName, sizes = GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
+                g.Location, eventDate = g.EventDate, hideRawOnly = g.HideRawOnly, allowLikes = g.AllowLikes, allowComments = g.AllowComments, showLikeCounts = g.ShowLikeCounts || admin, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note, preview = previews && GalleryRules.CategoryOf(l) == "external" ? ExternalLinkPreviews.ForPage(cfg, l.Url) : null }), sections = layout.Select(s => new { folder = s.Folder, s.Title, count = sectionCounts.GetValueOrDefault(s.Folder), links = (s.Links ?? new()).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }) }), favorites = favoriteIds, favoriteName, sizes =GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
                 allowDownload = g.AllowDownload,
                 allowOriginal = g.AllowDownload && !locked,
                 allowRaw = g.AllowDownload && g.AllowRaw && !locked,
@@ -248,7 +250,7 @@ public static class PublicApi
             var file = VideoThumbs.PathFor(cfg, vid);
             if (!File.Exists(file))
             {
-                if (!await db.Galleries.AnyAsync(x => x.FootageLinks.Contains(vid))) return Results.NotFound();
+                if (!await db.Galleries.AnyAsync(x => x.FootageLinks.Contains(vid) || x.Sections.Contains(vid))) return Results.NotFound();
                 if (!await VideoThumbs.RefreshAsync(cfg, vid)) return Results.NotFound();
             }
             else if (VideoThumbs.NeedsRefresh(file)) await VideoThumbs.RefreshAsync(cfg, vid);
@@ -325,7 +327,7 @@ public static class PublicApi
             return Results.File(path, "application/octet-stream", Path.GetFileName(path));
         }).RequireRateLimiting("download");
 
-        app.MapGet("/api/g/{slug}/zip", async (string slug, string? size, string? fmt, bool? raw, string? ids, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity, SettingsService settings) =>
+        app.MapGet("/api/g/{slug}/zip", async (string slug, string? size, string? fmt, bool? raw, string? ids, string? section, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity, SettingsService settings) =>
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
             if (g == null) return Results.NotFound();
@@ -354,15 +356,17 @@ public static class PublicApi
                     .Select(x => int.TryParse(x, out var n) ? n : 0).Where(n => n > 0).Take(500).ToHashSet();
                 photos = photos.Where(p => wanted.Contains(p.Id)).ToList();
             }
+            // one section (sub folder) of the gallery, e.g. a single game; "" is the photos outside any sub folder
+            if (section != null) photos = photos.Where(p => string.Equals(GalleryRules.SectionOf(g, p.RelPath), section, StringComparison.OrdinalIgnoreCase)).ToList();
             photos = GalleryRules.Sort(photos, g, x => x.TakenAt, x => x.Name, x => x.AddedAt);
             if (photos.Count == 0) return Results.NotFound();
             if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);
-            activity.Record(ctx, "zip", g.Id, null, (original ? "original" : $"{px}px {f}") + (includeRaw ? " +RAW" : "") + (string.IsNullOrEmpty(ids) ? "" : $" ({photos.Count} selected)"));
+            activity.Record(ctx, "zip", g.Id, null, (original ? "original" : $"{px}px {f}") + (includeRaw ? " +RAW" : "") + (string.IsNullOrEmpty(ids) ? "" : $" ({photos.Count} selected)") + (section == null ? "" : $" [{new string(section.Where(c => !char.IsControl(c)).Take(40).ToArray())}]"));
 
             var body = ctx.Features.Get<IHttpBodyControlFeature>();
             if (body != null) body.AllowSynchronousIO = true;
             ctx.Response.ContentType = "application/zip";
-            ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{g.Slug}{(string.IsNullOrEmpty(ids) ? "" : "-selected")}{(original ? "" : "_" + px)}.zip\"";
+            ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{g.Slug}{(section == null ? "" : "-" + System.Text.RegularExpressions.Regex.Replace(section, "[^A-Za-z0-9]+", "-").Trim('-'))}{(string.IsNullOrEmpty(ids) ? "" : "-selected")}{(original ? "" : "_" + px)}.zip\"";
 
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             string Unique(string name)

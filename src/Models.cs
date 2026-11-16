@@ -32,6 +32,8 @@ public class Gallery
     public int SortOrder { get; set; }
     /// <summary>JSON list of {label,url} links shown under the title (e.g. game footage on YouTube).</summary>
     public string FootageLinks { get; set; } = "[]";
+    /// <summary>JSON list of sections: sub folders of the gallery folder shown under their own heading, each with its own links (e.g. one game of a tournament and its YouTube video). Empty means one flat grid.</summary>
+    public string Sections { get; set; } = "[]";
     public GallerySort SortMode { get; set; } = GallerySort.Taken;
     public bool SortDesc { get; set; }
     public DateTime? EventDate { get; set; }

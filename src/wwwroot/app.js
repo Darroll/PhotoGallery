@@ -435,11 +435,12 @@ async function viewGallery(app, slug) {
   if (headerTags) app.append(headerTags);
   if (G.description) app.append(h('p', { class: 'sub', text: G.description }));
   const vids = (G.links || []).filter(l => l.category === 'video' && l.videoId), buttons = (G.links || []).filter(l => l.button), external = (G.links || []).filter(l => l.category === 'external');
-  if (vids.length) app.append(h('h2', { class: 'vid-head', text: vids.length === 1 ? 'Video' : 'Videos' }), h('div', { class: 'videos' }, vids.map(l =>
+  const videoCards = (list) => h('div', { class: 'videos' }, list.map(l =>
     h('button', { class: 'vid', title: l.label, onclick: () => playVideo(l) },
       h('span', { class: 'vid-thumb' }, h('img', { src: `/vthumb/${l.videoId}`, alt: '', loading: 'lazy' }), h('span', { class: 'vid-play', text: '\u25B6' })),
       h('span', { class: 'vid-title', text: l.label }),
-      l.note ? h('span', { class: 'vid-note muted', text: l.note }) : null))));
+      l.note ? h('span', { class: 'vid-note muted', text: l.note }) : null)));
+  if (vids.length) app.append(h('h2', { class: 'vid-head', text: vids.length === 1 ? 'Video' : 'Videos' }), videoCards(vids));
   if (buttons.length) app.append(h('div', { class: 'footage' }, buttons.map(l =>
     h('a', { class: 'btn footage-link', href: l.url, target: '_blank', rel: 'noopener noreferrer', title: l.note || '', text: '▶ ' + l.label }))));
   if (G.link) {
@@ -462,7 +463,11 @@ async function viewGallery(app, slug) {
   const curatedText = h('span');
   const rawBtn = h('label', { class: 'switch', title: 'Curated photos are the edited ones. Turn this off to also see unedited RAW frames.' }, curated, curatedText);
   const dlBtn = h('button', { text: 'Download…', onclick: () => openDownloadSheet() });
-  const grid = h('div', { class: 'grid' });
+  // A gallery split into sections (sub folders, e.g. the games of a tournament): each under its own heading, in the admin's order.
+  const sections = G.sections || [];
+  const secKey = (p) => (p.section || '').toLowerCase();
+  const grid = h('div', { class: sections.length ? 'sections' : 'grid' });
+  const secNav = sections.length > 1 ? h('nav', { class: 'sec-nav', 'aria-label': 'Sections' }) : null;
 
   // most-liked sort and strip (only where the counts are visible and someone has liked something)
   const likesVisible = G.allowLikes !== false && !!G.showLikeCounts;
@@ -523,6 +528,11 @@ async function viewGallery(app, slug) {
     let photos = showRaw ? approved : approved.filter(p => !p.rawOnly);
     if (favOnly) photos = approved.filter(p => favs.has(p.id));
     if (likedFirst && !favOnly) photos = byLikes(photos);
+    if (sections.length) {
+      // the viewer steps through photos in the order they appear on the page, so group by section first (stable within a section)
+      const rank = new Map(sections.map((s, i) => [s.folder.toLowerCase(), i]));
+      photos = photos.map((p, i) => [p, i]).sort((a, b) => (rank.get(secKey(a[0])) ?? sections.length) - (rank.get(secKey(b[0])) ?? sections.length) || a[1] - b[1]).map(x => x[0]);
+    }
     G.list = photos;
     countLabel.textContent = favOnly ? `${photos.length} favorites` : plural(photos.filter(p => p.approved).length, 'photo');
     curatedText.textContent = showRaw ? ' Curated only' : ` Curated only (${rawOnlyCount} unedited RAW hidden)`;
@@ -533,7 +543,7 @@ async function viewGallery(app, slug) {
     favBar.classList.toggle('hidden', !favOnly);
     document.body.classList.toggle('selecting', selectMode);
     tiles.clear();
-    grid.replaceChildren(...photos.map((p, i) => {
+    const makeTile = (p, i) => {
       const ratio = (p.w || 3) / (p.h || 2);
       const heart = G.allowLikes === false ? null : h('button', { class: 'tile-fav', 'aria-label': 'Favorite', onclick: (e) => { e.stopPropagation(); toggleFav(p); } });
       const check = h('span', { class: 'tile-check' });
@@ -547,7 +557,31 @@ async function viewGallery(app, slug) {
       item.style.setProperty('--r', String(ratio));
       tiles.set(p.id, { el: item, heart, check, p });
       return item;
-    }));
+    };
+    if (!sections.length) grid.replaceChildren(...photos.map(makeTile));
+    else {
+      const blocks = [];
+      let start = 0;
+      for (const s of sections) {
+        const part = photos.filter(p => secKey(p) === s.folder.toLowerCase());
+        const vids = (s.links || []).filter(l => l.videoId), others = (s.links || []).filter(l => !l.videoId);
+        const first = start;
+        start += part.length;
+        if (!part.length && (favOnly || !(s.links || []).length)) continue;
+        const tilesEl = part.length ? h('div', { class: 'grid' }, part.map((p, j) => makeTile(p, first + j))) : h('p', { class: 'muted', text: 'No curated photos here yet.' });
+        blocks.push(h('section', { class: 'g-section', id: 'sec-' + blocks.length, 'aria-label': s.title },
+          h('div', { class: 'sec-head' },
+            h('h2', { text: s.title }),
+            h('span', { class: 'muted', text: plural(part.filter(p => p.approved).length, 'photo') }),
+            h('span', { class: 'grow' }),
+            G.allowDownload && G.allowZip && part.length ? h('button', { text: 'Download…', title: 'Download this section as a ZIP', onclick: () => openDownloadSheet({ section: s, scope: 'section' }) }) : null),
+          vids.length ? videoCards(vids) : null,
+          others.length ? h('div', { class: 'footage' }, others.map(l => h('a', { class: 'btn footage-link', href: l.url, target: '_blank', rel: 'noopener noreferrer', title: l.note || '', text: '▶ ' + l.label }))) : null,
+          tilesEl));
+      }
+      grid.replaceChildren(...blocks);
+      if (secNav) secNav.replaceChildren(...blocks.map(b => h('button', { text: b.getAttribute('aria-label'), onclick: () => b.scrollIntoView({ behavior: 'smooth', block: 'start' }) })));
+    }
     updateStates();
   }
   G.refresh = () => { if (favOnly) fill(); else updateStates(); };
@@ -558,7 +592,7 @@ async function viewGallery(app, slug) {
   if (rawOnlyCount > 0) tb.append(rawBtn);
   tb.append(h('span', { class: 'grow' }));
   if (G.allowUpload) tb.append(uploadControl(slug));
-  app.append(strip, tb, favBar, grid, selBar);
+  app.append(strip, tb, secNav, favBar, grid, selBar);
   if (external.length) app.append(h('h2', { class: 'ext-head', text: 'Links' }), h('div', { class: 'ext-links' }, external.map(l =>
     h('a', { class: 'ext-card', href: l.url, target: '_blank', rel: 'noopener noreferrer' },
       l.preview && l.preview.image ? h('img', { class: 'ext-img', src: l.preview.image, alt: '', loading: 'lazy' }) : null,
@@ -601,6 +635,7 @@ function openDownloadSheet(opts = {}) {
   const photo = opts.photo || null;
   const scopes = [];
   if (photo) scopes.push(['photo', `This photo – ${photo.name}`]);
+  if (opts.section && G.allowZip) scopes.push(['section', `${opts.section.title} (ZIP)`]);
   if (G.allowZip && sel.size) scopes.push(['selected', `Selected photos (${sel.size})`]);
   if (G.allowZip && favs.size) scopes.push(['favorites', `My favorites (${favs.size})`]);
   if (G.allowZip) scopes.push(['all', 'Whole gallery (ZIP)']);
@@ -649,7 +684,8 @@ function openDownloadSheet(opts = {}) {
     const q = new URLSearchParams({ size: size.value, fmt: fmt.value });
     if (scope === 'photo') { location.href = `/dl/${photo.id}?${q}`; closeSheet(); return; }
     if (rawBox.checked && G.allowRaw) q.set('raw', 'true');
-    if (scope !== 'all') {
+    if (scope === 'section') q.set('section', opts.section.folder);
+    else if (scope !== 'all') {
       const ids = scope === 'selected' ? [...sel] : [...favs];
       if (ids.length > 500) { toast('Choose 500 photos or fewer at a time'); return; }
       q.set('ids', ids.join(','));
@@ -2481,12 +2517,52 @@ async function viewGallerySettings(app, id) {
       videoMsg.textContent = !r.ok ? 'Could not refresh' : r.data.videos + r.data.links === 0 ? 'No videos or External links saved in this gallery' : `Refreshed ${r.data.refreshed} of ${r.data.videos} video thumbnails and ${r.data.linksRefreshed} of ${r.data.links} link previews. Reload the gallery page to see them there.`;
     } }), videoMsg));
   const collectLinks = () => [...linkRows.children].map(r => r.get()).filter(l => l.url);
+
+  // Sections: sub folders of the library folder, each under its own heading with its own videos (e.g. one game of a tournament)
+  const sectionRows = h('div', { class: 'section-rows' });
+  const sectionMsg = h('span', { class: 'muted' });
+  const addSectionRow = (s, count) => {
+    const links = h('div', { class: 'link-rows' });
+    const addSLink = (l = { label: '', url: '' }) => {
+      const label = track(h('input', { type: 'text', placeholder: 'Title (optional for YouTube)', value: l.label || '', maxlength: 60 }));
+      const url = track(h('input', { type: 'text', placeholder: 'https://www.youtube.com/watch?v=...', value: l.url || '' }));
+      const lrow = h('div', { class: 'link-row' }, label, url, h('button', { class: 'danger', text: 'Remove', onclick: () => { lrow.remove(); touch(); } }));
+      lrow.get = () => ({ label: label.value.trim(), url: url.value.trim() });
+      links.append(lrow);
+    };
+    (s.links || []).forEach(addSLink);
+    const title = track(h('input', { type: 'text', value: s.title || '', placeholder: 'Heading, e.g. Game 1 vs Team X', maxlength: 80, 'aria-label': 'Section heading' }));
+    const move = (dir) => { const sib = dir < 0 ? row.previousElementSibling : row.nextElementSibling; if (!sib) return; dir < 0 ? row.parentNode.insertBefore(row, sib) : row.parentNode.insertBefore(sib, row); touch(); };
+    const row = h('div', { class: 'section-row' },
+      h('div', { class: 'row' },
+        h('b', { text: s.folder }), h('span', { class: 'muted', text: count === undefined ? 'folder' : plural(count, 'photo') }), h('span', { class: 'grow' }),
+        h('button', { title: 'Move up', 'aria-label': 'Move section up', text: '↑', onclick: () => move(-1) }),
+        h('button', { title: 'Move down', 'aria-label': 'Move section down', text: '↓', onclick: () => move(1) }),
+        h('button', { class: 'danger', text: 'Remove', title: 'Stop showing this folder as its own section', onclick: () => { row.remove(); touch(); } })),
+      title, links, h('button', { text: '+ Add video or link', onclick: () => { addSLink(); touch(); } }));
+    row.get = () => ({ folder: s.folder, title: title.value.trim(), links: [...links.children].map(r => r.get()).filter(l => l.url) });
+    sectionRows.append(row);
+  };
+  (g.sections || []).forEach(s => addSectionRow(s));
+  const sectionsBox = h('div', {}, sectionRows, h('div', { class: 'row' },
+    h('button', { text: 'Find subfolders', title: 'List the folders inside this gallery\'s folder and add the ones that are not set up yet', onclick: async () => {
+      sectionMsg.textContent = 'Looking...';
+      const r = await api(`/api/admin/galleries/${g.id}/subfolders`);
+      if (!r.ok) { sectionMsg.textContent = 'Could not look'; return; }
+      const have = new Set([...sectionRows.children].map(x => x.get().folder.toLowerCase()));
+      const fresh = r.data.folders.filter(f => !have.has(f.folder.toLowerCase()));
+      fresh.forEach(f => addSectionRow({ folder: f.folder, title: f.folder.replace(/_/g, ' ') }, f.count));
+      if (fresh.length) touch();
+      sectionMsg.textContent = !r.data.folders.length ? 'No subfolders with photos in this gallery folder' : fresh.length ? `Added ${plural(fresh.length, 'section')}. Save to apply.` : 'Every subfolder is already a section';
+    } }), sectionMsg));
+  const collectSections = () => [...sectionRows.children].map(r => r.get());
   const tagsInput = tagEditor(g.tags || [], touch);
   const general = section('General', 'Name, date, order, cover', true,
     h('div', { class: 'form1' },
       field('Title', title), field('URL name', slug, `Gallery address: /g/${g.slug}`), field('Description', desc),
       field('Event date', eventDate), field('Location', location_), field('Tags', tagsInput, 'Click + to add a label that helps visitors find this gallery in search. Start typing to pick one already in use.'),
       field('Videos and links', footage, 'Paste YouTube links to show the recordings together on the gallery page (leave the title empty to use the video\'s own title). Preview images are re-checked on YouTube every 12 hours; use Refresh thumbnails and previews to update them now. Choose a category for each link: Video links show in a grid above the photos, External links show below the gallery. Tick Button under title to also show a link as a button beside the title. Only http and https links are kept, up to 30.'),
+      field('Sections', sectionsBox, 'For a gallery that holds several events, such as the games of a tournament, keep each in its own folder inside the gallery folder. Press Find subfolders, give each section a heading, and add its YouTube link. Visitors then see each folder under its own heading, with its video above the photos and its own ZIP download. Photos outside any subfolder show last. Remove every section to go back to one grid.'),
       field('Photo order', h('div', { class: 'row' }, sortMode, h('label', {}, sortDesc, ' Reverse (newest / Z-A first)'))),
       field('Cover image', h('div', {}, h('div', { class: 'row' }, coverImg, coverBtn), pickerBox)),
       field('Library folder', folderSelect, 'Which library folder this gallery shows. Changing it rescans the gallery and resets the cover.'),
@@ -2580,7 +2656,7 @@ async function viewGallerySettings(app, id) {
       allowedSizes: sizeBoxes.every(x => x.box.checked) ? '' : sizeBoxes.filter(x => x.box.checked).map(x => x.px).join(','),
       allowedFormats: fmtBoxes.every(x => x.box.checked) ? '' : fmtBoxes.filter(x => x.box.checked).map(x => x.f).join(','),
       watermarkView: wmView.checked, watermarkDownload: wmDl.checked, allowGuestUpload: guestUp.checked, allowLikes: allowLikes.checked, showLikeCounts: showLikes.checked, allowComments: allowComments.checked,
-      rawMatchMode: Number(rawMode.value), allowRaw: allowRaw.checked, hideRawOnly: hideRaw.checked, footageLinks: collectLinks()
+      rawMatchMode: Number(rawMode.value), allowRaw: allowRaw.checked, hideRawOnly: hideRaw.checked, footageLinks: collectLinks(), sections: collectSections()
     };
     if (pw.value) body.password = pw.value === '-' ? '' : pw.value;
     const r = await api('/api/admin/galleries/' + g.id, { method: 'PUT', body });

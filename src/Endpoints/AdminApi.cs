@@ -19,7 +19,8 @@ public static class AdminApi
         string? Password, bool? AllowDownload, bool? AllowRaw, bool? AllowZip, bool? AllowGuestUpload, bool? AllowLikes, bool? ShowLikeCounts, bool? AllowComments,
         bool? WatermarkView, bool? WatermarkDownload, RawMatch? RawMatchMode,
         bool? HideRawOnly, GallerySort? SortMode, bool? SortDesc, string? EventDate, string? Location,
-        string? AllowedSizes, string? AllowedFormats, string? ExpiresAt, List<LinkItem>? FootageLinks);
+        string? AllowedSizes, string? AllowedFormats, string? ExpiresAt, List<LinkItem>? FootageLinks, List<SectionItem>? Sections);
+    record SectionItem(string? Folder, string? Title, List<LinkItem>? Links);
     record LinkRawInput(int RawPhotoId);
     record CommentSwitch(bool Off);
     record MoveInput(string? Direction);
@@ -53,7 +54,8 @@ public static class AdminApi
         g.AllowDownload, g.AllowRaw, g.AllowZip, g.AllowGuestUpload, g.AllowLikes, g.ShowLikeCounts, g.AllowComments, g.WatermarkView, g.WatermarkDownload,
         rawMatchMode = g.RawMatchMode, hideRawOnly = g.HideRawOnly, sortMode = g.SortMode, sortDesc = g.SortDesc,
         eventDate = g.EventDate, g.Location, g.AllowedSizes, g.AllowedFormats, expiresAt = g.ExpiresAt,
-        footageLinks = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }), cover = g.CoverPhotoId, count, pending, rawOnly
+        footageLinks = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }), cover = g.CoverPhotoId, count, pending, rawOnly,
+        sections = GalleryRules.Sections(g).Select(s => new { s.Folder, s.Title, links = (s.Links ?? new()).Select(l => new { l.Label, l.Url, category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }) })
     };
 
     public static void Map(WebApplication app)
@@ -359,19 +361,30 @@ public static class AdminApi
             if (input.SortMode != null) g.SortMode = input.SortMode.Value;
             if (input.SortDesc != null) g.SortDesc = input.SortDesc.Value;
             if (input.Location != null) g.Location = input.Location.Trim();
-            if (input.FootageLinks != null)
+            async Task<List<GalleryRules.FootageLink>> ToLinks(IEnumerable<LinkItem>? links)
             {
                 var items = new List<GalleryRules.FootageLink>();
-                foreach (var l in input.FootageLinks)
+                foreach (var l in links ?? [])
                 {
                     var label = l.Label ?? "";
                     // an empty label on a YouTube link is filled with the video's own title
                     if (label.Trim().Length == 0 && GalleryRules.YouTubeId(l.Url) is { } vid) label = await YouTubeTitle(vid) ?? "";
                     items.Add(new GalleryRules.FootageLink(label, l.Url ?? "", l.Category, l.Button, l.Note));
                 }
-                g.FootageLinks = GalleryRules.CleanLinks(items);
+                return items;
+            }
+            if (input.FootageLinks != null)
+            {
+                g.FootageLinks = GalleryRules.CleanLinks(await ToLinks(input.FootageLinks));
                 if (settings.LinkPreviews.Enabled)
                     ExternalLinkPreviews.EnsureInBackground(cfg, GalleryRules.Links(g).Where(l => GalleryRules.CategoryOf(l) == "external").Select(l => l.Url));
+            }
+            if (input.Sections != null)
+            {
+                var sections = new List<GalleryRules.GallerySection>();
+                foreach (var s in input.Sections)
+                    sections.Add(new GalleryRules.GallerySection(s.Folder ?? "", s.Title ?? "", await ToLinks(s.Links)));
+                g.Sections = GalleryRules.CleanSections(sections);
             }
             if (input.EventDate != null) g.EventDate = DateTime.TryParse(input.EventDate, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ed) ? ed : null;
             if (input.ExpiresAt != null) g.ExpiresAt = DateTime.TryParse(input.ExpiresAt, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var ex) ? ex : null;
@@ -415,6 +428,18 @@ public static class AdminApi
             if (g == null) return Results.NotFound();
             try { var r = await scanner.ScanAsync(db, g); await Subscribers.NewPhotosAsync(db, settings, g, r.Added); return Results.Ok(r); }
             catch (DirectoryNotFoundException e) { return Results.BadRequest(e.Message); }
+        });
+
+        // The sub folders of the gallery folder that hold photos, in natural order (Game 2 before Game 10), for setting up sections.
+        secured.MapGet("/galleries/{id:int}/subfolders", async (int id, AppDb db) =>
+        {
+            var g = await db.Galleries.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
+            if (g == null) return Results.NotFound();
+            var paths = await db.Photos.AsNoTracking().Where(p => p.GalleryId == id && !p.IsGuest).Select(p => p.RelPath).ToListAsync();
+            var groups = paths.GroupBy(p => GalleryRules.SectionOf(g, p), StringComparer.OrdinalIgnoreCase)
+                .Where(x => x.Key.Length > 0).OrderBy(x => x.Key, new GalleryRules.NaturalComparer())
+                .Select(x => new { folder = x.Key, count = x.Count() }).ToList();
+            return Results.Ok(new { folders = groups, loose = paths.Count(p => GalleryRules.SectionOf(g, p).Length == 0) });
         });
 
         secured.MapPut("/galleries/{id:int}/cover", async (int id, CoverInput input, AppDb db) =>
@@ -603,7 +628,7 @@ public static class AdminApi
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Id == id);
             if (g == null) return Results.NotFound();
-            var ids = GalleryRules.Links(g).Select(l => GalleryRules.YouTubeId(l.Url)).Where(v => v != null).Select(v => v!).Distinct().ToList();
+            var ids = GalleryRules.AllLinks(g).Select(l => GalleryRules.YouTubeId(l.Url)).Where(v => v != null).Select(v => v!).Distinct().ToList();
             var refreshed = 0;
             foreach (var vid in ids) if (await VideoThumbs.RefreshAsync(cfg, vid)) refreshed++;
             // External links get their title and picture fetched again as well
@@ -626,7 +651,7 @@ public static class AdminApi
             var g = await db.Galleries.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
             if (g == null) return Results.NotFound();
             var enabled = settings.LinkPreviews.Enabled;
-            if (enabled) foreach (var url in GalleryRules.Links(g).Select(l => l.Url).Distinct()) await LinkHealth.CheckAsync(cfg, url, manual: true);
+            if (enabled) foreach (var url in GalleryRules.AllLinks(g).Select(l => l.Url).Distinct()) await LinkHealth.CheckAsync(cfg, url, manual: true);
             return Results.Ok(new { enabled, items = LinkHealth.Report(cfg, g) });
         });
 
