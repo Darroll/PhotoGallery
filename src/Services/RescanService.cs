@@ -24,7 +24,7 @@ public class RescanService(IServiceScopeFactory scopes, AppConfig cfg, ILogger<R
                     {
                         var r = await scanner.ScanAsync(db, g);
                         await Subscribers.NewPhotosAsync(db, scope.ServiceProvider.GetRequiredService<SettingsService>(), g, r.Added);
-                        if (r.Added > 0 || r.Removed > 0) log.LogInformation("Rescan {Slug}: +{Added} -{Removed}", g.Slug, r.Added, r.Removed);
+                        if (r.Added > 0 || r.Removed > 0) log.LogInformation("Rescan {Slug}: +{Added} -{Removed} in {Seconds} s", g.Slug, r.Added, r.Removed, r.Seconds);
                     }
                     catch (DirectoryNotFoundException) { }
                     catch (Exception ex) { log.LogWarning(ex, "Rescan failed for {Slug}", g.Slug); }

@@ -4,6 +4,14 @@ Newest first. "Needs attention" marks anything an existing user must do when upd
 
 ## Unreleased
 
+## 1.6.0
+
+- **Share button.** Every gallery has a **Share** button: the link (with Copy link), a QR code to show or print, a message ready to paste, and for a gallery with sections a choice of sharing the whole gallery or just one game, which opens straight on that tab. The link uses the address set in Setup when there is one. The QR code is only given to people who can open the gallery.
+- **Sections show up in search.** Searching for a game's title (for example "Cooper City") finds that section as its own result, with a picture from it, and opens the gallery on that tab.
+- **Scan time.** The rescan message and the log now say how long a scan took, so you can tell whether a big library needs patience.
+- **Upgrade test.** An automated test now upgrades a database from the very first release to the current one and checks that galleries, photos, users, tags and likes are all kept and that a backup copy is made.
+- Adds one library (QRCoder) to the image; the database does not change.
+
 ## 1.5.0
 
 - **Photos are ordered by when they were taken, from the RAW file.** Every photo that has a RAW partner, the edited export as well as the RAW-only frame, now takes its shooting time from the RAW file's own metadata, including the hundredths of a second, so the frames of a burst keep their order and an edited PNG sits where it was shot instead of where it was saved. Photos without a RAW file keep the time in their own metadata, or the file date. This needs ExifTool, which the container already includes.

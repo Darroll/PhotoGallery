@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PhotoGallery;
 
-public record ScanResult(int Added, int Removed, int Total, int SkippedRaw, int Paired, int RawOnly, int Moved = 0, int Retimed = 0);
+public record ScanResult(int Added, int Removed, int Total, int SkippedRaw, int Paired, int RawOnly, int Moved = 0, int Retimed = 0, double Seconds = 0);
 
 public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs, ILogger<Scanner> log)
 {
@@ -17,7 +17,12 @@ public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs
     public async Task<ScanResult> ScanAsync(AppDb db, Gallery g)
     {
         await ScanGate.WaitAsync();
-        try { return await ScanInnerAsync(db, g); }
+        try
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();   // the scan itself, not the wait for another scan to finish
+            var r = await ScanInnerAsync(db, g);
+            return r with { Seconds = Math.Round(clock.Elapsed.TotalSeconds, 1) };
+        }
         finally { ScanGate.Release(); }
     }
 

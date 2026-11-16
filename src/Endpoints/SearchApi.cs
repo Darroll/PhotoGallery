@@ -53,7 +53,7 @@ public static class SearchApi
 
             var coverOnly = galleries.Select(GalleryRules.HiddenCoverId).Where(x => x != 0).ToList();
             var photos = await db.Photos.AsNoTracking().Where(p => p.Approved && ids.Contains(p.GalleryId) && !coverOnly.Contains(p.Id))
-                .Select(p => new { p.Id, p.GalleryId, p.Name, p.Caption, p.AltText, p.TakenAt }).ToListAsync();
+                .Select(p => new { p.Id, p.GalleryId, p.RelPath, p.Name, p.Caption, p.AltText, p.TakenAt }).ToListAsync();
             var tags = await Tags.NamesByPhotoAsync(db, photos.Select(p => p.Id).ToList());
             var galleryTags = await Tags.NamesByGalleryAsync(db, ids);
 
@@ -92,7 +92,19 @@ public static class SearchApi
                     || (tagName.Length > 0 && TagsOf(galleryTags, g.Id).Any(x => x.Equals(tagName, StringComparison.OrdinalIgnoreCase)))))
                 .Take(12).Select(g => (object)new { g.Id, g.Slug, g.Title, location = g.Location, eventDate = g.EventDate, eventEndDate = g.EventEndDate, cover = g.CoverPhotoId, tags = TagsOf(galleryTags, g.Id) }).ToList();
 
-            return Results.Ok(new { galleries = matchedGalleries, photos = hits });
+            // A section (one game of a tournament, say) is found by its own title and opens straight on its tab; its picture is its first photo.
+            var matchedSections = !withGalleries || term.Length == 0 ? new List<object>() : galleries
+                .Where(g => GalleryRules.EventOverlaps(g, start, lastDay)
+                    && (place.Length == 0 || g.Location.Contains(place, StringComparison.OrdinalIgnoreCase) || GalleryRules.MonthsSpanned(g).Any(m => m.Contains(place, StringComparison.OrdinalIgnoreCase)))
+                    && (tagName.Length == 0 || TagsOf(galleryTags, g.Id).Any(x => x.Equals(tagName, StringComparison.OrdinalIgnoreCase))))
+                .SelectMany(g => GalleryRules.Sections(g).Where(s => Hit(s.Title) || Hit(s.Folder)).Select(s => (object)new
+                {
+                    slug = g.Slug, gallery = g.Title, folder = s.Folder, title = string.IsNullOrWhiteSpace(s.Title) ? s.Folder : s.Title, eventDate = g.EventDate, eventEndDate = g.EventEndDate,
+                    cover = photos.Where(p => p.GalleryId == g.Id && string.Equals(GalleryRules.SectionOf(g, p.RelPath), s.Folder, StringComparison.OrdinalIgnoreCase))
+                        .OrderBy(p => p.TakenAt).Select(p => (int?)p.Id).FirstOrDefault()
+                })).Take(12).ToList();
+
+            return Results.Ok(new { galleries = matchedGalleries, sections = matchedSections, photos = hits });
         });
 
         var secured = app.MapGroup("/api/admin").RequireAuthorization("Admin");

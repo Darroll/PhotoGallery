@@ -103,6 +103,68 @@ public class MigrationTests : IDisposable
         }
     }
 
+    /// <summary>Inserts a row into a table as it was at an old schema: every required column gets a plain value of its type, then the given ones override.</summary>
+    static void InsertOld(AppDb db, string table, Dictionary<string, object> values)
+    {
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+        var cols = new List<(string name, string type)>();
+        using (var c = conn.CreateCommand())
+        {
+            c.CommandText = $"SELECT name, type FROM pragma_table_info('{table}') WHERE (\"notnull\" = 1 AND dflt_value IS NULL) AND pk = 0";
+            using var r = c.ExecuteReader();
+            while (r.Read()) cols.Add((r.GetString(0), r.GetString(1)));
+        }
+        var all = cols.ToDictionary(x => x.name, x => x.type == "INTEGER" ? (object)0 : x.name is "CreatedAt" or "FirstSeen" or "LastSeen" or "TakenAt" or "Time" or "UpdatedAt" or "AcceptedAt" or "At" or "AddedAt" ? "2025-01-01 00:00:00" : "x");
+        foreach (var (k, v) in values) all[k] = v;
+        using var ins = conn.CreateCommand();
+        ins.CommandText = $"INSERT INTO \"{table}\" ({string.Join(",", all.Keys.Select(k => $"\"{k}\""))}) VALUES ({string.Join(",", all.Keys.Select((_, i) => "$p" + i))})";
+        var n = 0;
+        foreach (var v in all.Values) { var p = ins.CreateParameter(); p.ParameterName = "$p" + n++; p.Value = v; ins.Parameters.Add(p); }
+        ins.ExecuteNonQuery();
+    }
+
+    [Fact]
+    public void Upgrading_from_the_first_release_keeps_every_gallery_photo_and_user_and_makes_a_backup()
+    {
+        using (var db = new AppDb(Opts))
+        {
+            var migrator = Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>(db);
+            migrator.Migrate("20261029222553_InitialCreate");
+            InsertOld(db, "Galleries", new() { ["Id"] = 1, ["Slug"] = "old-gallery", ["Title"] = "Old Gallery", ["Folder"] = "Old/Folder", ["Visibility"] = 1 });
+            for (var i = 1; i <= 3; i++)
+                InsertOld(db, "Photos", new() { ["Id"] = i, ["GalleryId"] = 1, ["RelPath"] = $"p{i}.jpg", ["Name"] = $"p{i}.jpg" });
+            InsertOld(db, "Users", new() { ["Sub"] = "old-user", ["Email"] = "o@example.test", ["Name"] = "Old" });
+            InsertOld(db, "Tags", new() { ["Id"] = 1, ["Name"] = "keep" });
+            InsertOld(db, "Favorites", new() { ["Id"] = 1, ["GalleryId"] = 1, ["PhotoId"] = 2, ["VisitorId"] = "visitor-cccccccccccccccc" });
+        }
+        using (var db = new AppDb(Opts)) Schema.Migrate(db);
+        using (var db = new AppDb(Opts))
+        {
+            Assert.Empty(db.Database.GetPendingMigrations());
+            var g = db.Galleries.Single();
+            Assert.Equal(("old-gallery", "Old Gallery", "Old/Folder"), (g.Slug, g.Title, g.Folder));
+            Assert.Equal("[]", g.Sections);                       // new settings start at their defaults
+            Assert.Equal(CoverMode.WithPhotos, g.CoverMode);
+            Assert.Null(g.EventEndDate);
+            Assert.Equal(["p1.jpg", "p2.jpg", "p3.jpg"], db.Photos.OrderBy(p => p.RelPath).Select(p => p.RelPath).ToList());
+            Assert.All(db.Photos.ToList(), p => Assert.False(p.TakenFromRaw));
+            Assert.Equal("Old", db.Users.Single().Name);
+            Assert.Equal("keep", db.Tags.Single().Name);
+            Assert.Equal(1, db.Favorites.Count());
+            Assert.Single(Directory.GetFiles(dir, "*.bak-*"));    // the file was copied before anything changed
+        }
+        // and the backup is the old database, untouched
+        var bak = Directory.GetFiles(dir, "*.bak-*").Single();
+        using var old = new SqliteConnection($"Data Source={bak};Pooling=False;Mode=ReadOnly");
+        old.Open();
+        using var cmd = old.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM Photos";
+        Assert.Equal(3L, cmd.ExecuteScalar());
+        cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Galleries') WHERE name = 'Sections'";
+        Assert.Equal(0L, cmd.ExecuteScalar());
+    }
+
     /// <summary>
     /// EnsureCreated builds today's model, but a database from before migrations had the baseline schema. Take away what
     /// later migrations add, so adoption can be tested the way it happens: baseline first, then the newer migrations.

@@ -225,4 +225,13 @@ public static class GalleryRules
             : items.OrderBy(key, cmp).ThenBy(x => name(x).ToLowerInvariant());
         return ordered.ToList();
     }
+
+    /// <summary>The address to give people for a gallery, or for one of its sections. Uses the address set in Setup when there is one, otherwise the one this request came in on.</summary>
+    public static string ShareUrl(Gallery g, string? section, string siteUrl, string requestOrigin)
+    {
+        var origin = (siteUrl.Length > 0 ? siteUrl : requestOrigin).TrimEnd('/');
+        var url = $"{origin}/g/{Uri.EscapeDataString(g.Slug)}";
+        var match = string.IsNullOrWhiteSpace(section) ? null : Sections(g).FirstOrDefault(s => string.Equals(s.Folder, section, StringComparison.OrdinalIgnoreCase));
+        return match == null ? url : $"{url}#s={Uri.EscapeDataString(match.Folder)}";
+    }
 }

@@ -572,3 +572,8 @@ table.data td:last-child { text-align: right; font-variant-numeric: tabular-nums
 .section-row { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 6px; }
 .section-row .link-row input:first-child { flex: 0 1 220px; }
 .section-row > button { align-self: flex-start; }
+
+.share-link { flex: 1; min-width: 0; }
+.share-pick { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.share-qr-box { display: flex; justify-content: center; margin: 12px 0; }
+.share-qr { background: #fff; border-radius: 8px; padding: 6px; }

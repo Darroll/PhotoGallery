@@ -67,6 +67,19 @@ public static class PublicApi
             return Results.Ok(list);
         });
 
+        // The address of a gallery (or one of its sections) as a QR code, for printing or showing on a screen. Only anyone who can open the gallery gets it.
+        app.MapGet("/api/g/{slug}/qr", async (string slug, string? section, HttpContext ctx, AppDb db, AccessService access, SettingsService settings) =>
+        {
+            var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
+            if (g == null) return Results.NotFound();
+            if (!(await access.CheckAsync(ctx, g)).Allowed) return Results.NotFound();
+            var url = GalleryRules.ShareUrl(g, section, settings.Email.SiteUrl, $"{ctx.Request.Scheme}://{ctx.Request.Host}");
+            using var data = new QRCoder.QRCodeGenerator().CreateQrCode(url, QRCoder.QRCodeGenerator.ECCLevel.M);
+            var svg = new QRCoder.SvgQRCode(data).GetGraphic(8, "#000000", "#ffffff", drawQuietZones: true);
+            ctx.Response.Headers.CacheControl = "private, max-age=300";
+            return Results.Text(svg, "image/svg+xml");
+        }).RequireRateLimiting("viewed");
+
         app.MapGet("/api/g/{slug}", async (string slug, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ActivityLog activity, SettingsService settings) =>
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
@@ -108,7 +121,7 @@ public static class PublicApi
             return Results.Ok(new
             {
                 g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId, tags = gTags, tagColors,
-                g.Location, eventDate = g.EventDate, eventEndDate = g.EventEndDate, coverMode = g.CoverMode, hideRawOnly = g.HideRawOnly, allowLikes = g.AllowLikes, allowComments = g.AllowComments, showLikeCounts = g.ShowLikeCounts || admin, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note, preview = previews && GalleryRules.CategoryOf(l) == "external" ? ExternalLinkPreviews.ForPage(cfg, l.Url) : null }), sections = layout.Select(s => new { folder = s.Folder, s.Title, count = sectionCounts.GetValueOrDefault(s.Folder), links = (s.Links ?? new()).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }) }), favorites = favoriteIds, favoriteName, sizes =GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
+                g.Location, eventDate = g.EventDate, eventEndDate = g.EventEndDate, coverMode = g.CoverMode, shareUrl = GalleryRules.ShareUrl(g, null, settings.Email.SiteUrl, $"{ctx.Request.Scheme}://{ctx.Request.Host}"), hideRawOnly = g.HideRawOnly, allowLikes = g.AllowLikes, allowComments = g.AllowComments, showLikeCounts = g.ShowLikeCounts || admin, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note, preview = previews && GalleryRules.CategoryOf(l) == "external" ? ExternalLinkPreviews.ForPage(cfg, l.Url) : null }), sections = layout.Select(s => new { folder = s.Folder, s.Title, count = sectionCounts.GetValueOrDefault(s.Folder), links = (s.Links ?? new()).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }) }), favorites = favoriteIds, favoriteName, sizes =GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
                 allowDownload = g.AllowDownload,
                 allowOriginal = g.AllowDownload && !locked,
                 allowRaw = g.AllowDownload && g.AllowRaw && !locked,

@@ -343,12 +343,16 @@ async function viewSearch(app) {
   const [r, colors] = await Promise.all([api('/api/search?' + sp.toString()), api('/api/tag-colors')]);
   if (colors.ok) learnTagColors(colors.data);
   if (!r.ok) return app.append(h('p', { class: 'err', text: 'Search failed. Try again.' }));
-  const { galleries, photos } = r.data;
-  if (!photos.length && !galleries.length) return app.append(h('p', { class: 'muted', text: 'Nothing matched. Only public galleries are searched.' }));
+  const { galleries, photos } = r.data, sections = r.data.sections || [];
+  if (!photos.length && !galleries.length && !sections.length) return app.append(h('p', { class: 'muted', text: 'Nothing matched. Only public galleries are searched.' }));
   if (galleries.length) app.append(h('h2', { text: 'Galleries' }), h('div', { class: 'cards' }, galleries.map(g =>
     h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
       g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
       h('div', { class: 'meta' }, h('b', { text: g.title }), eventLines(g), tagChips(g))))));
+  if (sections.length) app.append(h('h2', { text: 'Sections' }), h('div', { class: 'cards' }, sections.map(x =>
+    h('a', { class: 'card', href: '/g/' + encodeURIComponent(x.slug) + '#s=' + encodeURIComponent(x.folder) },
+      x.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${x.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
+      h('div', { class: 'meta' }, h('b', { text: x.title }), h('span', { class: 'muted', text: x.gallery }), eventLines(x))))));
   if (photos.length) app.append(h('h2', { text: 'Photos' }), h('div', { class: 'photo-cards' }, photos.map(p =>
     h('a', { class: 'photo-card', href: `/g/${encodeURIComponent(p.slug)}/p/${p.id}` },
       h('img', { loading: 'lazy', src: `/img/${p.id}/thumb`, alt: p.altText || p.name }),
@@ -621,6 +625,7 @@ async function viewGallery(app, slug) {
 
   const tb = h('div', { class: 'toolbar gallery-bar' }, countLabel, slideBtn, selectBtn, favBtn, likedBtn);
   if (G.allowDownload) tb.append(dlBtn);
+  tb.append(h('button', { text: 'Share', title: 'Link and QR code for this gallery', onclick: () => openShareSheet(sections.length > 1 && activeSec ? (sections.find(x => x.folder.toLowerCase() === activeSec) || null) : null) }));
   if (rawOnlyCount > 0) tb.append(rawBtn);
   tb.append(h('span', { class: 'grow' }));
   if (G.allowUpload) tb.append(uploadControl(slug));
@@ -664,6 +669,42 @@ function closeSheet() {
   if (!s) return;
   document.removeEventListener('keydown', s._key, true);
   s.remove();
+}
+
+// Share: the address of the gallery (or of the open section), a message ready to paste, and a QR code to show or print.
+function openShareSheet(section) {
+  closeSheet();
+  let scope = section ? section.folder : '';
+  const sections = G.sections || [];
+  const urlOf = () => G.shareUrl + (scope ? '#s=' + encodeURIComponent(scope) : '');
+  const qrOf = () => `/api/g/${encodeURIComponent(G.slug)}/qr` + (scope ? '?section=' + encodeURIComponent(scope) : '');
+  const titleOf = () => { const s = sections.find(x => x.folder === scope); return s ? `${G.title} - ${s.title}` : G.title; };
+  const copy = async (text, what) => { try { await navigator.clipboard.writeText(text); toast('Copied ' + what); } catch { prompt('Copy this', text); } };
+
+  const link = h('input', { type: 'text', readonly: true, 'aria-label': 'Link', class: 'share-link' });
+  const qr = h('img', { class: 'share-qr', alt: 'QR code for the link', width: 220, height: 220 });
+  const printLink = h('a', { class: 'btn', target: '_blank', rel: 'noopener', text: 'Open QR to print' });
+  const who = { 0: 'Anyone with the link can open it.', 1: 'Anyone with the link can open it.', 2: 'People will need the password or a share link.', 3: 'Only the people on the list can open it, after signing in.' }[G.visibility];
+  const draw = () => { link.value = urlOf(); qr.src = qrOf(); printLink.href = qrOf(); };
+  const pick = sections.length > 1 ? h('label', { class: 'share-pick' }, 'Share ',
+    h('select', { 'aria-label': 'What to share', onchange: (e) => { scope = e.target.value; draw(); } },
+      h('option', { value: '', text: 'The whole gallery', selected: !scope }),
+      ...sections.map(s => h('option', { value: s.folder, text: s.title, selected: s.folder === scope })))) : null;
+  draw();
+  const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } },
+    h('div', { class: 'sheet', role: 'dialog', 'aria-label': 'Share' },
+      h('div', { class: 'sheet-grab' }),
+      h('h3', { text: 'Share' }),
+      pick,
+      h('div', { class: 'row' }, link, h('button', { class: 'primary', text: 'Copy link', onclick: () => copy(urlOf(), 'the link') })),
+      h('div', { class: 'share-qr-box' }, qr),
+      who ? h('p', { class: 'muted', text: who }) : null,
+      h('div', { class: 'row sheet-actions' },
+        h('button', { text: 'Copy a message', onclick: () => copy(`${titleOf()}: ${urlOf()}`, 'the message') }), printLink,
+        h('button', { text: 'Close', onclick: closeSheet }))));
+  sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
+  document.addEventListener('keydown', sheet._key, true);
+  document.body.append(sheet);
 }
 
 function openDownloadSheet(opts = {}) {
@@ -2609,7 +2650,7 @@ async function viewGallerySettings(app, id) {
       field('Rescan', h('div', { class: 'row' }, h('button', { text: 'Rescan folder now', onclick: async () => {
         scanMsg.textContent = 'Scanning...';
         const r = await api(`/api/admin/galleries/${g.id}/scan`, { method: 'POST' });
-        scanMsg.textContent = r.ok ? `Added ${r.data.added}, removed ${r.data.removed}; ${r.data.paired} paired with RAW, ${r.data.rawOnly} RAW-only` + (r.data.retimed ? `; read the shooting time of ${r.data.retimed} photos from their RAW files` : '') : (typeof r.data === 'string' ? r.data : 'Failed');
+        scanMsg.textContent = r.ok ? `Added ${r.data.added}, removed ${r.data.removed}; ${r.data.paired} paired with RAW, ${r.data.rawOnly} RAW-only` + (r.data.retimed ? `; read the shooting time of ${r.data.retimed} photos from their RAW files` : '') + (r.data.seconds >= 1 ? ` (took ${r.data.seconds} s)` : '') : (typeof r.data === 'string' ? r.data : 'Failed');
       } }), scanMsg), 'Folders are also rescanned automatically.'),
       field('Thumbnails', thumbControl(g), 'Built automatically in the background after each scan. Rebuild after fixing or replacing photos.'),
       field('Delete', h('button', { class: 'danger', text: 'Delete gallery...', onclick: async () => {

@@ -134,4 +134,23 @@ public class SectionTests(AppFactory app) : IClassFixture<AppFactory>
         var names = new[] { "Game 10", "Game 2", "game 1", "Game 20" };
         Assert.Equal(new[] { "game 1", "Game 2", "Game 10", "Game 20" }, names.OrderBy(n => n, new GalleryRules.NaturalComparer()).ToArray());
     }
+
+    [Fact]
+    public async Task Search_finds_a_section_by_its_title_and_gives_it_a_picture_from_that_section()
+    {
+        var (slug, id, admin) = await TournamentAsync("Cup Weekend");
+        await admin.PutAsJsonAsync($"/api/admin/galleries/{id}", new { sections = new[] { new { folder = "Game_2", title = "Semi Finals vs Cooper City", links = Array.Empty<object>() } } });
+
+        var r = await (await app.NewClient().GetAsync("/api/search?q=cooper")).ReadAsync();
+        var hit = r.GetProperty("sections").EnumerateArray().Single(x => x.GetProperty("slug").GetString() == slug);
+        Assert.Equal("Game_2", hit.GetProperty("folder").GetString());
+        Assert.Equal("Semi Finals vs Cooper City", hit.GetProperty("title").GetString());
+        Assert.Equal("Cup Weekend", hit.GetProperty("gallery").GetString());
+        var pic = hit.GetProperty("cover").GetInt32();
+        var photos = (await GalleryAsync(app.NewClient(), slug)).GetProperty("photos").EnumerateArray();
+        Assert.Equal("c.jpg", photos.Single(p => p.GetProperty("id").GetInt32() == pic).GetProperty("name").GetString());   // Game_2 holds only c.jpg
+
+        var none = await (await app.NewClient().GetAsync("/api/search?q=cooper&scope=photos")).ReadAsync();
+        Assert.Equal(0, none.GetProperty("sections").GetArrayLength());
+    }
 }

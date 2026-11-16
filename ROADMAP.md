@@ -38,7 +38,7 @@ Done in the repo and on GitHub: template `templates/photogallery.xml`, icon, `ca
 
 - [x] **Open a support thread** on the Unraid forum (Docker Containers section) for PhotoGallery: what it is, screenshots, how to install, where to report bugs.
 - [x] **Put the thread URL in the template.** Set `<Support>` in `templates/photogallery.xml` (it points at GitHub issues now), commit and push.
-- [ ] **Test the template on a clean setup.** Copy `templates/photogallery.xml` to `/boot/config/plugins/dockerMan/templates-user/` on the server, Add Container -> photogallery, leave `ADMIN_PASSWORD` empty, confirm it pulls from ghcr.io, starts, and the password appears in the log.
+- [x] **Test the template on a clean setup.** Done: installs and starts from the Apps tab with the password in the log.
 - [x] **Submit to Community Applications.** Auto-approved; goes live in the next Community Applications update. Post the repository (`https://github.com/Darroll/PhotoGallery`) in the Community Applications thread / submission form and answer the moderators' review comments.
 - [ ] **Keep the image fresh.** Each push to `main` rebuilds `:latest`; check the Actions tab after a release (a failed build leaves users on the old image). Dependabot already covers NuGet and Docker.
 - [ ] (optional) Replace the placeholder `unraid/icon.png` with your own artwork; add screenshots to the README for the listing.
@@ -131,13 +131,13 @@ The app was built for one household. Public installs mean unknown setups, no one
 
 **First week after it goes live**
 - [ ] **Watch the support thread and GitHub issues** every day or two; answer, and turn repeated questions into README or in-app help.
-- [ ] **Test as a stranger.** Install from the Apps tab on a clean share and a fresh appdata folder, with default settings and no SWAG, SSO or email. Fix every place you get stuck.
+- [x] **Test as a stranger.** Done: clean install from the Apps tab; Community Apps listing shows correctly.
 - [x] **Add GitHub issue templates** (bug: Unraid version, container log, steps; feature request) and a short `SECURITY.md` saying how to report a vulnerability privately.
 - [x] **Screenshots** for the README (home, gallery, viewer, phone, admin overview and galleries; in `docs/screenshots/`). Still to do: post the same images in the forum thread, and Keycloak screenshots for the sign-in how-to.
 
 **Safe updates (most important)**
 - [x] **Versioned releases (tags and image tags; the changelog file exists, keep filling it).** Tag releases (`v1.0.0`...) so the image also gets `:1.0.0` tags; keep `:latest` for the template. Write a `CHANGELOG.md` and link it from the template and the app's Overview page.
-- [ ] **Never break existing data on upgrade.** Test every release by upgrading from the previous image with real data; migrations must be additive; the automatic backup runs before a migration is applied.
+- [x] **Never break existing data on upgrade.** Automated upgrade test added in 1.6.0 (first release database -> latest, data kept, backup made); still upgrade a real copy before each release. Test every release by upgrading from the previous image with real data; migrations must be additive; the automatic backup runs before a migration is applied.
 - [x] **Do not let `:latest` break people.** Only push `:latest` from a tag or after tests pass (the publish workflow currently builds on every push to `main`).
 - [x] **Update notice** in the app (roadmap #23) so users learn about new versions, with no phoning home unless they turn it on.
 
@@ -149,19 +149,19 @@ The app was built for one household. Public installs mean unknown setups, no one
 
 **Gaps a new user will likely hit (found by reading the code and docs, not yet built)**
 - [x] **Say where the password is.** The first-run admin password is only in the container log; the sign-in page could say "see the container log" when no password was configured. (Replaced by the first-run setup page above.)
-- [ ] **Measure and document resource use** (RAM and cache size per 1,000 photos, first-scan time) instead of leaving users to guess; the README now avoids numbers until measured.
+- [ ] **Measure and document resource use** (only measurements that are useful and actionable) (RAM and cache size per 1,000 photos, first-scan time) instead of leaving users to guess; the README now avoids numbers until measured.
 - [x] **Permission self-check.** The Overview should say plainly "the app cannot read your photo folder / cannot write appdata; run `chown -R 99:100 ...`" with the exact command, since this is the most likely first failure.
 - [x] **Proxy self-check.** Warn on the Overview when requests arrive through a proxy that is not in `TRUSTED_PROXIES` (forwarded headers present but ignored), the most likely cause of wrong statistics and shared rate limits.
 - [x] **Built-in help in the app.** There is no Help page in the app; link Getting started and Troubleshooting from the admin menu and from each Overview check.
 - [x] **Nginx Proxy Manager and Cloudflare Tunnel examples** next to the SWAG config, with the header, upload-size and buffering settings the app needs.
-- [ ] **Other photo formats and video files.** Video files are ignored today; decide whether to support them, or say so in the first-run setup.
+- [ ] **Video files.** Ignored today. Future TODO, not planned for now.
 - [x] **Import and export of settings** so a user can move to a new server without redoing every setting. (Galleries, likes and comments travel with the database backup or the app data folder.)
 - [x] **Optional update notice and a visible version/changelog link** in the admin header.
 
 **Support load and trust**
 - [x] **Diagnostics bundle.** A button on the Overview page that gathers version, settings (secrets removed) and recent errors into one text block to paste into a bug report.
 - [x] **No telemetry.** State plainly in the README that the app sends nothing home (captions, link previews and email go only where the admin configures).
-- [ ] **Other CPU types.** Build the image for `linux/arm64` as well as `linux/amd64` if anyone asks (Unraid is mostly amd64).
+- Declined: no `linux/arm64` build (cannot be tested on real hardware).
 - [ ] **Resource sanity.** Document memory and CPU use for a large library (first scan, thumbnail generation) and make the first scan gentle on small servers.
 
 Highest risk, so most careful: #2 (fetching other sites), #7 (restore), #8 (file identity), #11 and #12 (comments and the log), #17 (invites and access).
@@ -201,14 +201,13 @@ If time is short, the smallest set that delivers the vision is **#1, #4, #6, #7,
 - [ ] **Plain-language Unraid template.** Short field descriptions, safe defaults, only a handful of fields shown.
 - [x] **"Is my site reachable?" check** on the Overview page, with a plain explanation when it is not.
 - [x] **Getting-started checklist** on the Overview page for a new install (create a gallery, share it, set up email, back up) that disappears when done. *proposed*
-- [ ] **Sample gallery** created on request, so a new admin can try every feature before using real photos. *proposed*
 - [ ] **Simple install guide** with screenshots, in the README and in the app's Help page.
 - [x] **Update notice** on the Overview page when a newer version is available. *proposed*
 - [ ] (?) Q4: other install routes (plain `docker compose`, Synology, a Windows/Mac one-click app).
 
 ## 3. Easy administration
 
-- [ ] **Share button.** One click gives the link, a copy-ready message, a QR code and a printable QR card; choose "anyone with the link" or "needs a password" in plain words. For *Specific people* galleries it leads into the invite flow (section 5).
+- [x] **Share button.** (1.6.0) One click gives the link, a copy-ready message, a QR code and a printable QR card; choose "anyone with the link" or "needs a password" in plain words. For *Specific people* galleries it leads into the invite flow (section 5).
 - [ ] **Simple mode / advanced mode.** Simple shows the five things most people need; advanced shows today's full settings.
 - [ ] **Create a gallery from a folder in one step**, with sensible defaults, then share.
 - [ ] **Inbox.** One place for everything waiting on you: guest uploads, caption suggestions, new comments, failed emails, dead links.
@@ -234,7 +233,7 @@ If time is short, the smallest set that delivers the vision is **#1, #4, #6, #7,
 
 - [ ] Backup restore test; scheduled thumbnail cache cleanup.
 - [x] **Renamed and moved files keep their likes, tags and captions** (file fingerprint; photos follow the file within and across galleries; details of removed photos held 90 days). Comments will attach to the photo the same way once they exist.
-- [ ] Admin audit log (who changed what), alongside the comment log.
+- [ ] **Admin audit log (who changed what), alongside the comment log.** Scheduled: to be built after the current ease-of-use items.
 - [x] **Privacy tools.** With comments the app now holds email addresses and names. Add: export everything held about one person, delete a person (their likes and comments), and a short editable privacy notice linked from the footer next to the license. *proposed*
 - [x] **Delete gallery** also removes its comments and likes, and says so in the confirmation.
 - [ ] Accessibility pass (keyboard, screen reader, contrast) on all themes.
@@ -265,3 +264,9 @@ Answers go here as they are decided.
 - **Q11. Decided:** Keycloak only; the setup wizard gets a guided SSO step.
 - **Q12. Decided:** the admin may reply, flat, marked as the photographer.
 - **Q13. Decided:** commenters may edit or delete their own comment for 15 minutes; the log keeps the earlier text.
+
+## Decided not to do (for now)
+- Report of files skipped by the scanner: put off.
+- Moving photos between sections: not needed; drop everything into one folder as you work.
+- Statistics per section tab: adds complexity without need.
+- Sample gallery, arm64 build: declined.
