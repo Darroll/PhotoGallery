@@ -1,0 +1,206 @@
+using Microsoft.EntityFrameworkCore;
+
+namespace PhotoGallery;
+
+/// <summary>
+/// Automatic player tagging: the AI providers (Settings, Automatic tagging), teams with their rosters, choosing a gallery's
+/// team, starting a check, and reviewing what the model found. Admin only.
+/// </summary>
+public static class PlayerApi
+{
+    record TeamInput(string? Name, string? Colors, bool? TagWithNames, string? Roster);
+    record GalleryTeamInput(int? TeamId);
+    record CheckInput(int? Limit, bool? Recheck);
+    record ReviewInput(List<int>? Approve, List<int>? Reject);
+    record TestInput(string? Kind, VisionSettings? Settings);
+
+    static bool Csrf(HttpContext ctx) => ctx.Request.Headers["X-Requested-With"] == "pg";
+    static string Cut(string? s, int max) { s = (s ?? "").Trim(); return s.Length > max ? s[..max] : s; }
+
+    static object TeamOut(Team t, int galleries) => new
+    {
+        t.Id, t.Name, t.Colors, t.TagWithNames, galleries,
+        players = t.Players.OrderBy(p => p.Number.Length).ThenBy(p => p.Number, StringComparer.Ordinal).Select(p => new { p.Id, p.Number, p.Name }),
+        roster = string.Join("\n", t.Players.OrderBy(p => p.Number.Length).ThenBy(p => p.Number, StringComparer.Ordinal).Select(p => p.Name.Length > 0 ? $"{p.Number} {p.Name}" : p.Number)),
+    };
+
+    public static void Map(WebApplication app)
+    {
+        var secured = app.MapGroup("/api/admin").RequireAuthorization("Admin");
+
+        // --- providers ---
+        secured.MapGet("/settings/vision", (SettingsService settings) => Results.Ok(settings.Vision.Public()));
+
+        secured.MapPut("/settings/vision", (VisionSettings input, HttpContext ctx, SettingsService settings) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            return Results.Ok(settings.SetVision(input).Public());
+        });
+
+        // Sends one photo (or a plain test picture) to a single provider with the settings as typed, without saving them.
+        secured.MapPost("/settings/vision/test", async (TestInput input, HttpContext ctx, SettingsService settings, AppDb db, ImageService images, IVisionReader reader) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var typed = (input.Settings ?? settings.Vision).Sanitized().WithStoredKeys(settings.Vision);
+            var p = typed.Providers.FirstOrDefault(x => x.Kind == input.Kind);
+            if (p == null) return Results.BadRequest("Unknown provider.");
+            if (p.Model.Length == 0) return Results.BadRequest("Type the model name first.");
+            if (!p.IsCloud && p.Url.Length == 0) return Results.BadRequest("Type the Ollama address first, such as http://192.168.1.20:11434.");
+            if (p.IsCloud && p.ApiKey.Length == 0) return Results.BadRequest("Paste the API key first.");
+            if (p.IsCloud && !p.SendPhotosAgreed) return Results.BadRequest("Tick that photos may be sent to this company first.");
+            var photo = await db.Photos.Where(x => x.Approved && !x.IsGuest).OrderByDescending(x => x.Id).FirstOrDefaultAsync();
+            byte[] jpeg;
+            if (photo != null && await images.GetVariantAsync(photo, "ai", PlayerTags.ImageSize, "jpg", false) is { } v) jpeg = await File.ReadAllBytesAsync(v.path);
+            else { using var img = NetVips.Image.Black(64, 64) + 128; jpeg = img.Cast(NetVips.Enums.BandFormat.Uchar).JpegsaveBuffer(); }
+            try
+            {
+                var a = await reader.AskAsync(p, jpeg, PlayerPrompt.Build("any colors", Array.Empty<string>()), ctx.RequestAborted);
+                return Results.Ok(new { ok = true, ms = a.Ms, numbers = a.Numbers.Select(n => n.Number + " (" + n.Confidence + "%)"), photo = photo?.Name });
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return Results.Ok(new { ok = false, error = ex.Message });
+            }
+        });
+
+        // --- teams ---
+        secured.MapGet("/teams", async (AppDb db) =>
+        {
+            var teams = await db.Teams.Include(t => t.Players).OrderBy(t => t.Name).ToListAsync();
+            var use = await db.Galleries.Where(g => g.TeamId != null).GroupBy(g => g.TeamId!.Value).Select(x => new { x.Key, n = x.Count() }).ToDictionaryAsync(x => x.Key, x => x.n);
+            return Results.Ok(teams.Select(t => TeamOut(t, use.GetValueOrDefault(t.Id))));
+        });
+
+        secured.MapPost("/teams", async (TeamInput input, HttpContext ctx, AppDb db) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var t = new Team();
+            var err = await ApplyAsync(db, t, input);
+            if (err != null) return Results.BadRequest(err);
+            db.Teams.Add(t);
+            await db.SaveChangesAsync();
+            return Results.Ok(TeamOut(t, 0));
+        });
+
+        secured.MapPut("/teams/{id:int}", async (int id, TeamInput input, HttpContext ctx, AppDb db) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var t = await db.Teams.Include(x => x.Players).FirstOrDefaultAsync(x => x.Id == id);
+            if (t == null) return Results.NotFound();
+            var err = await ApplyAsync(db, t, input);
+            if (err != null) return Results.BadRequest(err);
+            await db.SaveChangesAsync();
+            return Results.Ok(TeamOut(t, await db.Galleries.CountAsync(g => g.TeamId == id)));
+        });
+
+        // removes the team, its roster and its waiting suggestions; tags already on photos stay
+        secured.MapDelete("/teams/{id:int}", async (int id, HttpContext ctx, AppDb db) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var t = await db.Teams.FindAsync(id);
+            if (t == null) return Results.NotFound();
+            foreach (var g in await db.Galleries.Where(g => g.TeamId == id).ToListAsync()) g.TeamId = null;
+            db.Teams.Remove(t);
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
+
+        // --- per gallery ---
+        secured.MapPut("/galleries/{id:int}/team", async (int id, GalleryTeamInput input, HttpContext ctx, AppDb db) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var g = await db.Galleries.FindAsync(id);
+            if (g == null) return Results.NotFound();
+            if (input.TeamId != null && !await db.Teams.AnyAsync(t => t.Id == input.TeamId)) return Results.BadRequest("That team no longer exists.");
+            g.TeamId = input.TeamId;
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
+
+        // where the gallery stands: its team, how many photos were checked, the job's progress, and the suggestions waiting
+        secured.MapGet("/galleries/{id:int}/players", async (int id, AppDb db, PlayerTagJobs jobs, SettingsService settings) =>
+        {
+            var g = await db.Galleries.FindAsync(id);
+            if (g == null) return Results.NotFound();
+            var hiddenCover = GalleryRules.HiddenCoverId(g);
+            var photos = db.Photos.Where(p => p.GalleryId == id && p.Approved && p.Id != hiddenCover);
+            var total = await photos.CountAsync();
+            var checkedCount = await photos.CountAsync(p => p.PlayersCheckedAt != null);
+            var team = g.TeamId == null ? null : await db.Teams.Include(t => t.Players).FirstOrDefaultAsync(t => t.Id == g.TeamId);
+            var rows = await (from s in db.PlayerSuggestions
+                              join p in db.Photos on s.PhotoId equals p.Id
+                              join pl in db.Players on s.PlayerId equals pl.Id
+                              where p.GalleryId == id && s.Status == "pending"
+                              select new { s.Id, s.PhotoId, photo = p.Name, p.TakenAt, pl.Number, player = pl.Name, s.Confidence, s.Source, pl.TeamId })
+                             .ToListAsync();
+            var teamNames = await db.Teams.ToDictionaryAsync(t => t.Id, t => t);
+            var approved = await (from s in db.PlayerSuggestions join p in db.Photos on s.PhotoId equals p.Id where p.GalleryId == id && s.Status == "approved" select s.Id).CountAsync();
+            return Results.Ok(new
+            {
+                teamId = g.TeamId, teamPlayers = team?.Players.Count ?? 0,
+                photos = total, @checked = checkedCount, approved,
+                providers = settings.Vision.Chain.Select(p => VisionProvider.Label(p.Kind)),
+                job = jobs.Status(id),
+                pending = rows.OrderBy(r => r.TakenAt).ThenBy(r => r.photo).Select(r => new
+                {
+                    r.Id, r.PhotoId, r.photo, r.Number, r.player, r.Confidence, r.Source,
+                    tag = teamNames.TryGetValue(r.TeamId, out var t) ? PlayerTags.TagName(t, new Player { Number = r.Number, Name = r.player }) : r.Number,
+                }),
+            });
+        });
+
+        secured.MapPost("/galleries/{id:int}/players/check", async (int id, CheckInput input, HttpContext ctx, AppDb db, PlayerTagJobs jobs, SettingsService settings) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var g = await db.Galleries.FindAsync(id);
+            if (g == null) return Results.NotFound();
+            if (settings.Vision.Chain.Count == 0) return Results.BadRequest("No AI provider is set up yet. Open Settings, Automatic tagging.");
+            if (g.TeamId == null) return Results.BadRequest("Choose the team for this gallery first.");
+            if (!await db.Players.AnyAsync(p => p.TeamId == g.TeamId)) return Results.BadRequest("Add the team's players (their numbers) first.");
+            var limit = input.Limit is { } n ? Math.Clamp(n, 1, 100) : (int?)null;
+            if (!jobs.Start(id, limit, input.Recheck == true)) return Results.Conflict("A check is already running for this gallery.");
+            return Results.Accepted();
+        });
+
+        secured.MapPost("/players/review", async (ReviewInput input, HttpContext ctx, AppDb db) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var ids = (input.Approve ?? new()).Concat(input.Reject ?? new()).Distinct().Take(2000).ToList();
+            var list = await db.PlayerSuggestions.Where(s => ids.Contains(s.Id) && s.Status == "pending").ToListAsync();
+            var players = await db.Players.Include(p => p.Team).Where(p => list.Select(s => s.PlayerId).Contains(p.Id)).ToDictionaryAsync(p => p.Id);
+            var approve = (input.Approve ?? new()).ToHashSet();
+            int a = 0, r = 0;
+            foreach (var s in list)
+            {
+                if (approve.Contains(s.Id) && players.TryGetValue(s.PlayerId, out var pl)) { await PlayerTags.ApproveAsync(db, s, pl.Team!, pl); a++; }
+                else { s.Status = "rejected"; s.ReviewedAt = DateTime.UtcNow; r++; }
+            }
+            await db.SaveChangesAsync();
+            return Results.Ok(new { approved = a, rejected = r });
+        });
+    }
+
+    /// <summary>Copies the typed team onto the record. The roster replaces the old one; players still listed keep their suggestions.</summary>
+    static async Task<string?> ApplyAsync(AppDb db, Team t, TeamInput input)
+    {
+        var name = Cut(input.Name, 30);
+        if (name.Length == 0) return "Give the team a name.";
+        if (await db.Teams.AnyAsync(x => x.Id != t.Id && x.Name.ToLower() == name.ToLower())) return "Another team already has that name.";
+        t.Name = name;
+        t.Colors = Cut(input.Colors, 200);
+        t.TagWithNames = input.TagWithNames == true;
+        if (input.Roster != null)
+        {
+            var roster = PlayerTags.ParseRoster(input.Roster);
+            foreach (var old in t.Players.ToList())
+                if (!roster.Any(x => x.Number == old.Number)) { t.Players.Remove(old); db.Players.Remove(old); }
+            foreach (var (number, pname) in roster)
+            {
+                var p = t.Players.FirstOrDefault(x => x.Number == number);
+                if (p == null) t.Players.Add(new Player { Number = number, Name = pname });
+                else p.Name = pname;
+            }
+        }
+        return null;
+    }
+}

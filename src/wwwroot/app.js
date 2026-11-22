@@ -1454,6 +1454,8 @@ const adminNav = [
   { href: '/admin/settings/visitor-stats', key: 'settings/visitor-stats', label: 'Visitor tracking' },
   { href: '/admin/settings/email', key: 'settings/email', label: 'Email alerts' },
   { href: '/admin/settings/sso', key: 'settings/sso', label: 'Sign-in (SSO)' },
+  { href: '/admin/settings/ai', key: 'settings/ai', label: 'Automatic tagging' },
+  { href: '/admin/settings/teams', key: 'settings/teams', label: 'Teams' },
   { href: '/admin/settings/library', key: 'settings/library', label: 'Library and schedule' },
   { href: '/admin/settings/cache', key: 'settings/cache', label: 'Thumbnail cache' },
   { heading: 'Help' },
@@ -1794,7 +1796,7 @@ function newGalleryPanel(folders) {
 
 async function viewSettings(app, section) {
   document.title = 'Site settings - ' + site.title;
-  const titles = { general: 'Site and appearance', watermark: 'Watermark', review: 'Caption suggestions', tags: 'Tags', groups: 'Groups', license: 'License', privacy: 'Privacy', 'visitor-stats': 'Visitor tracking', email: 'Email alerts', sso: 'Sign-in (SSO)', cache: 'Thumbnail cache', library: 'Library and schedule' };
+  const titles = { general: 'Site and appearance', watermark: 'Watermark', review: 'Caption suggestions', tags: 'Tags', groups: 'Groups', license: 'License', privacy: 'Privacy', 'visitor-stats': 'Visitor tracking', email: 'Email alerts', sso: 'Sign-in (SSO)', cache: 'Thumbnail cache', library: 'Library and schedule', ai: 'Automatic tagging', teams: 'Teams' };
   if (!titles[section]) section = 'general';
   const main = await adminPage(app, 'settings/' + section, titles[section]);
   if (!main) return;
@@ -1809,6 +1811,8 @@ async function viewSettings(app, section) {
   if (section === 'email') return main.append(emailPanel());
   if (section === 'sso') return main.append(await ssoPanel());
   if (section === 'library') return main.append(await libraryPanel());
+  if (section === 'ai') return main.append(await visionPanel());
+  if (section === 'teams') return main.append(await teamsPanel());
   main.append(cachePanel());
 }
 
@@ -2548,6 +2552,113 @@ function photoLink(p, viewer = false) {
   return h('span', {}, main, gal ? h('span', { class: 'muted' }, ' (', gal, ')') : null);
 }
 
+// ---------- automatic tagging ----------
+const aiErr = (res) => typeof res.data === 'string' && res.data ? res.data : 'That did not work. Try again.';
+
+// The AI providers that read jersey numbers, in the order they are tried. Only providers that are switched on and fully
+// set up are tried, so with one set up there is no fallback. Keys are never shown again after saving.
+async function visionPanel() {
+  const r = await api('/api/admin/settings/vision');
+  if (!r.ok) return h('p', { class: 'err', text: 'Could not load these settings.' });
+  let rows = r.data.providers.map(p => ({ ...p, apiKey: '' }));
+  const list = h('div', { class: 'vision-list' });
+  const auto = h('input', { type: 'number', min: 0, max: 100, value: r.data.autoApproveAt, 'aria-label': 'Approve automatically at this confidence' });
+  const msg = h('span', { class: 'muted', role: 'status' });
+  const hints = {
+    ollama: 'Runs on your own computer, so photos stay on your network. Install a vision model first, for example: ollama pull qwen3-vl:8b (needs about 8 GB of graphics memory; qwen3-vl:4b for less).',
+    anthropic: 'Needs an API key from console.anthropic.com, billed per photo. A Claude Pro or Max subscription cannot be used here: Anthropic only allows API keys in other apps.',
+    openai: 'Needs an API key from platform.openai.com, billed per photo. A ChatGPT subscription cannot be used here yet. Type a model that can see images.',
+  };
+  const collect = () => ({ autoApproveAt: Number(auto.value) || 0, providers: rows.map(p => ({ kind: p.kind, enabled: p.enabled, url: p.url, model: p.model, apiKey: p.apiKey, sendPhotosAgreed: p.sendPhotosAgreed })) });
+  const draw = () => {
+    list.replaceChildren(...rows.map((p, i) => {
+      const on = h('input', { type: 'checkbox', checked: p.enabled, onchange: (e) => { p.enabled = e.target.checked; } });
+      const model = h('input', { type: 'text', value: p.model, maxlength: 100, placeholder: p.kind === 'openai' ? 'a vision model name' : '', 'aria-label': p.label + ' model', oninput: (e) => { p.model = e.target.value; } });
+      const url = p.cloud ? null : h('input', { type: 'url', value: p.url, maxlength: 200, placeholder: 'http://192.168.1.20:11434', 'aria-label': 'Ollama address', oninput: (e) => { p.url = e.target.value; } });
+      const key = p.cloud ? h('input', { type: 'password', autocomplete: 'off', maxlength: 300, placeholder: p.keySet ? 'Saved. Paste a new key to replace it.' : 'Paste the API key', 'aria-label': p.label + ' API key', oninput: (e) => { p.apiKey = e.target.value; } }) : null;
+      const agree = p.cloud ? h('label', { class: 'sheet-row' }, h('input', { type: 'checkbox', checked: p.sendPhotosAgreed, onchange: (e) => { p.sendPhotosAgreed = e.target.checked; } }),
+        ' I understand that photos, often of children, are sent to this company to be read.') : null;
+      const result = h('div', { class: 'muted', role: 'status' });
+      const test = h('button', { text: 'Test', onclick: async () => {
+        test.disabled = true; result.className = 'muted'; result.textContent = 'Asking… a local model can take a minute the first time.';
+        const t = await api('/api/admin/settings/vision/test', { method: 'POST', body: { kind: p.kind, settings: collect() } });
+        test.disabled = false;
+        if (!t.ok) { result.className = 'err'; result.textContent = aiErr(t); return; }
+        if (t.data.ok) { result.className = 'ok'; result.textContent = `It answered in ${(t.data.ms / 1000).toFixed(1)} s` + (t.data.photo ? ` and read ${t.data.numbers.length ? t.data.numbers.join(', ') : 'no numbers'} on ${t.data.photo}.` : '.'); }
+        else { result.className = 'err'; result.textContent = 'It did not work: ' + t.data.error; }
+      } });
+      const move = (d) => { const j = i + d; if (j < 0 || j >= rows.length) return; [rows[i], rows[j]] = [rows[j], rows[i]]; draw(); };
+      return h('div', { class: 'group-card vision-card' },
+        h('div', { class: 'row' }, h('b', { text: `${i + 1}. ${p.label}` }), h('span', { class: 'grow' }),
+          h('button', { text: '↑', title: 'Try earlier', 'aria-label': 'Move ' + p.label + ' up', disabled: i === 0, onclick: () => move(-1) }),
+          h('button', { text: '↓', title: 'Try later', 'aria-label': 'Move ' + p.label + ' down', disabled: i === rows.length - 1, onclick: () => move(1) })),
+        h('div', { class: 'form1' },
+          field('Use it', h('label', {}, on, ' Switched on')),
+          url ? field('Address', url) : null,
+          key ? field('API key', key) : null,
+          field('Model', model),
+          agree ? field('Photos', agree) : null),
+        h('p', { class: 'muted', text: hints[p.kind] }),
+        h('div', { class: 'row' }, test), result);
+    }));
+  };
+  draw();
+  const save = h('button', { class: 'primary', text: 'Save', onclick: async () => {
+    const s = await api('/api/admin/settings/vision', { method: 'PUT', body: collect() });
+    if (!s.ok) { msg.textContent = aiErr(s); return; }
+    rows = s.data.providers.map(p => ({ ...p, apiKey: '' })); draw();
+    const ready = rows.filter(p => p.ready).map(p => p.label);
+    msg.textContent = ready.length === 0 ? 'Saved. No provider is ready yet, so nothing will be checked.' : ready.length === 1 ? `Saved. Only ${ready[0]} will be used; there is no fallback.` : `Saved. Tried in this order: ${ready.join(', then ')}.`;
+  } });
+  return h('div', { class: 'panel' }, h('h3', { text: 'Automatic tagging' }),
+    h('p', { class: 'muted', text: 'An AI model looks at each photo and reads the jersey numbers of your team\'s players, so parents can find their child. Providers are tried from the top. Only providers that are switched on and fully set up are used, so if you set up just one, nothing else is ever tried. Nothing is checked until you press a button in a gallery\'s Players section.' }),
+    list,
+    h('div', { class: 'form1' }, field('Approve automatically', h('label', {}, auto, ' % sure or more'), '0 (recommended) means every suggestion waits for you to check it. Tags are only added after you approve them.')),
+    h('div', { class: 'row' }, save, msg));
+}
+
+// Teams with their jersey colours and roster. The model only reads numbers on players in these colours, and only
+// numbers on the roster become suggestions, because the other team can wear the same numbers.
+async function teamsPanel() {
+  const box = h('div');
+  const render = async () => {
+    const r = await api('/api/admin/teams');
+    if (!r.ok) { box.replaceChildren(h('p', { class: 'err', text: 'Could not load the teams.' })); return; }
+    const editor = (t) => {
+      const msg = h('span', { class: 'muted', role: 'status' });
+      const name = h('input', { type: 'text', maxlength: 30, value: t ? t.name : '', placeholder: 'Team name, such as Hurricanes U12', 'aria-label': 'Team name' });
+      const colors = h('input', { type: 'text', maxlength: 200, value: t ? t.colors : '', placeholder: 'white shirts with blue numbers', 'aria-label': 'Jersey colours' });
+      const names = h('input', { type: 'checkbox', checked: t ? t.tagWithNames : false });
+      const roster = h('textarea', { rows: 8, placeholder: '10 Emma\n7 Ava\n3', 'aria-label': 'Roster' });
+      roster.value = t ? t.roster : '';
+      const save = h('button', { class: 'primary', text: t ? 'Save' : 'Add team', onclick: async () => {
+        const body = { name: name.value, colors: colors.value, tagWithNames: names.checked, roster: roster.value };
+        const res = await api(t ? `/api/admin/teams/${t.id}` : '/api/admin/teams', { method: t ? 'PUT' : 'POST', body });
+        if (res.ok) { toast(t ? 'Team saved' : 'Team added'); render(); } else msg.textContent = aiErr(res);
+      } });
+      const del = t ? h('button', { class: 'danger', text: 'Delete team', onclick: async () => {
+        if (!confirm(`Delete ${t.name} and its roster? Tags already on photos stay. Suggestions still waiting are removed.`)) return;
+        const res = await api(`/api/admin/teams/${t.id}`, { method: 'DELETE' });
+        if (res.ok) render(); else msg.textContent = aiErr(res);
+      } }) : null;
+      const body = h('div', { class: 'form1' },
+        field('Name', name, 'Used in tags, such as "Hurricanes U12 10".'),
+        field('Jersey colours', colors, 'How your team\'s jerseys look. Players in other colours are ignored.'),
+        field('Roster', roster, 'One player per line: the number, then a name if you like. Only these numbers are tagged.'),
+        field('Names in tags', h('label', {}, names, ' Tag photos with the player\'s name ("Emma 10")'), 'Off keeps children\'s names off the site: tags use the team and number.'));
+      const actions = h('div', { class: 'row' }, save, del, msg);
+      if (!t) return h('div', { class: 'group-card' }, h('b', { text: 'Add a team' }), body, actions);
+      const count = `${t.players.length} player${t.players.length === 1 ? '' : 's'}, ${t.galleries} galler${t.galleries === 1 ? 'y' : 'ies'}`;
+      return h('details', { class: 'group-card' }, h('summary', {}, h('b', { text: t.name }), h('span', { class: 'muted', text: ' ' + count })), body, actions);
+    };
+    box.replaceChildren(...r.data.map(editor), editor(null));
+  };
+  await render();
+  return h('div', { class: 'panel' }, h('h3', { text: 'Teams' }),
+    h('p', { class: 'muted' }, 'Choose a team in a gallery\'s Players section, then let the AI model find your players. Set up the model in ', h('a', { href: '/admin/settings/ai', text: 'Automatic tagging' }), '.'),
+    box);
+}
+
 // Schedule settings. A value fixed by a variable in the container shows locked, with the variable's name.
 async function libraryPanel() {
   const r = await api('/api/admin/settings/library');
@@ -2872,6 +2983,8 @@ async function viewGallerySettings(app, id) {
       field('Comments', h('label', {}, allowComments, ' Let signed-in visitors comment on photos'),
         'Only people who sign in through your sign-in provider with a verified email can comment, under a display name they choose (never their email). You can always reply, marked as the photographer, and switch comments off for a single photo while viewing it. Needs sign-in set up in Settings, Sign-in (SSO).')));
 
+  const playersSection = section('Players', 'Tag your team\'s players automatically', false, playersManager(g));
+
   // --- RAW files (collapsed) ---
   const rawMode = track(h('select', {}, [[0, 'Same folder, same file name'], [1, 'Same file name, any folder'], [2, 'Name starts with the RAW name (IMG_1234-Edit.png)']].map(([v, t]) => h('option', { value: v, text: t, selected: v === g.rawMatchMode }))));
   const allowRaw = track(h('input', { type: 'checkbox', checked: g.allowRaw }));
@@ -2912,8 +3025,75 @@ async function viewGallerySettings(app, id) {
       h('a', { class: 'btn', href: '/admin/stats?gallery=' + g.id, text: 'Statistics' }),
       h('a', { class: 'btn', href: '/g/' + encodeURIComponent(g.slug), text: 'View gallery' })),
     h('p', { class: 'muted counts', text: countsLine(g) }),
-    general, access, downloads, wmUp, favSection, commentSection, raw,
+    general, access, downloads, wmUp, favSection, commentSection, playersSection, raw,
     h('div', { class: 'savebar' }, saveBtn, status));
+}
+
+// Gallery settings: which team plays in this gallery, checking photos for its players, and the suggestions to review.
+function playersManager(g) {
+  const box = h('div', { 'aria-live': 'polite' });
+  let timer = null;
+  const load = async () => {
+    clearTimeout(timer);
+    if (box.dataset.started && !box.isConnected) return;
+    box.dataset.started = '1';
+    const [st, teams] = await Promise.all([api(`/api/admin/galleries/${g.id}/players`), api('/api/admin/teams')]);
+    if (!st.ok || !teams.ok) { box.replaceChildren(h('p', { class: 'err', text: 'Could not load the players.' })); return; }
+    const d = st.data;
+    const msg = h('span', { class: 'muted', role: 'status' });
+    const teamSel = h('select', { 'aria-label': 'Team in this gallery', onchange: async () => {
+      const res = await api(`/api/admin/galleries/${g.id}/team`, { method: 'PUT', body: { teamId: teamSel.value ? Number(teamSel.value) : null } });
+      if (res.ok) load(); else msg.textContent = aiErr(res);
+    } }, h('option', { value: '', text: 'No team (not tagged)' }), ...teams.data.map(t => h('option', { value: t.id, text: t.name, selected: t.id === d.teamId })));
+    const start = async (body) => {
+      const res = await api(`/api/admin/galleries/${g.id}/players/check`, { method: 'POST', body });
+      if (res.ok) load(); else msg.textContent = aiErr(res);
+    };
+    const job = d.job, running = job.running;
+    const ready = d.providers.length > 0 && d.teamId && d.teamPlayers > 0;
+    const left = d.photos - d.checked;
+    const progress = running ? h('p', {}, h('progress', { class: 'phone-progress', max: Math.max(job.total, 1), value: job.done }), ` Checked ${job.done} of ${job.total}, ${job.found} player${job.found === 1 ? '' : 's'} found so far…`)
+      : job.finishedAt ? h('p', { class: job.failed ? 'err' : 'muted', text: `Last check: ${job.done} photo${job.done === 1 ? '' : 's'}, ${job.found} found` + (job.failed ? `, ${job.failed} failed. ${job.lastError}` : '.') }) : null;
+    const setupHint = !d.providers.length ? h('p', { class: 'muted' }, 'Set up an AI model first in ', h('a', { href: '/admin/settings/ai', text: 'Automatic tagging' }), '.')
+      : !teams.data.length ? h('p', { class: 'muted' }, 'Add your team and its roster in ', h('a', { href: '/admin/settings/teams', text: 'Teams' }), '.')
+      : d.teamId && !d.teamPlayers ? h('p', { class: 'muted' }, 'This team has no players yet. Add the roster in ', h('a', { href: '/admin/settings/teams', text: 'Teams' }), '.') : null;
+
+    // suggestions, grouped by photo, each a chip to approve or reject
+    const byPhoto = new Map();
+    for (const s of d.pending) { if (!byPhoto.has(s.photoId)) byPhoto.set(s.photoId, []); byPhoto.get(s.photoId).push(s); }
+    const decided = new Map();   // suggestion id -> true (approve) / false (reject)
+    const review = async (ids, approve) => {
+      const res = await api('/api/admin/players/review', { method: 'POST', body: approve ? { approve: ids } : { reject: ids } });
+      if (res.ok) load(); else msg.textContent = aiErr(res);
+    };
+    const rows = [...byPhoto.entries()].map(([pid, list]) => h('div', { class: 'player-row' },
+      h('img', { src: `/img/${pid}/thumb`, alt: list[0].photo, loading: 'lazy', width: 96, height: 72 }),
+      h('div', {}, h('div', { class: 'muted', text: list[0].photo }),
+        h('div', { class: 'chips' }, list.map(s => h('span', { class: 'tag-chip', title: `${s.confidence}% sure, read by ${s.source}` }, `${s.tag} · ${s.confidence}%`,
+          h('button', { class: 'chip-ok', 'aria-label': `Approve ${s.tag} on ${s.photo}`, title: 'Approve', text: '✓', onclick: () => review([s.id], true) }),
+          h('button', { class: 'chip-x', 'aria-label': `Reject ${s.tag} on ${s.photo}`, title: 'Reject', text: '×', onclick: () => review([s.id], false) })))))));
+    const allIds = d.pending.map(s => s.id);
+    box.replaceChildren(
+      h('div', { class: 'form1' }, field('Team', teamSel, 'Only this team\'s players are looked for, in its jersey colours.')),
+      setupHint,
+      h('p', { class: 'muted', text: `${d.checked} of ${d.photos} photos checked, ${d.approved} tag${d.approved === 1 ? '' : 's'} approved.` + (d.providers.length ? ` Uses ${d.providers.join(', then ')}.` : '') }),
+      h('div', { class: 'row' },
+        h('button', { text: 'Try on 10 photos', disabled: !ready || running || left === 0, title: 'Check the first 10 photos not checked yet, to see how well it reads your jerseys', onclick: () => start({ limit: 10 }) }),
+        h('button', { class: 'primary', text: left > 0 ? `Check ${left} photo${left === 1 ? '' : 's'}` : 'All photos checked', disabled: !ready || running || left === 0, onclick: () => start({}) }),
+        d.checked > 0 ? h('button', { text: 'Check all again', disabled: !ready || running, title: 'Look at every photo again, for example after adding players. Rejected suggestions do not come back.', onclick: () => { if (confirm(`Check all ${d.photos} photos again?` + (d.providers.some(p => !/Ollama/.test(p)) ? ' Cloud providers bill each photo.' : ''))) start({ recheck: true }); } }) : null,
+        msg),
+      progress,
+      d.pending.length ? h('div', {},
+        h('h4', { text: `Waiting for you (${d.pending.length})` }),
+        h('p', { class: 'muted', text: 'Nothing is tagged until you approve it. Check a few photos before approving them all.' }),
+        h('div', { class: 'row' },
+          h('button', { class: 'primary', text: `Approve all ${d.pending.length}`, onclick: () => { if (confirm(`Tag ${byPhoto.size} photo${byPhoto.size === 1 ? '' : 's'} with all ${d.pending.length} suggestions?`)) review(allIds, true); } }),
+          h('button', { text: 'Reject all', onclick: () => { if (confirm('Reject every suggestion waiting here?')) review(allIds, false); } })),
+        h('div', { class: 'player-list' }, rows)) : null);
+    if (running) timer = setTimeout(load, 2000);
+  };
+  load();
+  return box;
 }
 
 function thumbControl(g) {

@@ -4,6 +4,9 @@ Newest first. "Needs attention" marks anything an existing user must do when upd
 
 ## Unreleased
 
+- **Automatic player tagging.** A vision model reads the jersey numbers in a gallery's photos and suggests a tag for each player on your roster. Use your own Ollama server, Claude or OpenAI (with an API key), in the order you choose; a later one is tried only when an earlier one fails, and only if it is set up. Add teams with their jersey colours and rosters under **Teams**, choose a gallery's team and start a check under **Players** in the gallery's settings, then approve or reject what it found. Only players in your team's colours are read, because the other team can wear the same numbers. Nothing runs until you press a button, and nothing is tagged without your approval unless you set a confidence for that. See *Automatic player tagging* in the README.
+- Updating adds three tables and three columns to the database; a copy of the database is saved first.
+
 ## 2.0.0
 
 - **Save to phone.** On a phone, the download sheet now has a **Save to phone** button. It puts the photos (one, the ticked ones, favorites, a game's section or the whole gallery) straight into the phone's photo app through the share sheet, 15 at a time, instead of a ZIP that phones handle badly. Originals are sent untouched when they are JPEG, HEIC or PNG and the gallery offers originals; otherwise a high-quality JPEG at the largest offered size (up to 4096 px, watermarked when downloads are). A save counts as one download on a share link, like a ZIP. The database does not change.

@@ -70,6 +70,7 @@ class AppSettings
     public SetupSettings Setup { get; set; } = new();
     public SsoSettings Sso { get; set; } = new();
     public TuningSettings Tuning { get; set; } = new();
+    public VisionSettings Vision { get; set; } = new();
 }
 
 /// <summary>App-level settings kept in DATA_DIR/settings.json (editable from the admin Settings page).</summary>
@@ -105,6 +106,7 @@ public class SettingsService
                 data.Setup = (data.Setup ?? new()).Sanitized();
                 data.Sso = (data.Sso ?? new()).Sanitized();
                 data.Tuning = (data.Tuning ?? new()).Sanitized();
+                data.Vision = (data.Vision ?? new()).Sanitized(cfg.CaptionUrl);
                 cfg.ApplyTuning(data.Tuning);
                 if (string.IsNullOrWhiteSpace(data.SiteName)) { data.SiteName = SanitizeName(cfg.SiteTitle); Save(); }
             }
@@ -205,6 +207,22 @@ public class SettingsService
     public LinkPreviewSettings LinkPreviews
     {
         get { lock (gate) return data.LinkPreviews.Sanitized(); }
+    }
+
+    /// <summary>Automatic tagging providers. API keys are included: never send this to a browser (use <see cref="VisionSettings.Public"/>).</summary>
+    public VisionSettings Vision
+    {
+        get { lock (gate) return (data.Vision ?? new()).Sanitized(appCfg.CaptionUrl); }
+    }
+
+    public VisionSettings SetVision(VisionSettings s)
+    {
+        lock (gate)
+        {
+            data.Vision = s.Sanitized(appCfg.CaptionUrl).WithStoredKeys((data.Vision ?? new()).Sanitized(appCfg.CaptionUrl));
+            Save();
+            return data.Vision.Clone();
+        }
     }
 
     public PrivacySettings Privacy
@@ -310,6 +328,7 @@ public class SettingsService
             copy.Email.Password = "";
             copy.Sso.ClientSecret = "";
             copy.Sso.TestedAt = null;
+            foreach (var p in copy.Vision?.Providers ?? new()) p.ApiKey = "";
             return JsonSerializer.Serialize(new { format = "photogallery-settings", version = 1, settings = copy }, JsonOpts);
         }
     }
@@ -340,6 +359,7 @@ public class SettingsService
                 if (Has("LinkPreviews")) data.LinkPreviews = incoming.LinkPreviews.Sanitized();
                 if (Has("Updates")) data.Updates = incoming.Updates.Sanitized();
                 if (Has("Privacy")) data.Privacy = incoming.Privacy.Sanitized();
+                if (Has("Vision")) data.Vision = (incoming.Vision ?? new()).Sanitized(appCfg.CaptionUrl).WithStoredKeys((data.Vision ?? new()).Sanitized(appCfg.CaptionUrl));
                 if (Has("Sso"))
                 {
                     var keep = data.Sso.ClientSecret;
