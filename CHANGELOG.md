@@ -4,6 +4,12 @@ Newest first. "Needs attention" marks anything an existing user must do when upd
 
 ## Unreleased
 
+## 2.0.0
+
+- **Runs on .NET 11.** The app and its container image move from .NET 9, which Microsoft stopped supporting on 10 November 2026, to .NET 11, supported until November 2028. The container image is now based on Ubuntu instead of Debian. Nothing changes in how the app looks or works, and the database does not change. Updating downloads a whole new image once, so it takes a little longer than usual.
+- **QR codes** come from QRCoder 1.8 (was 1.6).
+- The automated checks now build the container image and make sure the app starts inside it.
+
 ## 1.7.0
 
 - **Messages from visitors.** Turn on **Let visitors send me a message** in a gallery's settings and the gallery gets a **Message** button. Visitors write a few words, with an optional name and a way to reply; no account is needed. You read, mark and delete them under **Messages** in the admin menu, and the optional email alert tells you when new ones arrive (**Email alerts** -> *Visitors have sent you messages*). A hidden trap field and a limit of 10 messages a minute per address keep spam out.

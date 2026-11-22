@@ -1,11 +1,11 @@
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /src
 COPY src/PhotoGallery.csproj src/
 RUN dotnet restore src/PhotoGallery.csproj
 COPY src/ src/
 RUN dotnet publish src/PhotoGallery.csproj -c Release -o /out --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:9.0
+FROM mcr.microsoft.com/dotnet/aspnet:11.0
 # exiftool: RAW preview extraction; fontconfig + fonts: text watermarks
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libimage-exiftool-perl fontconfig fonts-dejavu-core \

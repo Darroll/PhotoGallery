@@ -12,10 +12,35 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 11.0.x
       - name: Front-end syntax check
         run: node --check src/wwwroot/app.js
       - name: Shell script syntax check
         run: bash -n release.sh && bash -n deploy.sh
       - name: Tests
         run: dotnet test tests/PhotoGallery.Tests -c Release --nologo
+
+  # dotnet test doesn't touch the Dockerfile, so base-image bumps need their own check.
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: photogallery:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Container starts and answers /healthz
+        run: |
+          mkdir -p /tmp/photos && docker run -d --name pg -p 8080:8080 -v /tmp/photos:/photos photogallery:ci
+          for i in $(seq 1 30); do
+            curl -fs http://127.0.0.1:8080/healthz && exit 0
+            sleep 2
+          done
+          docker logs pg
+          exit 1
