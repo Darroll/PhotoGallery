@@ -25,6 +25,7 @@ builder.Services.AddSingleton<ThumbnailService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ThumbnailService>());
 builder.Services.AddSingleton<CacheService>();
 builder.Services.AddSingleton<ActivityLog>();
+builder.Services.AddSingleton<PhoneSaves>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ActivityLog>());
 builder.Services.AddHostedService<EmailService>();
 builder.Services.AddHostedService<CaptionService>();

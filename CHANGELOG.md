@@ -4,6 +4,8 @@ Newest first. "Needs attention" marks anything an existing user must do when upd
 
 ## Unreleased
 
+- **Save to phone.** On a phone, the download sheet now has a **Save to phone** button. It puts the photos (one, the ticked ones, favorites, a game's section or the whole gallery) straight into the phone's photo app through the share sheet, 15 at a time, instead of a ZIP that phones handle badly. Originals are sent untouched when they are JPEG, HEIC or PNG and the gallery offers originals; otherwise a high-quality JPEG at the largest offered size (up to 4096 px, watermarked when downloads are). A save counts as one download on a share link, like a ZIP. The database does not change.
+
 ## 1.7.0
 
 - **Messages from visitors.** Turn on **Let visitors send me a message** in a gallery's settings and the gallery gets a **Message** button. Visitors write a few words, with an optional name and a way to reply; no account is needed. You read, mark and delete them under **Messages** in the admin menu, and the optional email alert tells you when new ones arrive (**Email alerts** -> *Visitors have sent you messages*). A hidden trap field and a limit of 10 messages a minute per address keep spam out.

@@ -127,17 +127,17 @@ Everything to do with comments, finished together. Steps 11 and 12 must never sh
 
 ### Group I: Team parents first (planned 2026-11-22)
 
-The main use is photos of a youth soccer team plus a link to the game film, shared with the other parents. Parents should be able to open the link, find their own daughter and save her photos with as little friction as possible. Items were found by comparing with Pixieset, Pic-Time, ShootProof, SmugMug, Zenfolio, Immich, PhotoPrism, Lychee and Piwigo, and are ordered by how much friction they remove for a parent. Game film already works (Video links per section).
+The main use is photos of a youth soccer team plus a link to the game film, shared with the other parents. Parents should be able to open the link, find their own daughter and save her photos with as little friction as possible. Items were found by comparing with Pixieset, Pic-Time, ShootProof, SmugMug, Zenfolio, Immich, PhotoPrism, Lychee and Piwigo, and are ordered by how much friction they remove for a parent. Order set with Darroll on 2026-11-22: Save to phone first, then automatic tagging (tagging by hand is too much work, and the other team can wear the same numbers), then the player filter. Game film already works (Video links per section).
 
 | # | Work | Effort | Complexity | Seen in |
 |---|---|---|---|---|
-| 29 | **Player filter in a gallery**: chips for each player tag (name or jersey number) above the grid, in every visibility including unlisted and protected; "Download all photos of #10" in one click. Builds on bulk tagging | M | Med | Pic-Time, Immich (people) |
-| 30 | **Save to phone**: on a phone, save picked photos straight to the camera roll (share sheet with files) instead of a ZIP that phones handle badly | M | Med | Pixieset, Pic-Time apps |
+| 30 | [x] **Save to phone** (built, not yet released): on a phone, save picked photos straight to the camera roll (share sheet with files) instead of a ZIP that phones handle badly | M | Med | Pixieset, Pic-Time apps |
+| 35 | **Automatic player tagging** with the local vision model (same opt-in Ollama hookup as captions). Team-aware: a roster per team (number to name), and only players in our team's colors are tagged, because the other team can wear the same numbers. Admin reviews before tags go live. Comes before the player filter, which needs the tags | L | Med | Pic-Time (AI search) |
+| 29 | **Player filter in a gallery**: chips for each player tag (name or jersey number) above the grid, in every visibility including unlisted and protected; "Download all photos of #10" in one click. Builds on bulk tagging and on #35 | M | Med | Pic-Time, Immich (people) |
 | 31 | **Follow a player**: a parent subscribes to one player tag and gets an email when new photos of her are added. Builds on the subscriber digest | M | Med | Pic-Time |
 | 32 | **Gallery presets**: saved settings applied to each new game or tournament gallery, so a weekly gallery takes one step (with #21) | S | Low | Pixieset |
 | 33 | **Short visitor guide**: a dismissible "how to find and save your photos" card on a gallery | S | Low | Pixieset |
 | 34 | **Collections on the home page**: group galleries by season or team ("Fall 2026 U12"). Not the declined multi-folder library | M | Med | SmugMug, Pixieset, Piwigo |
-| 35 | **Jersey-number auto-tagging** with the local vision model (same opt-in Ollama hookup as captions); admin reviews before tags go live | L | Med | Pic-Time (AI search) |
 | 36 | **Install on a phone like an app** (moved up from Later / ideas) | M | Low | Pixieset, Immich |
 | 37 | **Team branding**: logo, favicon and accent color in the app, no CSS | S to M | Low | Pixieset, ShootProof |
 | 38 | **Upload from the admin page / Lightroom publish**: needs a write path, the library is a read-only mount today | M / L | High | All pro hosts, Piwigo |
