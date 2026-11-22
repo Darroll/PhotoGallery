@@ -14,6 +14,7 @@ public class FakeVisionReader : IVisionReader
     public ConcurrentQueue<string> Asked { get; } = new();
     public ConcurrentDictionary<string, Func<string>> Answers { get; } = new();
     public string? LastPrompt;
+    public ConcurrentQueue<string> Prompts { get; } = new();
     /// <summary>When set, every request hangs until cancelled, like a model that is still thinking.</summary>
     public volatile bool Hang;
 
@@ -22,6 +23,7 @@ public class FakeVisionReader : IVisionReader
         if (Hang) await Task.Delay(Timeout.Infinite, ct);
         Asked.Enqueue(provider.Kind);
         LastPrompt = prompt;
+        Prompts.Enqueue(prompt);
         Assert.True(jpeg.Length > 100 && jpeg[0] == 0xFF && jpeg[1] == 0xD8, "a JPEG is sent");
         if (!Answers.TryGetValue(provider.Kind, out var answer)) throw new VisionException(provider.Kind + " is down");
         return new VisionAnswer(PlayerPrompt.Parse(answer()), provider.Kind, provider.Model, 1);
@@ -250,6 +252,52 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { recheck = true });
             await WaitAsync(admin, gid);
             Assert.Contains("Our team wears: white shirts with black numbers.", app.Reader.LastPrompt);
+        }
+        finally { Serial.Release(); }
+    }
+
+    [Fact]
+    public async Task Each_folder_of_a_tournament_can_have_its_own_jersey()
+    {
+        await Serial.WaitAsync();
+        try
+        {
+            var admin = await app.AdminAsync();
+            await SetProvidersAsync(admin, new { kind = "ollama", enabled = true, url = "http://ollama.local:11434", model = "qwen3-vl:8b" });
+            // a tournament: one game per sub folder
+            var folder = "t" + Guid.NewGuid().ToString("N")[..8];
+            foreach (var (game, n) in new[] { ("Game_1", 2), ("Game_2", 1) })
+            {
+                Directory.CreateDirectory(Path.Combine(app.Library, folder, game));
+                for (var i = 0; i < n; i++) TestImages.Write(Path.Combine(app.Library, folder, game, $"{game}{i}.jpg"), 400 + i * 40, 300, 60 + i * 30);
+            }
+            var slug = await AppFactory.GalleryAsync(admin, "Cup", folder);
+            var gid = (await (await admin.GetAsync($"/api/g/{slug}")).ReadAsync()).GetProperty("id").GetInt32();
+            var team = await (await admin.PostAsJsonAsync("/api/admin/teams", new { name = "Cup FC", colors = "Home: white shirts with blue numbers\nAway: blue shirts with white numbers\nThird: black shirts with gold numbers", roster = "10 Emma" })).ReadAsync();
+            var teamId = team.GetProperty("id").GetInt32();
+            Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsJsonAsync($"/api/admin/galleries/{gid}/team", new { teamId, kit = "Home" })).StatusCode);
+            Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsJsonAsync($"/api/admin/galleries/{gid}/team", new { teamId, folder = "game_2", kit = "Away" })).StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, (await admin.PutAsJsonAsync($"/api/admin/galleries/{gid}/team", new { teamId, folder = "../x", kit = "Away" })).StatusCode);
+
+            var s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
+            var folders = s.GetProperty("folders").EnumerateArray().ToList();
+            Assert.Equal(new[] { "Game_1", "Game_2" }, folders.Select(f => f.GetProperty("folder").GetString()).ToArray());
+            Assert.Equal(new[] { "", "Away" }, folders.Select(f => f.GetProperty("kit").GetString()).ToArray());
+            Assert.Equal(new[] { 2, 1 }, folders.Select(f => f.GetProperty("photos").GetInt32()).ToArray());
+
+            app.Reader.Answers["ollama"] = () => "{\"numbers\": []}";
+            app.Reader.Prompts.Clear();
+            await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { recheck = true });
+            await WaitAsync(admin, gid);
+            var prompts = app.Reader.Prompts.ToList();
+            Assert.Equal(3, prompts.Count);
+            Assert.Equal(2, prompts.Count(p => p.Contains("Our team wears: white shirts with blue numbers.")));
+            Assert.Equal(1, prompts.Count(p => p.Contains("Our team wears: blue shirts with white numbers.")));
+
+            // back to the gallery's jersey, and a new team starts over
+            Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsJsonAsync($"/api/admin/galleries/{gid}/team", new { teamId, folder = "Game_2", kit = "" })).StatusCode);
+            s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
+            Assert.All(s.GetProperty("folders").EnumerateArray(), f => Assert.Equal("", f.GetProperty("kit").GetString()));
         }
         finally { Serial.Release(); }
     }

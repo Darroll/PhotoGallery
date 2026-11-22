@@ -3142,28 +3142,42 @@ function playersManager(g) {
     } }, h('option', { value: '', text: 'No team (not tagged)' }), ...teams.data.map(t => h('option', { value: t.id, text: t.name, selected: t.id === d.teamId })));
     const team = teams.data.find(t => t.id === d.teamId);
     const kits = team ? team.kits : [];
-    // what the team wears here: one of its jersey sets, colours typed for this gallery alone, or any of its sets
-    const cur = (d.teamKit || '').trim();
-    const named = kits.find(k => k.name.toLowerCase() === cur.toLowerCase());
-    const saveKit = async (kit) => {
-      const res = await api(`/api/admin/galleries/${g.id}/team`, { method: 'PUT', body: { teamId: d.teamId, kit } });
-      msg.textContent = res.ok ? 'Saved.' : aiErr(res);
-      if (res.ok) d.teamKit = kit;
+    // what the team wears: one of its jersey sets, colours typed here alone, or (empty) the default
+    const kitText = k => k.name === k.description ? k.name : `${k.name}: ${k.description}`;
+    const kitPicker = (current, label, defaultText, save) => {
+      const cur = (current || '').trim();
+      const named = kits.find(k => k.name.toLowerCase() === cur.toLowerCase());
+      const m = /^(.*?) shirts(?: with (.*) numbers)?$/.exec(cur && !named ? cur : '') || [];
+      const cShirt = colourInput(m[1] || (cur && !named && !m.length ? cur : ''), `Shirt colour, ${label}`, 'white');
+      const cNum = colourInput(m[2] || '', `Number colour, ${label}`, 'black');
+      const customRow = h('div', { class: 'kit-row', hidden: !(cur && !named) },
+        h('label', { class: 'kit-cell' }, h('span', { class: 'muted', text: 'Shirt' }), cShirt),
+        h('label', { class: 'kit-cell' }, h('span', { class: 'muted', text: 'Numbers' }), cNum),
+        h('button', { text: 'Save', onclick: () => { const t = jerseyText(cShirt.value, cNum.value); if (t) save(t); } }));
+      const sel = h('select', { 'aria-label': `Jersey worn, ${label}`, onchange: () => {
+        if (sel.value === '\u0000other') { customRow.hidden = false; customRow.querySelector('input').focus(); return; }
+        customRow.hidden = true; save(sel.value);
+      } }, h('option', { value: '', text: defaultText, selected: !cur }),
+        ...kits.filter(k => defaultText !== kitText(k)).map(k => h('option', { value: k.name, text: kitText(k), selected: named === k })),
+        h('option', { value: '\u0000other', text: 'Other colours…', selected: !!cur && !named }));
+      return h('div', {}, sel, customRow);
     };
-    const m = /^(.*?) shirts(?: with (.*) numbers)?$/.exec(cur && !named ? cur : '') || [];
-    const cShirt = colourInput(m[1] || (cur && !named && !m.length ? cur : ''), 'Shirt colour in this gallery', 'white');
-    const cNum = colourInput(m[2] || '', 'Number colour in this gallery', 'black');
-    const customRow = h('div', { class: 'kit-row', hidden: !(cur && !named) },
-      h('datalist', { id: 'jersey-colours' }, JERSEY_COLOURS.map(c => h('option', { value: c }))),
-      h('label', { class: 'kit-cell' }, h('span', { class: 'muted', text: 'Shirt' }), cShirt),
-      h('label', { class: 'kit-cell' }, h('span', { class: 'muted', text: 'Numbers' }), cNum),
-      h('button', { text: 'Save', onclick: () => { const d = jerseyText(cShirt.value, cNum.value); if (d) saveKit(d); } }));
-    const kitSel = d.teamId ? h('select', { 'aria-label': 'Jerseys worn in this gallery', onchange: () => {
-      if (kitSel.value === '\u0000other') { customRow.hidden = false; customRow.querySelector('input').focus(); return; }
-      customRow.hidden = true; saveKit(kitSel.value);
-    } }, h('option', { value: '', text: kits.length > 1 ? 'Any of the team\'s jerseys (not sure)' : kits.length ? `${kits[0].name === kits[0].description ? kits[0].description : kits[0].name + ': ' + kits[0].description}` : 'Not set' , selected: !cur }),
-      ...(kits.length > 1 ? kits : []).map(k => h('option', { value: k.name, text: k.name === k.description ? k.name : `${k.name}: ${k.description}`, selected: named === k })),
-      h('option', { value: '\u0000other', text: 'Another jersey, just for this gallery…', selected: !!cur && !named })) : null;
+    const saveKit = async (body, note) => {
+      const res = await api(`/api/admin/galleries/${g.id}/team`, { method: 'PUT', body: { teamId: d.teamId, ...body } });
+      note.textContent = res.ok ? 'Saved.' : aiErr(res);
+      return res.ok;
+    };
+    const galleryKitName = () => { const c = (d.teamKit || '').trim(); const k = kits.find(k => k.name.toLowerCase() === c.toLowerCase()); return c ? (k ? k.name : c) : (kits.length === 1 ? kits[0].name : 'any jersey'); };
+    const kitSel = d.teamId ? kitPicker(d.teamKit, 'this gallery', kits.length > 1 ? 'Any of the team\'s jerseys (not sure)' : kits.length ? kitText(kits[0]) : 'Not set',
+      async kit => { if (await saveKit({ kit }, msg)) { d.teamKit = kit; folderDefaults.forEach(o => { o.textContent = `Same as the gallery (${galleryKitName()})`; }); } }) : null;
+    // a tournament: each sub folder (game) can have its own jersey
+    const folderDefaults = [];
+    const folderRows = d.teamId && (d.folders || []).length > 1 ? h('div', { class: 'kit-list' }, d.folders.map(f => {
+      const note = h('span', { class: 'muted', role: 'status' });
+      const picker = kitPicker(f.kit, f.title, `Same as the gallery (${galleryKitName()})`, kit => saveKit({ folder: f.folder, kit }, note));
+      folderDefaults.push(picker.querySelector('option'));
+      return h('div', { class: 'folder-kit' }, h('span', { class: 'folder-kit-name', text: f.title, title: `${f.folder}, ${f.photos} photo${f.photos === 1 ? '' : 's'}` }), picker, note);
+    })) : null;
     // numbers read on players in our colours that are not on the roster: add the player, or say it is not ours
     const unknownRows = (d.unknown || []).map(u => {
       const pname = h('input', { type: 'text', maxlength: 30, placeholder: 'Name (optional)', 'aria-label': `Name for #${u.number}` });
@@ -3215,7 +3229,8 @@ function playersManager(g) {
     const allIds = d.pending.map(s => s.id);
     box.replaceChildren(
       h('div', { class: 'form1' }, field('Team', teamSel, 'Only this team\'s players are looked for, in its jersey colours.'),
-        kitSel ? field('Jerseys', h('div', {}, kitSel, customRow), 'The jersey the team wears in this gallery, from its list on the Teams page. Only players in that jersey are read, so the other team can wear the same numbers.') : null),
+        kitSel ? field('Jerseys', h('div', {}, h('datalist', { id: 'jersey-colours' }, JERSEY_COLOURS.map(c => h('option', { value: c }))), kitSel), 'The jersey the team wears in this gallery, from its list on the Teams page. Only players in that jersey are read, so the other team can wear the same numbers.') : null,
+        folderRows ? field('Jersey per folder', folderRows, 'For a tournament: the jersey worn in each game. A folder left on "Same as the gallery" uses the jersey above.') : null),
       setupHint,
       h('p', { class: 'muted', text: `${d.checked} of ${d.photos} photos checked, ${d.approved} tag${d.approved === 1 ? '' : 's'} approved.` + (d.providers.length ? ` Uses ${d.providers.join(', then ')}.` : '') }),
       h('div', { class: 'row' },

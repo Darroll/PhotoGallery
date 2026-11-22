@@ -70,6 +70,8 @@ public class Gallery
     public int? TeamId { get; set; }
     /// <summary>What the team wears in this gallery: the name of one of its jersey sets ("Home"), colours typed for this gallery alone, or empty for any of its sets.</summary>
     public string TeamKit { get; set; } = "";
+    /// <summary>JSON object: sub folder name (a tournament's game) to the jersey worn in it, like <see cref="TeamKit"/>. A folder not listed uses <see cref="TeamKit"/>.</summary>
+    public string FolderKits { get; set; } = "{}";
     public List<Photo> Photos { get; set; } = new();
     public List<ShareLink> Links { get; set; } = new();
 }

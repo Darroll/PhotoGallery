@@ -112,6 +112,24 @@ public static class PlayerTags
     }
 
     /// <summary>The colours to tell the model for a gallery: one of the team's sets by name, colours typed for that gallery alone, or every set when none is chosen.</summary>
+    /// <summary>The jersey set per sub folder of a gallery (folder names compared in any case). Bad JSON reads as none.</summary>
+    public static Dictionary<string, string> FolderKits(Gallery g)
+    {
+        try
+        {
+            var d = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(string.IsNullOrWhiteSpace(g.FolderKits) ? "{}" : g.FolderKits);
+            return new Dictionary<string, string>((d ?? new()).Where(x => !string.IsNullOrWhiteSpace(x.Value)), StringComparer.OrdinalIgnoreCase);
+        }
+        catch { return new(StringComparer.OrdinalIgnoreCase); }
+    }
+
+    /// <summary>The jersey worn on this photo: the one chosen for its sub folder, else the gallery's.</summary>
+    public static string KitFor(Gallery g, string relPath, Dictionary<string, string>? folderKits = null)
+    {
+        var folder = GalleryRules.SectionOf(g, relPath);
+        return folder.Length > 0 && (folderKits ?? FolderKits(g)).TryGetValue(folder, out var k) ? k : g.TeamKit;
+    }
+
     public static string ColorsFor(Team team, string? kit)
     {
         var kits = Kits(team.Colors);
@@ -364,6 +382,7 @@ public class PlayerTagJobs(IServiceScopeFactory scopes, ILogger<PlayerTagJobs> l
         st.Total = photos.Count;
         log.LogInformation("Player check of gallery {Id} ({Title}) started: {Count} photos", g.Id, g.Title, photos.Count);
         var inARow = 0;
+        var folderKits = PlayerTags.FolderKits(g);
         foreach (var p in photos)
         {
             ct.ThrowIfCancellationRequested();
@@ -371,7 +390,7 @@ public class PlayerTagJobs(IServiceScopeFactory scopes, ILogger<PlayerTagJobs> l
             var started = DateTime.UtcNow;
             try
             {
-                var r = await PlayerTags.CheckPhotoAsync(db, images, reader, vision, p, team, log, ct, pr => st.CurrentProvider = VisionProvider.Label(pr.Kind), g.TeamKit);
+                var r = await PlayerTags.CheckPhotoAsync(db, images, reader, vision, p, team, log, ct, pr => st.CurrentProvider = VisionProvider.Label(pr.Kind), PlayerTags.KitFor(g, p.RelPath, folderKits));
                 st.Found += r.Added;
                 inARow = 0;
                 var text = r.Seen.Count == 0 ? "No players read" : string.Join(", ", r.Seen) + (r.Added < r.Seen.Count ? $" ({r.Seen.Count - r.Added} already suggested)" : "");

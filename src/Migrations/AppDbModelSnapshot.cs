@@ -475,6 +475,10 @@ namespace PhotoGallery.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("FolderKits")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("FootageLinks")
                         .IsRequired()
                         .HasColumnType("TEXT");

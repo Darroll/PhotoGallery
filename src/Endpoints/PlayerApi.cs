@@ -9,7 +9,7 @@ namespace PhotoGallery;
 public static class PlayerApi
 {
     record TeamInput(string? Name, string? Colors, bool? TagWithNames, string? Roster);
-    record GalleryTeamInput(int? TeamId, string? Kit);
+    record GalleryTeamInput(int? TeamId, string? Kit, string? Folder = null);
     record CheckInput(int? Limit, bool? Recheck);
     record ReviewInput(List<int>? Approve, List<int>? Reject);
     record TestInput(string? Kind, VisionSettings? Settings);
@@ -146,6 +146,21 @@ public static class PlayerApi
             var g = await db.Galleries.FindAsync(id);
             if (g == null) return Results.NotFound();
             if (input.TeamId != null && !await db.Teams.AnyAsync(t => t.Id == input.TeamId)) return Results.BadRequest("That team no longer exists.");
+            if (input.Folder != null)
+            {
+                // the jersey for one sub folder (a game of a tournament); empty means the gallery's jersey
+                if (g.TeamId == null || input.TeamId != g.TeamId) return Results.BadRequest("Choose the team for this gallery first.");
+                var folder = input.Folder.Trim().Trim('/');
+                if (folder.Length == 0 || folder.Contains('/') || folder.Contains('\\') || folder is "." or "..") return Results.BadRequest("Pick one of the gallery's folders.");
+                var kits = PlayerTags.FolderKits(g);
+                var kit = Cut(input.Kit, 200);
+                if (kit.Length == 0) kits.Remove(folder); else if (kits.Count < 200 || kits.ContainsKey(folder)) kits[folder] = kit;
+                g.FolderKits = System.Text.Json.JsonSerializer.Serialize(kits);
+                await db.SaveChangesAsync();
+                return Results.NoContent();
+            }
+            // a different team has different jersey names: start over
+            if (input.TeamId != g.TeamId) g.FolderKits = "{}";
             g.TeamKit = input.TeamId == null ? "" : Cut(input.Kit, 200);
             g.TeamId = input.TeamId;
             await db.SaveChangesAsync();
@@ -178,9 +193,17 @@ public static class PlayerApi
                 .Select(x => new { number = x.Key, photos = x.Select(y => y.PhotoId).Distinct().Count(), confidence = x.Max(y => y.Confidence), photoIds = x.OrderByDescending(y => y.Confidence).Select(y => y.PhotoId).Distinct().Take(6) })
                 .OrderByDescending(x => x.photos).ThenBy(x => x.number.Length).ThenBy(x => x.number, StringComparer.Ordinal).ToList();
             var approved = await (from s in db.PlayerSuggestions join p in db.Photos on s.PhotoId equals p.Id where p.GalleryId == id && s.Status == "approved" select s.Id).CountAsync();
+            // sub folders (the games of a tournament), each with its own jersey: the gallery's sections first, then any other folder holding photos
+            var folderKits = PlayerTags.FolderKits(g);
+            var sectionList = GalleryRules.Sections(g);
+            var photoFolders = (await photos.Select(p => p.RelPath).ToListAsync()).Select(r => GalleryRules.SectionOf(g, r)).Where(f => f.Length > 0)
+                .GroupBy(f => f, StringComparer.OrdinalIgnoreCase).ToDictionary(x => x.Key, x => x.Count(), StringComparer.OrdinalIgnoreCase);
+            var folders = sectionList.Where(s => photoFolders.ContainsKey(s.Folder)).Select(s => (s.Folder, s.Title))
+                .Concat(photoFolders.Keys.Where(f => !sectionList.Any(s => string.Equals(s.Folder, f, StringComparison.OrdinalIgnoreCase))).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).Select(f => (Folder: f, Title: GalleryRules.Pretty(f))))
+                .Select(x => new { folder = x.Folder, title = x.Title, photos = photoFolders[x.Folder], kit = folderKits.GetValueOrDefault(x.Folder, "") }).ToList();
             return Results.Ok(new
             {
-                teamId = g.TeamId, teamKit = g.TeamKit, teamPlayers = team?.Players.Count ?? 0,
+                teamId = g.TeamId, teamKit = g.TeamKit, folders, teamPlayers = team?.Players.Count ?? 0,
                 photos = total, @checked = checkedCount, approved,
                 providers = settings.Vision.Chain.Select(p => VisionProvider.Label(p.Kind)),
                 job,
