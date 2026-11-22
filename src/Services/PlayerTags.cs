@@ -9,7 +9,10 @@ public class Team
 {
     public int Id { get; set; }
     public string Name { get; set; } = "";
-    /// <summary>How our jerseys look, in plain words ("white shirts with blue numbers"). The model only reads numbers on these.</summary>
+    /// <summary>
+    /// How our jerseys look, in plain words, one set per line, optionally named: "Home: white shirts with blue numbers".
+    /// The model only reads numbers on these. Each gallery can pick one set (<see cref="Gallery.TeamKit"/>).
+    /// </summary>
     public string Colors { get; set; } = "";
     /// <summary>Tag photos with the player's name ("Emma 10") instead of the team and number ("Hurricanes 10"). Off by default: names of children stay off the site unless chosen.</summary>
     public bool TagWithNames { get; set; }
@@ -43,6 +46,23 @@ public class PlayerSuggestion
     public DateTime? ReviewedAt { get; set; }
 }
 
+/// <summary>
+/// A number the model read on a player in our colours that is not on the team's roster: a new player, a guest, or a
+/// misreading. Kept so the admin can add the player, which turns these into suggestions without checking the photos again.
+/// </summary>
+public class NumberSighting
+{
+    public int Id { get; set; }
+    public int TeamId { get; set; }
+    public int PhotoId { get; set; }
+    public string Number { get; set; } = "";
+    public int Confidence { get; set; }
+    public string Source { get; set; } = "";
+    /// <summary>The admin said this number is not one of ours (for example the other team, or a misreading). It is not offered again.</summary>
+    public bool Dismissed { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
 public static class PlayerTags
 {
     public const int MaxAttempts = 3;
@@ -70,6 +90,31 @@ public static class PlayerTags
         return list;
     }
 
+    /// <summary>The team's jersey colour sets, one per line: "Home: white shirts with blue numbers" or just the description.</summary>
+    public static List<(string Name, string Description)> Kits(string? colors)
+    {
+        var list = new List<(string, string)>();
+        foreach (var raw in (colors ?? "").Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+            var c = line.IndexOf(':');
+            var kit = c > 0 && c <= 30 && line[(c + 1)..].Trim().Length > 0 ? (line[..c].Trim(), line[(c + 1)..].Trim()) : (line.Length > 30 ? line[..30].Trim() : line, line);
+            if (!list.Any(x => string.Equals(x.Item1, kit.Item1, StringComparison.OrdinalIgnoreCase))) list.Add(kit);
+        }
+        return list;
+    }
+
+    /// <summary>The colours to tell the model for a gallery: its chosen set, or every set when none is chosen (or it was removed).</summary>
+    public static string ColorsFor(Team team, string? kit)
+    {
+        var kits = Kits(team.Colors);
+        if (kits.Count == 0) return "";
+        var chosen = kits.FirstOrDefault(x => string.Equals(x.Name, kit?.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (chosen.Description != null) return chosen.Description;
+        return kits.Count == 1 ? kits[0].Description : "one of these sets: " + string.Join("; or ", kits.Select(x => x.Description));
+    }
+
     static string Norm(string number) => number.TrimStart('0') is { Length: > 0 } n ? n : "0";
 
     /// <summary>
@@ -77,14 +122,14 @@ public static class PlayerTags
     /// turns the numbers on our roster into suggestions. Numbers not on the roster are ignored.
     /// Returns what was found, or throws when every provider failed. <paramref name="trying"/> hears each provider as it is asked.
     /// </summary>
-    public static async Task<PhotoCheckResult> CheckPhotoAsync(AppDb db, ImageService images, IVisionReader reader, VisionSettings vision, Photo photo, Team team, ILogger log, CancellationToken ct, Action<VisionProvider>? trying = null)
+    public static async Task<PhotoCheckResult> CheckPhotoAsync(AppDb db, ImageService images, IVisionReader reader, VisionSettings vision, Photo photo, Team team, ILogger log, CancellationToken ct, Action<VisionProvider>? trying = null, string? kit = null)
     {
         var chain = vision.Chain;
         if (chain.Count == 0) throw new VisionException("No provider is set up. Open Settings, Automatic tagging.");
         var players = team.Players.ToDictionary(p => Norm(p.Number));
         var v = await images.GetVariantAsync(photo, "ai", ImageSize, "jpg", false) ?? throw new VisionException("The photo file could not be read");
         var jpeg = await File.ReadAllBytesAsync(v.path, ct);
-        var prompt = PlayerPrompt.Build(team.Colors, players.Keys);
+        var prompt = PlayerPrompt.Build(ColorsFor(team, kit), players.Keys);
 
         VisionAnswer? answer = null;
         var errors = new List<string>();
@@ -117,10 +162,23 @@ public static class PlayerTags
             added++;
             if (auto) await ApproveAsync(db, s, team, player);
         }
-        var ignored = answer.Numbers.Count(n => !players.ContainsKey(Norm(n.Number)));
+        var unknown = answer.Numbers.Where(n => !players.ContainsKey(Norm(n.Number))).ToList();
+        if (unknown.Count > 0)
+        {
+            var nums = unknown.Select(n => Norm(n.Number)).Distinct().ToList();
+            var existing = await db.NumberSightings.Where(x => x.TeamId == team.Id && nums.Contains(x.Number) && (x.PhotoId == photo.Id || x.Dismissed)).ToListAsync(ct);
+            foreach (var n in unknown)
+            {
+                var num = Norm(n.Number);
+                var same = existing.FirstOrDefault(x => x.PhotoId == photo.Id && x.Number == num) ?? db.NumberSightings.Local.FirstOrDefault(x => x.TeamId == team.Id && x.PhotoId == photo.Id && x.Number == num);
+                if (same != null) { same.Confidence = Math.Max(same.Confidence, n.Confidence); continue; }
+                db.NumberSightings.Add(new NumberSighting { TeamId = team.Id, PhotoId = photo.Id, Number = num, Confidence = n.Confidence, Source = $"{answer.Provider} {answer.Model}", Dismissed = existing.Any(x => x.Number == num && x.Dismissed) });
+            }
+        }
+        var ignored = unknown.Count;
         log.LogInformation("Player check of photo {Id} ({Name}) with {Provider}: {Seen}, {Ignored} not on the roster, {Ms} ms",
             photo.Id, photo.Name, answer.Provider, seenOurs.Count == 0 ? "no players" : string.Join(", ", seenOurs), ignored, answer.Ms);
-        return new PhotoCheckResult(added, seenOurs, ignored, VisionProvider.Label(answer.Provider), answer.Ms);
+        return new PhotoCheckResult(added, seenOurs, unknown.Select(n => "#" + Norm(n.Number)).Distinct().ToList(), VisionProvider.Label(answer.Provider), answer.Ms);
     }
 
     /// <summary>Puts the player's tag on the photo and marks the suggestion approved.</summary>
@@ -135,10 +193,40 @@ public static class PlayerTags
         s.Status = "approved";
         s.ReviewedAt = DateTime.UtcNow;
     }
+
+    /// <summary>
+    /// Turns the numbers read earlier that are now on the team's roster into suggestions waiting for review, so a player
+    /// added later does not need the photos checked again. Dismissed numbers are left alone. Call after the players are saved.
+    /// </summary>
+    public static async Task<int> AdoptSightingsAsync(AppDb db, Team team)
+    {
+        var players = team.Players.Where(p => p.Id > 0).ToDictionary(p => p.Number);
+        if (players.Count == 0) return 0;
+        var nums = players.Keys.ToList();
+        var sightings = await db.NumberSightings.Where(x => x.TeamId == team.Id && !x.Dismissed && nums.Contains(x.Number)).ToListAsync();
+        if (sightings.Count == 0) return 0;
+        var ids = players.Values.Select(p => p.Id).ToList();
+        var photoIds = sightings.Select(x => x.PhotoId).Distinct().ToList();
+        var known = (await db.PlayerSuggestions.Where(s => ids.Contains(s.PlayerId) && photoIds.Contains(s.PhotoId)).Select(s => new { s.PhotoId, s.PlayerId }).ToListAsync())
+            .Select(x => (x.PhotoId, x.PlayerId)).ToHashSet();
+        var added = 0;
+        foreach (var x in sightings)
+        {
+            var pl = players[x.Number];
+            if (known.Add((x.PhotoId, pl.Id)))
+            {
+                db.PlayerSuggestions.Add(new PlayerSuggestion { PhotoId = x.PhotoId, PlayerId = pl.Id, Confidence = x.Confidence, Source = x.Source, Status = "pending" });
+                added++;
+            }
+            db.NumberSightings.Remove(x);
+        }
+        await db.SaveChangesAsync();
+        return added;
+    }
 }
 
 /// <summary>What checking one photo gave: new suggestions, our players it read (with confidence), numbers not on the roster.</summary>
-public record PhotoCheckResult(int Added, List<string> Seen, int Ignored, string Provider, long Ms);
+public record PhotoCheckResult(int Added, List<string> Seen, List<string> NotOnRoster, string Provider, long Ms);
 
 /// <summary>One line of a check's activity list.</summary>
 public record PlayerJobEntry(int PhotoId, string Photo, bool Ok, string Result, string Provider, long Ms, DateTime At);
@@ -171,6 +259,9 @@ public class PlayerJobStatus
 
     /// <summary>The last 30 photos, newest first.</summary>
     public List<PlayerJobEntry> Recent { get { lock (gate) return recent.ToList(); } }
+
+    /// <summary>A copy as it stands now, so a page can read the database after it without the job moving on in between.</summary>
+    public PlayerJobStatus Snapshot() => (PlayerJobStatus)MemberwiseClone();
 
     public void Add(PlayerJobEntry e) { lock (gate) { recent.Insert(0, e); if (recent.Count > 30) recent.RemoveAt(recent.Count - 1); } }
 }
@@ -271,11 +362,11 @@ public class PlayerTagJobs(IServiceScopeFactory scopes, ILogger<PlayerTagJobs> l
             var started = DateTime.UtcNow;
             try
             {
-                var r = await PlayerTags.CheckPhotoAsync(db, images, reader, vision, p, team, log, ct, pr => st.CurrentProvider = VisionProvider.Label(pr.Kind));
+                var r = await PlayerTags.CheckPhotoAsync(db, images, reader, vision, p, team, log, ct, pr => st.CurrentProvider = VisionProvider.Label(pr.Kind), g.TeamKit);
                 st.Found += r.Added;
                 inARow = 0;
                 var text = r.Seen.Count == 0 ? "No players read" : string.Join(", ", r.Seen) + (r.Added < r.Seen.Count ? $" ({r.Seen.Count - r.Added} already suggested)" : "");
-                if (r.Ignored > 0) text += $"; {r.Ignored} number{(r.Ignored == 1 ? "" : "s")} not on the roster ignored";
+                if (r.NotOnRoster.Count > 0) text += $"; not on the roster: {string.Join(", ", r.NotOnRoster)}";
                 st.Add(new PlayerJobEntry(p.Id, p.Name, true, text, r.Provider, r.Ms, DateTime.UtcNow));
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

@@ -68,6 +68,8 @@ public class Gallery
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     /// <summary>The team whose players are tagged automatically in this gallery, or null.</summary>
     public int? TeamId { get; set; }
+    /// <summary>Which of the team's jersey colour sets the players wear in this gallery ("Home"), or empty for any of them.</summary>
+    public string TeamKit { get; set; } = "";
     public List<Photo> Photos { get; set; } = new();
     public List<ShareLink> Links { get; set; } = new();
 }
@@ -208,6 +210,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<Team> Teams => Set<Team>();
     public DbSet<Player> Players => Set<Player>();
     public DbSet<PlayerSuggestion> PlayerSuggestions => Set<PlayerSuggestion>();
+    public DbSet<NumberSighting> NumberSightings => Set<NumberSighting>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -247,6 +250,10 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<PlayerSuggestion>().HasOne<Player>().WithMany().HasForeignKey(s => s.PlayerId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<PlayerSuggestion>().HasIndex(s => new { s.PhotoId, s.PlayerId }).IsUnique();
         b.Entity<PlayerSuggestion>().HasIndex(s => s.Status);
+        b.Entity<NumberSighting>().HasOne<Photo>().WithMany().HasForeignKey(s => s.PhotoId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<NumberSighting>().HasOne<Team>().WithMany().HasForeignKey(s => s.TeamId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<NumberSighting>().HasIndex(s => new { s.TeamId, s.Number, s.PhotoId }).IsUnique();
+        b.Entity<NumberSighting>().HasIndex(s => s.PhotoId);
         b.Entity<ShareLink>().HasOne(l => l.Gallery).WithMany(g => g.Links).HasForeignKey(l => l.GalleryId).OnDelete(DeleteBehavior.Cascade);
     }
 }

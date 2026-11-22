@@ -127,7 +127,7 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             {
                 Assert.True(r.GetProperty("ok").GetBoolean());
                 Assert.Contains("#7 (80%)", r.GetProperty("result").GetString());
-                Assert.Contains("1 number not on the roster ignored", r.GetProperty("result").GetString());
+                Assert.Contains("not on the roster: #42", r.GetProperty("result").GetString());
                 Assert.Equal("Ollama (your own server)", r.GetProperty("provider").GetString());
             });
             Assert.Equal("", job.GetProperty("currentPhoto").GetString());
@@ -179,6 +179,90 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             Assert.Equal(3, (await WaitAsync(admin, gid)).GetProperty("checked").GetInt32());
         }
         finally { Serial.Release(); }
+    }
+
+    [Fact]
+    public async Task Numbers_not_on_the_roster_can_be_added_as_players_without_checking_again()
+    {
+        await Serial.WaitAsync();
+        try
+        {
+            var admin = await app.AdminAsync();
+            await SetProvidersAsync(admin, new { kind = "ollama", enabled = true, url = "http://ollama.local:11434", model = "qwen3-vl:8b" });
+            var (gid, slug, teamId) = await GalleryWithTeamAsync(admin, "New Flow", 2);
+            app.Reader.Answers["ollama"] = () => "{\"numbers\": [{\"number\": \"21\", \"confidence\": 85}, {\"number\": \"88\", \"confidence\": 70}]}";
+            await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { });
+            var s = await WaitAsync(admin, gid);
+            Assert.Empty(s.GetProperty("pending").EnumerateArray());
+            Assert.Equal(2, s.GetProperty("checked").GetInt32());
+            var unknown = s.GetProperty("unknown").EnumerateArray().ToList();
+            Assert.Equal(new[] { "21", "88" }, unknown.Select(u => u.GetProperty("number").GetString()).Order().ToArray());
+            Assert.All(unknown, u => Assert.Equal(2, u.GetProperty("photos").GetInt32()));
+
+            var add = await (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/players", new { number = "21", name = "Mia" })).ReadAsync();
+            Assert.Equal(2, add.GetProperty("suggestions").GetInt32());
+            Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/players", new { number = "21" })).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/numbers/dismiss", new { number = "88" })).StatusCode);
+
+            s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
+            Assert.Empty(s.GetProperty("unknown").EnumerateArray());
+            var pending = s.GetProperty("pending").EnumerateArray().ToList();
+            Assert.Equal(2, pending.Count);
+            Assert.All(pending, p => { Assert.Equal("21", p.GetProperty("number").GetString()); Assert.Equal(85, p.GetProperty("confidence").GetInt32()); });
+
+            // a dismissed number stays dismissed when the photos are read again
+            await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { recheck = true });
+            Assert.Empty((await WaitAsync(admin, gid)).GetProperty("unknown").EnumerateArray());
+        }
+        finally { Serial.Release(); }
+    }
+
+    [Fact]
+    public async Task A_gallery_tells_the_model_only_the_jersey_set_it_uses()
+    {
+        await Serial.WaitAsync();
+        try
+        {
+            var admin = await app.AdminAsync();
+            await SetProvidersAsync(admin, new { kind = "ollama", enabled = true, url = "http://ollama.local:11434", model = "qwen3-vl:8b" });
+            var (gid, _, teamId) = await GalleryWithTeamAsync(admin, "Kit Flow", 1);
+            var team = await (await admin.PutAsJsonAsync($"/api/admin/teams/{teamId}", new { name = "Kit Flow FC", colors = "Home: white shirts with blue numbers\nAway: blue shirts with white numbers\nThird: black shirts with gold numbers", roster = "10 Emma" })).ReadAsync();
+            Assert.Equal(new[] { "Home", "Away", "Third" }, team.GetProperty("kits").EnumerateArray().Select(k => k.GetProperty("name").GetString()).ToArray());
+            app.Reader.Answers["ollama"] = () => "{\"numbers\": []}";
+
+            // no set chosen: every set is described
+            await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { recheck = true });
+            await WaitAsync(admin, gid);
+            Assert.Contains("white shirts with blue numbers; or blue shirts with white numbers; or black shirts with gold numbers", app.Reader.LastPrompt);
+
+            Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsJsonAsync($"/api/admin/galleries/{gid}/team", new { teamId, kit = "away" })).StatusCode);
+            await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { recheck = true });
+            var s = await WaitAsync(admin, gid);
+            Assert.Equal("away", s.GetProperty("teamKit").GetString());
+            Assert.Contains("Our team wears: blue shirts with white numbers.", app.Reader.LastPrompt);
+            Assert.DoesNotContain("gold", app.Reader.LastPrompt);
+        }
+        finally { Serial.Release(); }
+    }
+
+    [Fact]
+    public async Task A_provider_that_does_not_answer_in_time_fails_with_the_setting_named()
+    {
+        // a server that accepts the connection and never answers, like a stalled Ollama
+        var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var held = new List<System.Net.Sockets.TcpClient>();
+        _ = Task.Run(async () => { try { while (true) held.Add(await listener.AcceptTcpClientAsync()); } catch { } });
+        try
+        {
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            var p = new VisionProvider { Kind = "ollama", Enabled = true, Url = $"http://127.0.0.1:{port}", Model = "m", TimeoutSeconds = 1 };
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var ex = await Assert.ThrowsAsync<VisionException>(() => new VisionReader().AskAsync(p, new byte[] { 0xFF, 0xD8 }, "q", CancellationToken.None));
+            Assert.Contains("No answer within 1 seconds", ex.Message);
+            Assert.InRange(sw.Elapsed.TotalSeconds, 0.9, 30);
+        }
+        finally { listener.Stop(); held.ForEach(c => c.Dispose()); }
     }
 
     [Fact]

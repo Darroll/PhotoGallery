@@ -22,18 +22,28 @@ public interface IVisionReader
 
 public class VisionReader : IVisionReader
 {
-    static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(3) };
+    static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };   // each request has its own limit, set per provider
 
     public async Task<VisionAnswer> AskAsync(VisionProvider p, byte[] jpeg, string prompt, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
-        var text = p.Kind switch
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (p.TimeoutSeconds > 0) limit.CancelAfter(TimeSpan.FromSeconds(p.TimeoutSeconds));
+        string text;
+        try
         {
-            "ollama" => await OllamaAsync(p, jpeg, prompt, ct),
-            "anthropic" => await AnthropicAsync(p, jpeg, prompt, ct),
-            "openai" => await OpenAiAsync(p, jpeg, prompt, ct),
-            _ => throw new InvalidOperationException("Unknown provider " + p.Kind),
-        };
+            text = p.Kind switch
+            {
+                "ollama" => await OllamaAsync(p, jpeg, prompt, limit.Token),
+                "anthropic" => await AnthropicAsync(p, jpeg, prompt, limit.Token),
+                "openai" => await OpenAiAsync(p, jpeg, prompt, limit.Token),
+                _ => throw new InvalidOperationException("Unknown provider " + p.Kind),
+            };
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new VisionException($"No answer within {Seconds(p.TimeoutSeconds)} (Timeout per photo, in Settings, Automatic tagging)");
+        }
         return new VisionAnswer(PlayerPrompt.Parse(text), p.Kind, p.Model, sw.ElapsedMilliseconds);
     }
 
@@ -57,7 +67,8 @@ public class VisionReader : IVisionReader
 
     static async Task<string> AnthropicAsync(VisionProvider p, byte[] jpeg, string prompt, CancellationToken ct)
     {
-        var client = new AnthropicClient { ApiKey = p.ApiKey };
+        // the request's own token enforces the limit; the client's timeout is set past it so it never cuts in first
+        var client = new AnthropicClient { ApiKey = p.ApiKey, Timeout = p.TimeoutSeconds > 0 ? TimeSpan.FromSeconds(p.TimeoutSeconds + 30) : TimeSpan.FromDays(1) };
         var message = await client.Messages.Create(new MessageCreateParams
         {
             Model = p.Model,
@@ -106,6 +117,8 @@ public class VisionReader : IVisionReader
         using var doc = JsonDocument.Parse(raw);
         return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
     }
+
+    static string Seconds(int s) => s % 60 == 0 && s >= 60 ? $"{s / 60} minute{(s == 60 ? "" : "s")}" : $"{s} seconds";
 
     static string Short(string s) => Regex.Replace(s, @"\s+", " ") is var t && t.Length > 200 ? t[..200] : Regex.Replace(s, @"\s+", " ");
 }

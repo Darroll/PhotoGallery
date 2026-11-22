@@ -515,6 +515,10 @@ namespace PhotoGallery.Migrations
                     b.Property<int?>("TeamId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("TeamKit")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -603,6 +607,45 @@ namespace PhotoGallery.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("LicenseAcceptances");
+                });
+
+            modelBuilder.Entity("PhotoGallery.NumberSighting", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Confidence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Dismissed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PhotoId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TeamId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PhotoId");
+
+                    b.HasIndex("TeamId", "Number", "PhotoId")
+                        .IsUnique();
+
+                    b.ToTable("NumberSightings");
                 });
 
             modelBuilder.Entity("PhotoGallery.PeopleGroup", b =>
@@ -997,6 +1040,21 @@ namespace PhotoGallery.Migrations
                     b.HasIndex("GalleryId", "Time");
 
                     b.ToTable("Visits");
+                });
+
+            modelBuilder.Entity("PhotoGallery.NumberSighting", b =>
+                {
+                    b.HasOne("PhotoGallery.Photo", null)
+                        .WithMany()
+                        .HasForeignKey("PhotoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PhotoGallery.Team", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PhotoGallery.Photo", b =>

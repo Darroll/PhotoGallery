@@ -2569,7 +2569,7 @@ async function visionPanel() {
     anthropic: 'Needs an API key from console.anthropic.com, billed per photo. A Claude Pro or Max subscription cannot be used here: Anthropic only allows API keys in other apps.',
     openai: 'Needs an API key from platform.openai.com, billed per photo. A ChatGPT subscription cannot be used here yet. Type a model that can see images.',
   };
-  const collect = () => ({ autoApproveAt: Number(auto.value) || 0, providers: rows.map(p => ({ kind: p.kind, enabled: p.enabled, url: p.url, model: p.model, apiKey: p.apiKey, sendPhotosAgreed: p.sendPhotosAgreed })) });
+  const collect = () => ({ autoApproveAt: Number(auto.value) || 0, providers: rows.map(p => ({ kind: p.kind, enabled: p.enabled, url: p.url, model: p.model, apiKey: p.apiKey, sendPhotosAgreed: p.sendPhotosAgreed, timeoutSeconds: p.timeoutSeconds })) });
   const draw = () => {
     list.replaceChildren(...rows.map((p, i) => {
       const on = h('input', { type: 'checkbox', checked: p.enabled, onchange: (e) => { p.enabled = e.target.checked; } });
@@ -2578,6 +2578,7 @@ async function visionPanel() {
       const key = p.cloud ? h('input', { type: 'password', autocomplete: 'off', maxlength: 300, placeholder: p.keySet ? 'Saved. Paste a new key to replace it.' : 'Paste the API key', 'aria-label': p.label + ' API key', oninput: (e) => { p.apiKey = e.target.value; } }) : null;
       const agree = p.cloud ? h('label', { class: 'sheet-row' }, h('input', { type: 'checkbox', checked: p.sendPhotosAgreed, onchange: (e) => { p.sendPhotosAgreed = e.target.checked; } }),
         ' I understand that photos, often of children, are sent to this company to be read.') : null;
+      const limit = h('input', { type: 'number', min: 0, max: 86400, step: 1, value: p.timeoutSeconds, 'aria-label': p.label + ' timeout per photo in seconds', oninput: (e) => { p.timeoutSeconds = Math.max(0, Math.round(Number(e.target.value) || 0)); } });
       const result = h('div', { class: 'muted', role: 'status' });
       const test = h('button', { text: 'Test', onclick: async () => {
         test.disabled = true; result.className = 'muted'; result.textContent = 'Asking… a local model can take a minute the first time.';
@@ -2597,6 +2598,7 @@ async function visionPanel() {
           url ? field('Address', url) : null,
           key ? field('API key', key) : null,
           field('Model', model),
+          field('Timeout per photo', h('label', {}, limit, ' seconds'), '0 means no limit: a stalled server then waits until you press Stop. When the time runs out the photo counts as a failed try, and the next provider is asked if one is set up.'),
           agree ? field('Photos', agree) : null),
         h('p', { class: 'muted', text: hints[p.kind] }),
         h('div', { class: 'row' }, test), result);
@@ -2651,7 +2653,8 @@ async function teamsPanel() {
     const editor = (t) => {
       const msg = h('span', { class: 'muted', role: 'status' });
       const name = h('input', { type: 'text', maxlength: 30, value: t ? t.name : '', placeholder: 'Team name, such as Hurricanes U12', 'aria-label': 'Team name' });
-      const colors = h('input', { type: 'text', maxlength: 200, value: t ? t.colors : '', placeholder: 'white shirts with blue numbers', 'aria-label': 'Jersey colours' });
+      const colors = h('textarea', { rows: 3, maxlength: 1000, placeholder: 'Home: white shirts with blue numbers\nAway: blue shirts with white numbers\nThird: black shirts with gold numbers', 'aria-label': 'Jersey colours' });
+      colors.value = t ? t.colors : '';
       const names = h('input', { type: 'checkbox', checked: t ? t.tagWithNames : false });
       const roster = h('textarea', { rows: 8, placeholder: '10 Emma\n7 Ava\n3', 'aria-label': 'Roster' });
       roster.value = t ? t.roster : '';
@@ -2667,7 +2670,7 @@ async function teamsPanel() {
       } }) : null;
       const body = h('div', { class: 'form1' },
         field('Name', name, 'Used in tags, such as "Hurricanes U12 10".'),
-        field('Jersey colours', colors, 'How your team\'s jerseys look. Players in other colours are ignored.'),
+        field('Jersey colours', colors, 'How your team\'s jerseys look, one set per line, with a name before a colon if you have several (Home, Away). Each gallery picks the set worn that day. Players in other colours are ignored.'),
         field('Roster', roster, 'One player per line: the number, then a name if you like. Only these numbers are tagged.'),
         field('Names in tags', h('label', {}, names, ' Tag photos with the player\'s name ("Emma 10")'), 'Off keeps children\'s names off the site: tags use the team and number.'));
       const actions = h('div', { class: 'row' }, save, del, msg);
@@ -3101,6 +3104,31 @@ function playersManager(g) {
       const res = await api(`/api/admin/galleries/${g.id}/team`, { method: 'PUT', body: { teamId: teamSel.value ? Number(teamSel.value) : null } });
       if (res.ok) load(); else msg.textContent = aiErr(res);
     } }, h('option', { value: '', text: 'No team (not tagged)' }), ...teams.data.map(t => h('option', { value: t.id, text: t.name, selected: t.id === d.teamId })));
+    const team = teams.data.find(t => t.id === d.teamId);
+    const kits = team ? team.kits : [];
+    const kitSel = kits.length > 1 ? h('select', { 'aria-label': 'Jerseys worn in this gallery', onchange: async () => {
+      const res = await api(`/api/admin/galleries/${g.id}/team`, { method: 'PUT', body: { teamId: d.teamId, kit: kitSel.value } });
+      if (res.ok) { msg.textContent = 'Saved.'; } else msg.textContent = aiErr(res);
+    } }, h('option', { value: '', text: 'Any of them (not sure)' }),
+      ...kits.map(k => h('option', { value: k.name, text: k.name === k.description ? k.name : `${k.name}: ${k.description}`, selected: k.name.toLowerCase() === (d.teamKit || '').toLowerCase() }))) : null;
+    // numbers read on players in our colours that are not on the roster: add the player, or say it is not ours
+    const unknownRows = (d.unknown || []).map(u => {
+      const pname = h('input', { type: 'text', maxlength: 30, placeholder: 'Name (optional)', 'aria-label': `Name for #${u.number}` });
+      const note = h('span', { class: 'muted', role: 'status' });
+      const add = h('button', { class: 'primary', text: `Add #${u.number} to ${team ? team.name : 'the team'}`, onclick: async () => {
+        add.disabled = true;
+        const res = await api(`/api/admin/teams/${d.teamId}/players`, { method: 'POST', body: { number: u.number, name: pname.value } });
+        if (res.ok) { toast(`#${res.data.number} added, ${res.data.suggestions} photo${res.data.suggestions === 1 ? '' : 's'} to review`); load(); } else { add.disabled = false; note.textContent = aiErr(res); }
+      } });
+      const no = h('button', { text: 'Not ours', title: 'The other team, or a misreading. This number is not offered again for this team.', onclick: async () => {
+        const res = await api(`/api/admin/teams/${d.teamId}/numbers/dismiss`, { method: 'POST', body: { number: u.number } });
+        if (res.ok) load(); else note.textContent = aiErr(res);
+      } });
+      return h('div', { class: 'player-row' },
+        h('div', { class: 'unknown-thumbs' }, u.photoIds.slice(0, 3).map(pid => h('a', { href: `/img/${pid}/view`, target: '_blank', rel: 'noopener' }, h('img', { src: `/img/${pid}/thumb`, alt: `Photo with #${u.number}`, loading: 'lazy', width: 96, height: 72 })))),
+        h('div', {}, h('div', {}, h('strong', { text: `#${u.number}` }), h('span', { class: 'muted', text: ` read on ${u.photos} photo${u.photos === 1 ? '' : 's'}, up to ${u.confidence}% sure` })),
+          h('div', { class: 'row' }, pname, add, no, note)));
+    });
     const start = async (body) => {
       const res = await api(`/api/admin/galleries/${g.id}/players/check`, { method: 'POST', body });
       if (res.ok) load(); else msg.textContent = aiErr(res);
@@ -3133,7 +3161,8 @@ function playersManager(g) {
           h('button', { class: 'chip-x', 'aria-label': `Reject ${s.tag} on ${s.photo}`, title: 'Reject', text: '×', onclick: () => review([s.id], false) })))))));
     const allIds = d.pending.map(s => s.id);
     box.replaceChildren(
-      h('div', { class: 'form1' }, field('Team', teamSel, 'Only this team\'s players are looked for, in its jersey colours.')),
+      h('div', { class: 'form1' }, field('Team', teamSel, 'Only this team\'s players are looked for, in its jersey colours.'),
+        kitSel ? field('Jerseys', kitSel, 'The colours worn in this gallery. Players in the team\'s other colours are then ignored too.') : null),
       setupHint,
       h('p', { class: 'muted', text: `${d.checked} of ${d.photos} photos checked, ${d.approved} tag${d.approved === 1 ? '' : 's'} approved.` + (d.providers.length ? ` Uses ${d.providers.join(', then ')}.` : '') }),
       h('div', { class: 'row' },
@@ -3142,6 +3171,10 @@ function playersManager(g) {
         d.checked > 0 ? h('button', { text: 'Check all again', disabled: !ready || running, title: 'Look at every photo again, for example after adding players. Rejected suggestions do not come back.', onclick: () => { if (confirm(`Check all ${d.photos} photos again?` + (d.providers.some(p => !/Ollama/.test(p)) ? ' Cloud providers bill each photo.' : ''))) start({ recheck: true }); } }) : null,
         msg),
       progress,
+      unknownRows.length ? h('div', {},
+        h('h4', { text: `Numbers not on the roster (${unknownRows.length})` }),
+        h('p', { class: 'muted', text: 'Read on players in your colours. Add a new player and the photos already read become suggestions below, without checking again.' }),
+        h('div', { class: 'player-list' }, unknownRows)) : null,
       d.pending.length ? h('div', {},
         h('h4', { text: `Waiting for you (${d.pending.length})` }),
         h('p', { class: 'muted', text: 'Nothing is tagged until you approve it. Check a few photos before approving them all.' }),

@@ -16,6 +16,10 @@ public class VisionProvider
     public string ApiKey { get; set; } = "";
     /// <summary>Cloud providers only: the admin ticked that photos (of children, often) will be sent to this company.</summary>
     public bool SendPhotosAgreed { get; set; }
+    /// <summary>How long to wait for this provider's answer on one photo, in seconds. 0 = no limit (Stop still ends it).</summary>
+    public int TimeoutSeconds { get; set; } = DefaultTimeoutSeconds;
+
+    public const int DefaultTimeoutSeconds = 300;
 
     public static readonly string[] Kinds = ["ollama", "anthropic", "openai"];
     public bool IsCloud => Kind != "ollama";
@@ -64,6 +68,7 @@ public class VisionSettings
                 Kind = kind, Enabled = p.Enabled, Url = kind == "ollama" ? url : "",
                 Model = T(p.Model, 100), ApiKey = kind == "ollama" ? "" : T(p.ApiKey, 300),
                 SendPhotosAgreed = kind != "ollama" && p.SendPhotosAgreed,
+                TimeoutSeconds = Math.Clamp(p.TimeoutSeconds, 0, 86400),
             });
         }
         // every kind is always listed, so the settings page can show all of them; new ones go at the end, switched off
@@ -91,6 +96,6 @@ public class VisionSettings
     public object Public() => new
     {
         autoApproveAt = AutoApproveAt,
-        providers = Providers.Select(p => new { p.Kind, label = VisionProvider.Label(p.Kind), p.Enabled, p.Url, p.Model, keySet = p.ApiKey.Length > 0, p.SendPhotosAgreed, cloud = p.IsCloud, p.Ready }),
+        providers = Providers.Select(p => new { p.Kind, label = VisionProvider.Label(p.Kind), p.Enabled, p.Url, p.Model, keySet = p.ApiKey.Length > 0, p.SendPhotosAgreed, p.TimeoutSeconds, cloud = p.IsCloud, p.Ready }),
     };
 }
