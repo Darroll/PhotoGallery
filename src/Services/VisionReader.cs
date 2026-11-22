@@ -56,7 +56,9 @@ public class VisionReader : IVisionReader
             images = new[] { Convert.ToBase64String(jpeg) },
             stream = false,
             format = "json",
-            options = new { temperature = 0 },
+            think = false,                                       // qwen3-vl thinks by default and can ramble for minutes; reading a number needs none
+            keep_alive = "30m",                                  // stay loaded between photos instead of reloading after Ollama's default 5 idle minutes
+            options = new { temperature = 0, num_predict = 1024 }, // a list of numbers is short; stops a model that starts repeating itself
         };
         using var resp = await Http.PostAsJsonAsync($"{p.Url}/api/generate", body, ct);
         var raw = await resp.Content.ReadAsStringAsync(ct);
