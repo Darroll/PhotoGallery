@@ -2565,7 +2565,7 @@ async function visionPanel() {
   const auto = h('input', { type: 'number', min: 0, max: 100, value: r.data.autoApproveAt, 'aria-label': 'Approve automatically at this confidence' });
   const msg = h('span', { class: 'muted', role: 'status' });
   const hints = {
-    ollama: 'Runs on your own computer, so photos stay on your network. Install a vision model first, for example: ollama pull qwen3-vl:8b (needs about 8 GB of graphics memory; qwen3-vl:4b for less).',
+    ollama: 'Runs on your own computer, so photos stay on your network. Install a vision model first, for example: ollama pull qwen3-vl:8b-instruct (needs about 8 GB of graphics memory; qwen3-vl:4b-instruct for less). Use an instruct model: the thinking versions (plain qwen3-vl:8b) spend their answer reasoning and leave no room for the numbers.',
     anthropic: 'Needs an API key from console.anthropic.com, billed per photo. A Claude Pro or Max subscription cannot be used here: Anthropic only allows API keys in other apps.',
     openai: 'Needs an API key from platform.openai.com, billed per photo. A ChatGPT subscription cannot be used here yet. Type a model that can see images.',
   };

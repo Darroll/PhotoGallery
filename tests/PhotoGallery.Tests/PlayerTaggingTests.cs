@@ -265,6 +265,56 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
         finally { listener.Stop(); held.ForEach(c => c.Dispose()); }
     }
 
+    /// <summary>Answers every request with one fixed HTTP 200 JSON body, like an Ollama server would.</summary>
+    static (System.Net.Sockets.TcpListener listener, string url) FakeOllama(string body)
+    {
+        var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (true)
+                {
+                    using var c = await listener.AcceptTcpClientAsync();
+                    var stream = c.GetStream();
+                    var buf = new byte[1 << 16]; var seen = new System.Text.StringBuilder();
+                    // read the headers and the whole (possibly chunked) body before answering
+                    while (true) { var n = await stream.ReadAsync(buf); if (n == 0) break; seen.Append(System.Text.Encoding.Latin1.GetString(buf, 0, n)); var t = seen.ToString(); if (t.Contains("\r\n0\r\n\r\n") || (t.Contains("Content-Length") && t.IndexOf("\r\n\r\n") > 0 && t.Length - t.IndexOf("\r\n\r\n") - 4 >= int.Parse(System.Text.RegularExpressions.Regex.Match(t, @"Content-Length: (\d+)").Groups[1].Value))) break; }
+                    var bytes = System.Text.Encoding.UTF8.GetBytes(body);
+                    await stream.WriteAsync(System.Text.Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {bytes.Length}\r\nConnection: close\r\n\r\n"));
+                    await stream.WriteAsync(bytes);
+                }
+            }
+            catch { }
+        });
+        return (listener, $"http://127.0.0.1:{((IPEndPoint)listener.LocalEndpoint).Port}");
+    }
+
+    [Fact]
+    public async Task A_thinking_model_that_runs_out_of_room_is_explained()
+    {
+        var (listener, url) = FakeOllama("{\"response\":\"\",\"thinking\":\"Got it, let's look at the image. The white jerseys...\",\"done\":true,\"done_reason\":\"length\"}");
+        try
+        {
+            var p = new VisionProvider { Kind = "ollama", Enabled = true, Url = url, Model = "qwen3-vl:8b", TimeoutSeconds = 20 };
+            var ex = await Assert.ThrowsAsync<VisionException>(() => new VisionReader().AskAsync(p, new byte[] { 0xFF, 0xD8 }, "q", CancellationToken.None));
+            Assert.Contains("spent its whole answer thinking", ex.Message);
+            Assert.Contains("qwen3-vl:8b-instruct", ex.Message);
+        }
+        finally { listener.Stop(); }
+
+        (listener, url) = FakeOllama("{\"response\":\"I can see number 10.\",\"done\":true,\"done_reason\":\"stop\"}");
+        try
+        {
+            var p = new VisionProvider { Kind = "ollama", Enabled = true, Url = url, Model = "m", TimeoutSeconds = 20 };
+            var ex = await Assert.ThrowsAsync<VisionException>(() => new VisionReader().AskAsync(p, new byte[] { 0xFF, 0xD8 }, "q", CancellationToken.None));
+            Assert.Contains("it answered without JSON", ex.Message);
+            Assert.Contains("I can see number 10.", ex.Message);
+        }
+        finally { listener.Stop(); }
+    }
+
     [Fact]
     public async Task Without_a_fallback_set_up_only_the_first_provider_is_asked()
     {

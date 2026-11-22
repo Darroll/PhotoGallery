@@ -47,6 +47,9 @@ public class VisionReader : IVisionReader
         return new VisionAnswer(PlayerPrompt.Parse(text), p.Kind, p.Model, sw.ElapsedMilliseconds);
     }
 
+    /// <summary>The longest answer asked of Ollama. A list of numbers takes well under 200 tokens.</summary>
+    const int MaxAnswerTokens = 1024;
+
     static async Task<string> OllamaAsync(VisionProvider p, byte[] jpeg, string prompt, CancellationToken ct)
     {
         var body = new
@@ -58,13 +61,23 @@ public class VisionReader : IVisionReader
             format = "json",
             think = false,                                       // qwen3-vl thinks by default and can ramble for minutes; reading a number needs none
             keep_alive = "30m",                                  // stay loaded between photos instead of reloading after Ollama's default 5 idle minutes
-            options = new { temperature = 0, num_predict = 1024 }, // a list of numbers is short; stops a model that starts repeating itself
+            options = new { temperature = 0, num_predict = MaxAnswerTokens }, // a list of numbers is short; stops a model that starts repeating itself
         };
         using var resp = await Http.PostAsJsonAsync($"{p.Url}/api/generate", body, ct);
         var raw = await resp.Content.ReadAsStringAsync(ct);
         if (!resp.IsSuccessStatusCode) throw new VisionException($"Ollama answered {(int)resp.StatusCode}: {Short(raw)}");
         using var doc = JsonDocument.Parse(raw);
-        return doc.RootElement.TryGetProperty("response", out var r) ? r.GetString() ?? "" : "";
+        var root = doc.RootElement;
+        var text = root.TryGetProperty("response", out var r) ? r.GetString() ?? "" : "";
+        if (text.Contains('{')) return text;
+        // say why there is no JSON, so the admin can tell a model that ran out of room from one that answered in words
+        var thinking = root.TryGetProperty("thinking", out var th) ? th.GetString() ?? "" : "";
+        var cut = root.TryGetProperty("done_reason", out var dr) && dr.GetString() == "length";
+        if (cut && text.Trim().Length == 0 && thinking.Trim().Length > 0)
+            throw new VisionException($"The model spent its whole answer thinking and never wrote the numbers. Use a model that answers straight away, such as qwen3-vl:8b-instruct, in Settings, Automatic tagging.");
+        var why = cut ? $"it stopped at the {MaxAnswerTokens}-token limit" : "it answered without JSON";
+        var seen = text.Trim().Length > 0 ? $" It wrote: \"{Short(text)}\"" : thinking.Trim().Length > 0 ? $" It was still thinking: \"{Short(thinking)}\"" : " Its answer was empty.";
+        throw new VisionException($"The answer had no JSON in it: {why}.{seen}");
     }
 
     static async Task<string> AnthropicAsync(VisionProvider p, byte[] jpeg, string prompt, CancellationToken ct)

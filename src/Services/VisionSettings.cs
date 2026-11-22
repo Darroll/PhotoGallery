@@ -26,7 +26,7 @@ public class VisionProvider
 
     public static string DefaultModel(string kind) => kind switch
     {
-        "ollama" => "qwen3-vl:8b",
+        "ollama" => "qwen3-vl:8b-instruct",   // the plain tag thinks first and can use up its whole answer doing so
         "anthropic" => "claude-opus-5-5",
         _ => "",
     };
