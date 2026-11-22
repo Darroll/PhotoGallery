@@ -736,16 +736,91 @@ function openShareSheet(section) {
   document.body.append(sheet);
 }
 
+// ---------- save to phone ----------
+// Phones that can share files (iPhone and Android browsers) can put photos straight into the photo app through the
+// share sheet ("Save image"), which is much easier than a ZIP. Only offered on touch devices that support it.
+const PHONE_BATCH = 15;
+function phoneSaveSupported() {
+  try {
+    return matchMedia('(pointer: coarse)').matches && !!navigator.canShare &&
+      navigator.canShare({ files: [new File([new Uint8Array(1)], 'x.jpg', { type: 'image/jpeg' })] });
+  } catch { return false; }
+}
+
+// Starts a save (one download on a share link, like a ZIP) and walks the visitor through it in batches: the photos
+// of a batch are fetched first, then one tap hands them to the share sheet, because phones only open it from a tap.
+async function startPhoneSave(body, box) {
+  const r = await api(`/api/g/${encodeURIComponent(G.slug)}/phone`, { method: 'POST', body });
+  if (!r.ok) {
+    toast(r.status === 410 ? 'No downloads left on your link' : typeof r.data === 'string' && r.data ? r.data : 'Could not start the save. Try again.');
+    return false;
+  }
+  const { token, photos } = r.data;
+  let next = 0, files = null;
+  const status = h('p', { 'aria-live': 'polite' });
+  const bar = h('progress', { max: photos.length, value: 0, class: 'phone-progress' });
+  const saveBtn = h('button', { class: 'primary', disabled: true });
+  const zipBtn = G.allowZip && (body.section != null || (body.ids && body.ids.length > 1)) ? h('button', { text: 'Download as a ZIP instead', onclick: () => {
+    const q = new URLSearchParams({ size: G.allowOriginal ? 'original' : String(Math.max(...G.sizes)), fmt: G.formats[0] || 'png' });
+    if (body.section != null) q.set('section', body.section); else q.set('ids', body.ids.join(','));
+    location.href = `/api/g/${encodeURIComponent(G.slug)}/zip?${q}`; closeSheet();
+  } }) : null;
+  const fileFor = async (p) => {
+    const res = await fetch(`/dl/${p.id}/phone?t=${encodeURIComponent(token)}`, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error(res.status === 410 ? 'expired' : 'failed');
+    const blob = await res.blob();
+    const name = blob.type === 'image/jpeg' && !/\.jpe?g$/i.test(p.name) ? p.name.replace(/\.[^.]+$/, '') + '.jpg' : p.name;
+    return new File([blob], name, { type: blob.type || 'image/jpeg' });
+  };
+  const prepare = async () => {
+    const batch = photos.slice(next, next + PHONE_BATCH);
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Getting photos ready…';
+    status.textContent = photos.length > PHONE_BATCH ? `Getting photos ${next + 1} to ${next + batch.length} of ${photos.length} ready…` : `Getting ${plural(batch.length, 'photo')} ready…`;
+    try {
+      files = [];
+      for (const p of batch) { files.push(await fileFor(p)); bar.value = next + files.length; }
+    } catch (e) {
+      status.textContent = e.message === 'expired' ? 'This save has expired. Close and start again.' : 'A photo could not be fetched. Check your connection and try again.';
+      saveBtn.textContent = 'Try again'; saveBtn.disabled = false; saveBtn.onclick = prepare;
+      return;
+    }
+    status.textContent = photos.length > PHONE_BATCH
+      ? `Photos ${next + 1} to ${next + batch.length} of ${photos.length} are ready. Tap the button, then choose "Save images" (or "Save to Photos").`
+      : 'Ready. Tap the button, then choose "Save images" (or "Save to Photos").';
+    saveBtn.textContent = files.length === 1 ? 'Save the photo' : `Save ${files.length} photos`;
+    saveBtn.disabled = false;
+    saveBtn.onclick = share;
+  };
+  const share = async () => {
+    try {
+      await navigator.share({ files });
+    } catch (e) {
+      if (e && e.name === 'AbortError') { status.textContent = 'Not saved yet. Tap the button to try again.'; return; }
+      status.textContent = 'Your phone would not open the share sheet for these photos.' + (zipBtn ? ' You can download them as a ZIP instead.' : '');
+      return;
+    }
+    next += files.length; files = null;
+    if (next >= photos.length) { closeSheet(); toast(photos.length === 1 ? 'Saved to your phone' : `${plural(photos.length, 'photo')} saved to your phone`); return; }
+    prepare();
+  };
+  box.replaceChildren(h('div', { class: 'sheet-grab' }), h('h3', { text: 'Save to phone' }), bar, status,
+    h('div', { class: 'row sheet-actions' }, saveBtn, zipBtn, h('button', { text: 'Close', onclick: closeSheet })));
+  prepare();
+  return true;
+}
+
 function openDownloadSheet(opts = {}) {
   closeSheet();
   if (!G.allowDownload) return;
   const photo = opts.photo || null;
+  const zipWord = phoneSaveSupported() ? '' : ' (ZIP)';   // on a phone the same choices also save to the photo app
   const scopes = [];
   if (photo) scopes.push(['photo', `This photo – ${photo.name}`]);
-  if (opts.section && G.allowZip) scopes.push(['section', `${opts.section.title} (ZIP)`]);
+  if (opts.section && G.allowZip) scopes.push(['section', `${opts.section.title}${zipWord}`]);
   if (G.allowZip && sel.size) scopes.push(['selected', `Selected photos (${sel.size})`]);
   if (G.allowZip && favs.size) scopes.push(['favorites', `My favorites (${favs.size})`]);
-  if (G.allowZip) scopes.push(['all', 'Whole gallery (ZIP)']);
+  if (G.allowZip) scopes.push(['all', 'Whole gallery' + zipWord]);
   if (!scopes.length) { toast('Nothing to download'); return; }
   let scope = scopes.some(s => s[0] === opts.scope) ? opts.scope : scopes[0][0];
 
@@ -802,7 +877,23 @@ function openDownloadSheet(opts = {}) {
     toast('Your download is starting…');
   };
 
-  const dlGo = h('button', { class: 'primary', text: 'Download', onclick: go });
+  // Save to phone: the same photos, straight into the phone's photo app (sizes and formats do not apply)
+  const phoneBody = () => {
+    if (scope === 'photo') return { ids: [photo.id] };
+    if (scope === 'section') return { section: opts.section.folder };
+    const ids = scope === 'selected' ? [...sel] : scope === 'favorites' ? [...favs] : G.photos.filter(p => p.approved && !p.rawOnly).map(p => p.id);
+    return { ids };
+  };
+  const phoneOK = phoneSaveSupported();
+  const phoneGo = phoneOK ? h('button', { class: 'primary', text: 'Save to phone', onclick: async () => {
+    if (!agreed()) { toast('Please agree to the license first'); return; }
+    if (needAgree && !(await recordLicenseAcceptance())) return;
+    const body = phoneBody();
+    if (body.ids && body.ids.length > 500) { toast('Choose 500 photos or fewer at a time'); return; }
+    phoneGo.disabled = true;
+    if (!(await startPhoneSave(body, sheet.querySelector('.sheet')))) phoneGo.disabled = false;
+  } }) : null;
+  const dlGo = h('button', { class: phoneOK ? '' : 'primary', text: phoneOK ? 'Download file' : 'Download', onclick: go });
   const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } },
     h('div', { class: 'sheet', role: 'dialog', 'aria-label': 'Download' },
       h('div', { class: 'sheet-grab' }),
@@ -812,8 +903,9 @@ function openDownloadSheet(opts = {}) {
       rawRow, note, agreeRow,
       license.enabled && !needAgree ? h('p', { class: 'muted' }, 'Downloads are for personal, non-commercial use. See the ', h('a', { href: '/license', target: '_blank', rel: 'noopener', text: license.title || 'license' }), '.') : null,
       G.link && G.link.remaining !== null && G.link.remaining !== undefined ? h('p', { class: 'muted', text: `${G.link.remaining} downloads remaining on your link` }) : null,
-      h('div', { class: 'row sheet-actions' }, dlGo, rawBtn, h('button', { text: 'Close', onclick: closeSheet }))));
-  const syncGo = () => { dlGo.disabled = !agreed(); };
+      phoneOK ? h('p', { class: 'muted', text: 'Save to phone puts the photos in your phone\'s photo app. Download file gives you the size and format chosen above.' }) : null,
+      h('div', { class: 'row sheet-actions' }, phoneGo, dlGo, rawBtn, h('button', { text: 'Close', onclick: closeSheet }))));
+  const syncGo = () => { dlGo.disabled = !agreed(); if (phoneGo) phoneGo.disabled = !agreed(); };
   agreeBox.addEventListener('change', syncGo); syncGo();
   sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
   document.addEventListener('keydown', sheet._key, true);

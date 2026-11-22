@@ -10,6 +10,7 @@ public static class PublicApi
     record FavInput(bool On);
     record NameInput(string? Name);
     record LicenseAcceptInput(string? Version);
+    record PhoneSaveInput(List<int>? Ids, string? Section);
 
     public static void Map(WebApplication app)
     {
@@ -339,6 +340,69 @@ public static class PublicApi
             if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);
             activity.Record(ctx, "download", g.Id, p.Id, "raw");
             return Results.File(path, "application/octet-stream", Path.GetFileName(path));
+        }).RequireRateLimiting("download");
+
+        // Save to phone: start a save of some photos (one photo, a pick, favorites or a section). It counts as one
+        // download, like a ZIP, and returns a ticket plus the photos in gallery order; the browser then fetches each
+        // with /dl/{id}/phone?t=ticket and hands them to the phone's share sheet.
+        app.MapPost("/api/g/{slug}/phone", async (string slug, PhoneSaveInput input, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, PhoneSaves saves, SettingsService settings) =>
+        {
+            var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
+            if (g == null) return Results.NotFound();
+            var a = await access.CheckAsync(ctx, g);
+            if (!a.Allowed) return Results.StatusCode(403);
+            if (!g.AllowDownload && !a.Admin) return Results.StatusCode(403);
+            if (!await LicenseGate.AcceptedAsync(ctx, db, settings)) return LicenseGate.Required();
+
+            var hiddenCover = GalleryRules.HiddenCoverId(g);
+            var photos = await db.Photos.Where(p => p.GalleryId == g.Id && p.Id != hiddenCover && (p.Approved || a.Admin)).ToListAsync();
+            if (input.Ids is { Count: > 0 })
+            {
+                var wanted = input.Ids.Where(n => n > 0).Take(PhoneSaves.MaxPhotos).ToHashSet();
+                photos = photos.Where(p => wanted.Contains(p.Id)).ToList();
+            }
+            else if (input.Section == null) return Results.BadRequest("Choose the photos to save");
+            if (input.Section != null) photos = photos.Where(p => string.Equals(GalleryRules.SectionOf(g, p.RelPath), input.Section, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (photos.Count == 0) return Results.NotFound();
+            if (photos.Count > PhoneSaves.MaxPhotos) return Results.BadRequest($"Choose {PhoneSaves.MaxPhotos} photos or fewer at a time");
+            // more than one photo at once is a bulk download, so it follows the gallery's ZIP switch
+            if (photos.Count > 1 && !g.AllowZip && !a.Admin) return Results.StatusCode(403);
+            var wmLock = g.WatermarkDownload && !a.Admin;
+            if (photos.Any(p => p.RawOnly || wmLock || !PhoneSaves.PhoneReady(p.Name)) && PhoneSaves.PhoneSize(GalleryRules.Sizes(g, cfg)) == null)
+                return Results.BadRequest("This gallery offers no size to save");
+            if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);
+            photos = GalleryRules.Sort(photos, g, x => x.TakenAt, x => x.Name, x => x.AddedAt);
+            var token = saves.Start(g.Id, photos.Select(p => p.Id));
+            return Results.Ok(new { token, photos = photos.Select(p => new { p.Id, p.Name }) });
+        });
+
+        // One photo of a save to phone: the untouched file when the phone can save it as it is and the gallery allows
+        // originals, otherwise a high-quality JPEG at the largest offered size (watermarked when downloads are).
+        app.MapGet("/dl/{id:int}/phone", async (int id, string? t, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity, PhoneSaves saves) =>
+        {
+            var p = await db.Photos.Include(x => x.Gallery).FirstOrDefaultAsync(x => x.Id == id);
+            if (p?.Gallery == null) return Results.NotFound();
+            var g = p.Gallery;
+            var a = await access.CheckAsync(ctx, g);
+            if (!a.Allowed || (!p.Approved && !a.Admin)) return Results.NotFound();
+            if (!g.AllowDownload && !a.Admin) return Results.StatusCode(403);
+            if (!saves.Covers(t, g.Id, p.Id)) return Results.StatusCode(410);   // ticket expired or not for this photo: start again
+
+            var baseName = Path.GetFileNameWithoutExtension(p.Name);
+            var wmLock = g.WatermarkDownload && !a.Admin;
+            if (!wmLock && !p.RawOnly && PhoneSaves.PhoneReady(p.Name))
+            {
+                var path = cfg.ResolvePhoto(p, p.RelPath);
+                if (path == null || !File.Exists(path)) return Results.NotFound();
+                activity.Record(ctx, "download", g.Id, p.Id, "phone original");
+                return Results.File(path, ImageService.ContentType(Path.GetExtension(path).TrimStart('.')), p.Name);
+            }
+            var px = PhoneSaves.PhoneSize(GalleryRules.Sizes(g, cfg));
+            if (px == null) return Results.BadRequest("This gallery offers no size to save");
+            var v = await images.GetVariantAsync(p, "phone", px.Value, "jpg", wmLock && images.WatermarkAvailable);
+            if (v == null) return Results.NotFound();
+            activity.Record(ctx, "download", g.Id, p.Id, $"phone {px}px jpg");
+            return Results.File(v.Value.path, "image/jpeg", $"{baseName}.jpg");
         }).RequireRateLimiting("download");
 
         app.MapGet("/api/g/{slug}/zip", async (string slug, string? size, string? fmt, bool? raw, string? ids, string? section, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity, SettingsService settings) =>

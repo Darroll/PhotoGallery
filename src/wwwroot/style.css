@@ -231,6 +231,7 @@ button.on { border-color: #ff5a6e; color: #ff5a6e; }
 .sheet-fields label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 13px; }
 .sheet-fields select { width: 100%; }
 .sheet-actions { margin-top: 10px; }
+.phone-progress { width: 100%; height: 8px; accent-color: var(--accent); }
 @keyframes sheet-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (min-width: 700px) { .sheet-backdrop { align-items: center; } .sheet { border-radius: 16px; } }
 

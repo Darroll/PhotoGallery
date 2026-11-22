@@ -17,6 +17,7 @@ public class ImageService(AppConfig cfg, SettingsService settings, ILogger<Image
         "webp" => "image/webp",
         "tif" or "tiff" => "image/tiff",
         "jpg" or "jpeg" => "image/jpeg",
+        "heic" or "heif" => "image/heic",
         _ => "application/octet-stream"
     };
 
@@ -153,7 +154,7 @@ public class ImageService(AppConfig cfg, SettingsService settings, ILogger<Image
         var src = await GetSourceAsync(p);
         if (src == null || !File.Exists(src)) return null;
 
-        var ext = kind == "size" ? fmt : "webp";
+        var ext = kind == "size" ? fmt : kind == "phone" ? "jpg" : "webp";
         var stamp = File.GetLastWriteTimeUtc(src).Ticks.ToString("x");
         var wmTag = watermark ? "w" + WatermarkStamp() : "n";
         var dir = Path.Combine(cfg.CacheDir, "variants", p.Id.ToString());
@@ -192,6 +193,11 @@ public class ImageService(AppConfig cfg, SettingsService settings, ILogger<Image
                     case "tif": result.Tiffsave(dest, compression: Enums.ForeignTiffCompression.Lzw); break;
                     default: throw new ArgumentException("bad format");
                 }
+            }
+            else if (kind == "phone")
+            {
+                // a copy for a phone's photo app: a high-quality JPEG, which every camera roll accepts
+                result.Jpegsave(dest, q: 92);
             }
             else
             {
