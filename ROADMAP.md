@@ -125,6 +125,46 @@ Everything to do with comments, finished together. Steps 11 and 12 must never sh
 | 27 | Other install routes (Q4) | M | Med | 22 |
 | 28 | "Later / ideas" (map, memories, photo of the week, keepsake page, phone-app install, translations), chosen one at a time | M to L each | varies | |
 
+### Group I: Team parents first (planned 2026-11-22)
+
+The main use is photos of a youth soccer team plus a link to the game film, shared with the other parents. Parents should be able to open the link, find their own daughter and save her photos with as little friction as possible. Items were found by comparing with Pixieset, Pic-Time, ShootProof, SmugMug, Zenfolio, Immich, PhotoPrism, Lychee and Piwigo, and are ordered by how much friction they remove for a parent. Game film already works (Video links per section).
+
+| # | Work | Effort | Complexity | Seen in |
+|---|---|---|---|---|
+| 29 | **Player filter in a gallery**: chips for each player tag (name or jersey number) above the grid, in every visibility including unlisted and protected; "Download all photos of #10" in one click. Builds on bulk tagging | M | Med | Pic-Time, Immich (people) |
+| 30 | **Save to phone**: on a phone, save picked photos straight to the camera roll (share sheet with files) instead of a ZIP that phones handle badly | M | Med | Pixieset, Pic-Time apps |
+| 31 | **Follow a player**: a parent subscribes to one player tag and gets an email when new photos of her are added. Builds on the subscriber digest | M | Med | Pic-Time |
+| 32 | **Gallery presets**: saved settings applied to each new game or tournament gallery, so a weekly gallery takes one step (with #21) | S | Low | Pixieset |
+| 33 | **Short visitor guide**: a dismissible "how to find and save your photos" card on a gallery | S | Low | Pixieset |
+| 34 | **Collections on the home page**: group galleries by season or team ("Fall 2026 U12"). Not the declined multi-folder library | M | Med | SmugMug, Pixieset, Piwigo |
+| 35 | **Jersey-number auto-tagging** with the local vision model (same opt-in Ollama hookup as captions); admin reviews before tags go live | L | Med | Pic-Time (AI search) |
+| 36 | **Install on a phone like an app** (moved up from Later / ideas) | M | Low | Pixieset, Immich |
+| 37 | **Team branding**: logo, favicon and accent color in the app, no CSS | S to M | Low | Pixieset, ShootProof |
+| 38 | **Upload from the admin page / Lightroom publish**: needs a write path, the library is a read-only mount today | M / L | High | All pro hosts, Piwigo |
+| 39 | **Find me by face**: opt-in, processed only on this server, admin-controlled. Faces of minors are biometric data, so this needs its own privacy design and a decision before work starts | XL | High | Pic-Time, Immich |
+
+After Group I, the rest of the comparison, roughly in this order (all new unless marked):
+
+- Expiry reminder email to visitors before a gallery auto-expires (S)
+- Download PIN separate from the viewing password, for galleries where only families should download (S)
+- Layout choices per gallery: justified rows, masonry, square, spacing (M)
+- Search by description with a local model, "goal celebration", "team photo" (L)
+- Map of where photos were taken (already in Later / ideas)
+- Slideshow with background music (S to M)
+- Translations (already in Later / ideas)
+- Story layout with highlight photos and text between sets (L)
+- Hide some photos from some people inside one gallery (M)
+- Duplicate and near-duplicate finder for the admin (M)
+- Embed a gallery or slideshow on another website, such as a team site (M)
+- RSS feed of new public galleries (S)
+- Two-factor sign-in for the password admin (S to M)
+- Public API and webhooks (M)
+- Selection limits and named lists ("Print", "Album") for proofing (M each)
+- Date scrubber for very large galleries (M)
+- More than one admin (L)
+- Memories / on this day (already in Later / ideas)
+- Out of scope unless the goal changes: print store, paid downloads, coupons, gift cards, album designer, invoices
+
 ## Now that it is public (strangers will install this)
 
 The app was built for one household. Public installs mean unknown setups, no one to ask in person, and updates that must never lose data. Do these roughly in order; they take priority over new features until done.
@@ -245,7 +285,7 @@ If time is short, the smallest set that delivers the vision is **#1, #4, #6, #7,
 - [ ] "Memories" or "on this day" page
 - [ ] Photo-of-the-week on the home page
 - [ ] Download a gallery's likes and comments as a small keepsake page
-- [ ] Install on a phone like an app (home-screen icon, works offline for already-viewed photos) *proposed*
+- [ ] Install on a phone like an app (home-screen icon, works offline for already-viewed photos) *proposed* (moved up: Group I #36)
 - [ ] Translations, for relatives who read another language *proposed*
 
 ## Open questions
