@@ -2645,6 +2645,22 @@ function taggingActivity() {
 
 // Teams with their jersey colours and roster. The model only reads numbers on players in these colours, and only
 // numbers on the roster become suggestions, because the other team can wear the same numbers.
+// Jersey colours: common names offered as suggestions (any colour can be typed), and the plain words the AI model is given.
+const JERSEY_COLOURS = ['white', 'black', 'red', 'maroon', 'orange', 'yellow', 'gold', 'green', 'dark green', 'light blue', 'blue', 'royal blue', 'navy', 'purple', 'pink', 'grey', 'silver', 'teal'];
+const jerseyText = (shirt, number) => {
+  shirt = (shirt || '').trim(); number = (number || '').trim();
+  return shirt && number ? `${shirt} shirts with ${number} numbers` : shirt ? `${shirt} shirts` : number ? `${number} numbers` : '';
+};
+function colourInput(value, label, placeholder) {
+  const sw = h('span', { class: 'swatch', 'aria-hidden': 'true' });
+  const input = h('input', { type: 'text', maxlength: 60, value: value || '', placeholder, list: 'jersey-colours', 'aria-label': label, class: 'kit-colour', oninput: () => paint() });
+  const paint = () => { const v = input.value.trim().replace(/\s+/g, ''); sw.style.background = v && CSS.supports('color', v) ? v : 'transparent'; };
+  paint();
+  const wrap = h('span', { class: 'colour-input' }, sw, input);
+  Object.defineProperty(wrap, 'value', { get: () => input.value });
+  return wrap;
+}
+
 async function teamsPanel() {
   const box = h('div');
   const render = async () => {
@@ -2653,19 +2669,27 @@ async function teamsPanel() {
     const editor = (t) => {
       const msg = h('span', { class: 'muted', role: 'status' });
       const name = h('input', { type: 'text', maxlength: 30, value: t ? t.name : '', placeholder: 'Team name, such as Hurricanes U12', 'aria-label': 'Team name' });
-      // jersey sets: one row each, a short name (Home, Away) and the colours in plain words
+      // jerseys: one row each with a name (Home, Away), the shirt colour and the number colour; saved as "Home: white shirts with black numbers"
       const kitList = h('div', { class: 'kit-list' });
       const kitRow = (k) => {
-        const kname = h('input', { type: 'text', maxlength: 30, value: k ? k.name : '', placeholder: 'Home', 'aria-label': 'Jersey set name', class: 'kit-name' });
-        const kdesc = h('input', { type: 'text', maxlength: 200, value: k ? k.description : '', placeholder: 'white shirts with black numbers', 'aria-label': 'Jersey colours', class: 'kit-desc' });
-        const row = h('div', { class: 'row kit-row' }, kname, kdesc,
-          h('button', { text: '×', title: 'Remove this jersey set', 'aria-label': 'Remove this jersey set', onclick: () => { row.remove(); if (!kitList.children.length) kitList.append(kitRow(null)); } }));
-        row.read = () => { const n = kname.value.trim().replace(/:/g, ' '), c = kdesc.value.trim(); return c ? (n && n !== c ? `${n}: ${c}` : c) : ''; };
+        const kname = h('input', { type: 'text', maxlength: 30, value: k ? k.name : '', placeholder: 'Home', 'aria-label': 'Jersey name', class: 'kit-name' });
+        const shirt = colourInput(k ? k.shirt : '', 'Shirt colour', 'white');
+        const num = colourInput(k ? k.number : '', 'Number colour', 'black');
+        const row = h('div', { class: 'kit-row' },
+          h('label', { class: 'kit-cell' }, h('span', { class: 'muted', text: 'Name' }), kname),
+          h('label', { class: 'kit-cell' }, h('span', { class: 'muted', text: 'Shirt' }), shirt),
+          h('label', { class: 'kit-cell' }, h('span', { class: 'muted', text: 'Numbers' }), num),
+          h('button', { text: '×', class: 'kit-x', title: 'Remove this jersey', 'aria-label': 'Remove this jersey', onclick: () => { row.remove(); if (!kitList.children.length) kitList.append(kitRow(null)); } }));
+        row.read = () => {
+          const n = kname.value.trim().replace(/:/g, ' '), d = jerseyText(shirt.value, num.value);
+          return d ? (n ? `${n}: ${d}` : d) : '';
+        };
         return row;
       };
-      const kits0 = t && t.kits.length ? t.kits.map(k => ({ name: k.name === k.description ? '' : k.name, description: k.description })) : [null];
+      const kits0 = t && t.kits.length ? t.kits.map(k => ({ name: k.name === k.description ? '' : k.name, shirt: k.shirt, number: k.number })) : [null];
       kitList.append(...kits0.map(kitRow));
-      const colors = h('div', {}, kitList, h('button', { text: '+ Add jersey set', onclick: () => kitList.append(kitRow(null)) }));
+      const colors = h('div', {}, h('datalist', { id: 'jersey-colours' }, JERSEY_COLOURS.map(c => h('option', { value: c }))),
+        kitList, h('button', { text: '+ Add jersey', onclick: () => { const r = kitRow(null); kitList.append(r); r.querySelector('input').focus(); } }));
       colors.read = () => [...kitList.children].map(r => r.read()).filter(Boolean).join('\n');
       const names = h('input', { type: 'checkbox', checked: t ? t.tagWithNames : false });
       const roster = h('textarea', { rows: 8, placeholder: '10 Emma\n7 Ava\n3', 'aria-label': 'Roster' });
@@ -2682,7 +2706,7 @@ async function teamsPanel() {
       } }) : null;
       const body = h('div', { class: 'form1' },
         field('Name', name, 'Used in tags, such as "Hurricanes U12 10".'),
-        field('Jerseys', colors, 'Each set of jerseys the team wears, with a short name (Home, Away) and its colours in plain words. Each gallery picks the set worn that day, or you can type colours for one gallery. Other teams may use the same colours.'),
+        field('Jerseys', colors, 'Each jersey the team wears: a name (Home, Away), the shirt colour and the number colour. Each gallery picks the jersey worn that day. Other teams may use the same colours.'),
         field('Roster', roster, 'One player per line: the number, then a name if you like. Only these numbers are tagged.'),
         field('Names in tags', h('label', {}, names, ' Tag photos with the player\'s name ("Emma 10")'), 'Off keeps children\'s names off the site: tags use the team and number.'));
       const actions = h('div', { class: 'row' }, save, del, msg);
@@ -3126,14 +3150,20 @@ function playersManager(g) {
       msg.textContent = res.ok ? 'Saved.' : aiErr(res);
       if (res.ok) d.teamKit = kit;
     };
-    const custom = h('input', { type: 'text', maxlength: 200, value: cur && !named ? cur : '', placeholder: 'white shirts with black numbers', 'aria-label': 'Jersey colours in this gallery' });
-    const customRow = h('div', { class: 'row', hidden: !(cur && !named) }, custom, h('button', { text: 'Save colours', onclick: () => { if (custom.value.trim()) saveKit(custom.value.trim()); } }));
+    const m = /^(.*?) shirts(?: with (.*) numbers)?$/.exec(cur && !named ? cur : '') || [];
+    const cShirt = colourInput(m[1] || (cur && !named && !m.length ? cur : ''), 'Shirt colour in this gallery', 'white');
+    const cNum = colourInput(m[2] || '', 'Number colour in this gallery', 'black');
+    const customRow = h('div', { class: 'kit-row', hidden: !(cur && !named) },
+      h('datalist', { id: 'jersey-colours' }, JERSEY_COLOURS.map(c => h('option', { value: c }))),
+      h('label', { class: 'kit-cell' }, h('span', { class: 'muted', text: 'Shirt' }), cShirt),
+      h('label', { class: 'kit-cell' }, h('span', { class: 'muted', text: 'Numbers' }), cNum),
+      h('button', { text: 'Save', onclick: () => { const d = jerseyText(cShirt.value, cNum.value); if (d) saveKit(d); } }));
     const kitSel = d.teamId ? h('select', { 'aria-label': 'Jerseys worn in this gallery', onchange: () => {
-      if (kitSel.value === '\u0000other') { customRow.hidden = false; custom.focus(); return; }
+      if (kitSel.value === '\u0000other') { customRow.hidden = false; customRow.querySelector('input').focus(); return; }
       customRow.hidden = true; saveKit(kitSel.value);
-    } }, h('option', { value: '', text: kits.length > 1 ? 'Any of the team\'s sets (not sure)' : kits.length ? `${kits[0].name === kits[0].description ? kits[0].description : kits[0].name + ': ' + kits[0].description}` : 'Not set' , selected: !cur }),
+    } }, h('option', { value: '', text: kits.length > 1 ? 'Any of the team\'s jerseys (not sure)' : kits.length ? `${kits[0].name === kits[0].description ? kits[0].description : kits[0].name + ': ' + kits[0].description}` : 'Not set' , selected: !cur }),
       ...(kits.length > 1 ? kits : []).map(k => h('option', { value: k.name, text: k.name === k.description ? k.name : `${k.name}: ${k.description}`, selected: named === k })),
-      h('option', { value: '\u0000other', text: 'Other colours for this gallery…', selected: !!cur && !named })) : null;
+      h('option', { value: '\u0000other', text: 'Another jersey, just for this gallery…', selected: !!cur && !named })) : null;
     // numbers read on players in our colours that are not on the roster: add the player, or say it is not ours
     const unknownRows = (d.unknown || []).map(u => {
       const pname = h('input', { type: 'text', maxlength: 30, placeholder: 'Name (optional)', 'aria-label': `Name for #${u.number}` });
@@ -3185,7 +3215,7 @@ function playersManager(g) {
     const allIds = d.pending.map(s => s.id);
     box.replaceChildren(
       h('div', { class: 'form1' }, field('Team', teamSel, 'Only this team\'s players are looked for, in its jersey colours.'),
-        kitSel ? field('Jerseys', h('div', {}, kitSel, customRow), 'What the team wears in this gallery. Pick one of its sets from the Teams page, or type colours just for this gallery. Only players in these colours are read, so the other team can wear the same numbers.') : null),
+        kitSel ? field('Jerseys', h('div', {}, kitSel, customRow), 'The jersey the team wears in this gallery, from its list on the Teams page. Only players in that jersey are read, so the other team can wear the same numbers.') : null),
       setupHint,
       h('p', { class: 'muted', text: `${d.checked} of ${d.photos} photos checked, ${d.approved} tag${d.approved === 1 ? '' : 's'} approved.` + (d.providers.length ? ` Uses ${d.providers.join(', then ')}.` : '') }),
       h('div', { class: 'row' },

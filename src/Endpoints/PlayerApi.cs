@@ -22,7 +22,7 @@ public static class PlayerApi
     static object TeamOut(Team t, int galleries) => new
     {
         t.Id, t.Name, t.Colors, t.TagWithNames, galleries,
-        kits = PlayerTags.Kits(t.Colors).Select(k => new { name = k.Name, description = k.Description }),
+        kits = PlayerTags.Kits(t.Colors).Select(k => { var (shirt, number) = PlayerTags.SplitJersey(k.Description); return new { name = k.Name, description = k.Description, shirt, number }; }),
         players = t.Players.OrderBy(p => p.Number.Length).ThenBy(p => p.Number, StringComparer.Ordinal).Select(p => new { p.Id, p.Number, p.Name }),
         roster = string.Join("\n", t.Players.OrderBy(p => p.Number.Length).ThenBy(p => p.Number, StringComparer.Ordinal).Select(p => p.Name.Length > 0 ? $"{p.Number} {p.Name}" : p.Number)),
     };

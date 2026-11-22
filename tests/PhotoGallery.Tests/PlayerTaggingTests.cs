@@ -228,6 +228,9 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             var (gid, _, teamId) = await GalleryWithTeamAsync(admin, "Kit Flow", 1);
             var team = await (await admin.PutAsJsonAsync($"/api/admin/teams/{teamId}", new { name = "Kit Flow FC", colors = "Home: white shirts with blue numbers\nAway: blue shirts with white numbers\nThird: black shirts with gold numbers", roster = "10 Emma" })).ReadAsync();
             Assert.Equal(new[] { "Home", "Away", "Third" }, team.GetProperty("kits").EnumerateArray().Select(k => k.GetProperty("name").GetString()).ToArray());
+            var away = team.GetProperty("kits")[1];
+            Assert.Equal("blue", away.GetProperty("shirt").GetString());
+            Assert.Equal("white", away.GetProperty("number").GetString());
             app.Reader.Answers["ollama"] = () => "{\"numbers\": []}";
 
             // no set chosen: every set is described

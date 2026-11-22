@@ -604,6 +604,15 @@ table.data td:last-child { text-align: right; font-variant-numeric: tabular-nums
 .unknown-thumbs { display: flex; gap: 4px; flex: none; }
 .player-row .row input[type=text] { max-width: 180px; }
 .kit-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; max-width: 520px; }
+.kit-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.kit-row[hidden] { display: none; }
+.kit-cell { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.kit-cell .kit-name { width: 110px; }
+.colour-input { display: inline-flex; align-items: center; gap: 6px; }
+.colour-input .kit-colour { width: 130px; }
+.swatch { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line); flex: none; }
+.kit-x { align-self: flex-end; }
+.field .kit-row input.kit-name { width: 110px; }
+.field .kit-row input.kit-colour { width: 130px; }
 .kit-row { flex-wrap: nowrap; }
-.kit-row .kit-name { flex: 0 0 110px; min-width: 0; }
-.kit-row .kit-desc { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 640px) { .kit-row { flex-wrap: wrap; } }

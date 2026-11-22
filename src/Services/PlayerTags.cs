@@ -104,6 +104,13 @@ public static class PlayerTags
         return list;
     }
 
+    /// <summary>Splits "white shirts with black numbers" into its shirt and number colours, as the Teams page enters them. Other wording goes whole into the shirt.</summary>
+    public static (string Shirt, string Number) SplitJersey(string description)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(description.Trim(), @"^(.+?) shirts(?: with (.+) numbers)?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return m.Success ? (m.Groups[1].Value, m.Groups[2].Value) : (description.Trim(), "");
+    }
+
     /// <summary>The colours to tell the model for a gallery: one of the team's sets by name, colours typed for that gallery alone, or every set when none is chosen.</summary>
     public static string ColorsFor(Team team, string? kit)
     {
