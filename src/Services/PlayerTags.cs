@@ -65,7 +65,6 @@ public class NumberSighting
 
 public static class PlayerTags
 {
-    public const int MaxAttempts = 3;
     /// <summary>The picture sent to a model: big enough to read a number on a jersey, small enough for every provider's limits.</summary>
     public const int ImageSize = 1568;
 
@@ -349,7 +348,8 @@ public class PlayerTagJobs(IServiceScopeFactory scopes, ILogger<PlayerTagJobs> l
 
         var hiddenCover = GalleryRules.HiddenCoverId(g);
         var q = db.Photos.Where(p => p.GalleryId == g.Id && p.Approved && p.Id != hiddenCover);
-        if (!job.Recheck) q = q.Where(p => p.PlayersCheckedAt == null && p.PlayerCheckAttempts < PlayerTags.MaxAttempts);
+        // every unchecked photo, including ones that failed before: a check only runs when the admin asks for it
+        if (!job.Recheck) q = q.Where(p => p.PlayersCheckedAt == null);
         var photos = GalleryRules.Sort(await q.ToListAsync(ct), g, x => x.TakenAt, x => x.Name, x => x.AddedAt);
         if (job.Limit is { } n) photos = photos.Take(n).ToList();
         st.Total = photos.Count;

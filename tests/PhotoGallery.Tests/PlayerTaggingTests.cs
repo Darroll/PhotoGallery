@@ -337,6 +337,14 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             Assert.Equal(1, s.GetProperty("job").GetProperty("failed").GetInt32());
             Assert.Contains("ollama is down", s.GetProperty("job").GetProperty("lastError").GetString());
             Assert.Equal(0, s.GetProperty("checked").GetInt32());
+
+            // a photo that failed (even three times) is tried again by the next check, for example after changing the model
+            for (var i = 0; i < 3; i++) { await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { }); await WaitAsync(admin, gid); }
+            app.Reader.Answers["ollama"] = () => "{\"numbers\": []}";
+            await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { });
+            s = await WaitAsync(admin, gid);
+            Assert.Equal(1, s.GetProperty("job").GetProperty("done").GetInt32());
+            Assert.Equal(1, s.GetProperty("checked").GetInt32());
         }
         finally { Serial.Release(); }
     }
