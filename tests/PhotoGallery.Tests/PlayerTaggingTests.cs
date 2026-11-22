@@ -14,14 +14,17 @@ public class FakeVisionReader : IVisionReader
     public ConcurrentQueue<string> Asked { get; } = new();
     public ConcurrentDictionary<string, Func<string>> Answers { get; } = new();
     public string? LastPrompt;
+    /// <summary>When set, every request hangs until cancelled, like a model that is still thinking.</summary>
+    public volatile bool Hang;
 
-    public Task<VisionAnswer> AskAsync(VisionProvider provider, byte[] jpeg, string prompt, CancellationToken ct)
+    public async Task<VisionAnswer> AskAsync(VisionProvider provider, byte[] jpeg, string prompt, CancellationToken ct)
     {
+        if (Hang) await Task.Delay(Timeout.Infinite, ct);
         Asked.Enqueue(provider.Kind);
         LastPrompt = prompt;
         Assert.True(jpeg.Length > 100 && jpeg[0] == 0xFF && jpeg[1] == 0xD8, "a JPEG is sent");
         if (!Answers.TryGetValue(provider.Kind, out var answer)) throw new VisionException(provider.Kind + " is down");
-        return Task.FromResult(new VisionAnswer(PlayerPrompt.Parse(answer()), provider.Kind, provider.Model, 1));
+        return new VisionAnswer(PlayerPrompt.Parse(answer()), provider.Kind, provider.Model, 1);
     }
 }
 
@@ -102,6 +105,78 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { recheck = true });
             s = await WaitAsync(admin, gid);
             Assert.Empty(s.GetProperty("pending").EnumerateArray());
+        }
+        finally { Serial.Release(); }
+    }
+
+    [Fact]
+    public async Task The_admin_sees_each_photo_checked_and_every_gallery_in_the_activity_list()
+    {
+        await Serial.WaitAsync();
+        try
+        {
+            var admin = await app.AdminAsync();
+            await SetProvidersAsync(admin, new { kind = "ollama", enabled = true, url = "http://ollama.local:11434", model = "qwen3-vl:8b" });
+            var (gid, _, _) = await GalleryWithTeamAsync(admin, "Watch Flow", 2);
+            app.Reader.Answers["ollama"] = () => "{\"numbers\": [{\"number\": \"7\", \"confidence\": 80}, {\"number\": \"42\", \"confidence\": 90}]}";
+            await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { });
+            var job = (await WaitAsync(admin, gid)).GetProperty("job");
+            var recent = job.GetProperty("recent").EnumerateArray().ToList();
+            Assert.Equal(2, recent.Count);
+            Assert.All(recent, r =>
+            {
+                Assert.True(r.GetProperty("ok").GetBoolean());
+                Assert.Contains("#7 (80%)", r.GetProperty("result").GetString());
+                Assert.Contains("1 number not on the roster ignored", r.GetProperty("result").GetString());
+                Assert.Equal("Ollama (your own server)", r.GetProperty("provider").GetString());
+            });
+            Assert.Equal("", job.GetProperty("currentPhoto").GetString());
+
+            var all = await (await admin.GetAsync("/api/admin/players/jobs")).ReadAsync();
+            var mine = all.EnumerateArray().Single(x => x.GetProperty("job").GetProperty("galleryId").GetInt32() == gid);
+            Assert.Equal("Watch Flow", mine.GetProperty("job").GetProperty("gallery").GetString());
+            Assert.Equal(2, mine.GetProperty("pending").GetInt32());
+        }
+        finally { Serial.Release(); }
+    }
+
+    [Fact]
+    public async Task A_running_check_shows_the_photo_being_read_and_can_be_stopped()
+    {
+        await Serial.WaitAsync();
+        try
+        {
+            var admin = await app.AdminAsync();
+            await SetProvidersAsync(admin, new { kind = "ollama", enabled = true, url = "http://ollama.local:11434", model = "qwen3-vl:8b" });
+            var (gid, _, _) = await GalleryWithTeamAsync(admin, "Stop Flow", 3);
+            app.Reader.Answers["ollama"] = () => "{\"numbers\": []}";
+            app.Reader.Hang = true;
+            try
+            {
+                await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { });
+                JsonElement job = default;
+                for (var i = 0; i < 200; i++)
+                {
+                    job = (await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync()).GetProperty("job");
+                    if (job.GetProperty("currentProvider").GetString() != "") break;
+                    await Task.Delay(50);
+                }
+                Assert.True(job.GetProperty("running").GetBoolean());
+                Assert.NotEqual("", job.GetProperty("currentPhoto").GetString());
+                Assert.True(job.GetProperty("currentPhotoId").GetInt32() > 0);
+                Assert.Equal("Ollama (your own server)", job.GetProperty("currentProvider").GetString());
+
+                Assert.Equal(HttpStatusCode.Accepted, (await admin.PostAsync($"/api/admin/galleries/{gid}/players/stop", null)).StatusCode);
+                var s = await WaitAsync(admin, gid);
+                Assert.Equal("Stopped by you.", s.GetProperty("job").GetProperty("lastError").GetString());
+                Assert.Equal(0, s.GetProperty("checked").GetInt32());
+                Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsync($"/api/admin/galleries/{gid}/players/stop", null)).StatusCode);
+            }
+            finally { app.Reader.Hang = false; }
+
+            // the photos left unchecked are picked up by the next check
+            await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { });
+            Assert.Equal(3, (await WaitAsync(admin, gid)).GetProperty("checked").GetInt32());
         }
         finally { Serial.Release(); }
     }

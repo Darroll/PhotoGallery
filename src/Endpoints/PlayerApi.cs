@@ -158,8 +158,25 @@ public static class PlayerApi
             if (g.TeamId == null) return Results.BadRequest("Choose the team for this gallery first.");
             if (!await db.Players.AnyAsync(p => p.TeamId == g.TeamId)) return Results.BadRequest("Add the team's players (their numbers) first.");
             var limit = input.Limit is { } n ? Math.Clamp(n, 1, 100) : (int?)null;
-            if (!jobs.Start(id, limit, input.Recheck == true)) return Results.Conflict("A check is already running for this gallery.");
+            if (!jobs.Start(id, g.Title, limit, input.Recheck == true)) return Results.Conflict("A check is already running for this gallery.");
             return Results.Accepted();
+        });
+
+        secured.MapPost("/galleries/{id:int}/players/stop", (int id, HttpContext ctx, PlayerTagJobs jobs) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            return jobs.Stop(id) ? Results.Accepted() : Results.Conflict("No check is running for this gallery.");
+        });
+
+        // every gallery's check that is running, waiting, or ended in the last day: the activity panel
+        secured.MapGet("/players/jobs", async (AppDb db, PlayerTagJobs jobs) =>
+        {
+            var list = jobs.All();
+            var ids = list.Select(j => j.GalleryId).ToList();
+            var pending = await (from s in db.PlayerSuggestions join p in db.Photos on s.PhotoId equals p.Id
+                                 where s.Status == "pending" && ids.Contains(p.GalleryId) group s by p.GalleryId into x select new { x.Key, n = x.Count() })
+                                .ToDictionaryAsync(x => x.Key, x => x.n);
+            return Results.Ok(list.Select(j => new { job = j, pending = pending.GetValueOrDefault(j.GalleryId) }));
         });
 
         secured.MapPost("/players/review", async (ReviewInput input, HttpContext ctx, AppDb db) =>

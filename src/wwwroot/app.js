@@ -2610,11 +2610,35 @@ async function visionPanel() {
     const ready = rows.filter(p => p.ready).map(p => p.label);
     msg.textContent = ready.length === 0 ? 'Saved. No provider is ready yet, so nothing will be checked.' : ready.length === 1 ? `Saved. Only ${ready[0]} will be used; there is no fallback.` : `Saved. Tried in this order: ${ready.join(', then ')}.`;
   } });
-  return h('div', { class: 'panel' }, h('h3', { text: 'Automatic tagging' }),
+  return h('div', {}, taggingActivity(), h('div', { class: 'panel' }, h('h3', { text: 'Automatic tagging' }),
     h('p', { class: 'muted', text: 'An AI model looks at each photo and reads the jersey numbers of your team\'s players, so parents can find their child. Providers are tried from the top. Only providers that are switched on and fully set up are used, so if you set up just one, nothing else is ever tried. Nothing is checked until you press a button in a gallery\'s Players section.' }),
     list,
     h('div', { class: 'form1' }, field('Approve automatically', h('label', {}, auto, ' % sure or more'), '0 (recommended) means every suggestion waits for you to check it. Tags are only added after you approve them.')),
-    h('div', { class: 'row' }, save, msg));
+    h('div', { class: 'row' }, save, msg)));
+}
+
+// Every gallery's player check: running, waiting, or ended in the last day. Refreshes every 2 seconds while one runs.
+function taggingActivity() {
+  const box = h('div', { 'aria-live': 'polite' });
+  const panel = h('div', { class: 'panel' }, h('h3', { text: 'Activity' }), box);
+  let timer = null, started = false;
+  const load = async () => {
+    clearTimeout(timer);
+    if (started && !panel.isConnected) return;
+    started = true;
+    const r = await api('/api/admin/players/jobs');
+    if (!r.ok) { box.replaceChildren(h('p', { class: 'err', text: 'Could not load the activity.' })); return; }
+    if (!r.data.length) box.replaceChildren(h('p', { class: 'muted', text: 'No checks in the last day. Start one from a gallery\'s settings, in its Players section.' }));
+    else box.replaceChildren(...r.data.map(({ job, pending }) => h('div', { class: 'job-gallery' },
+      h('h4', {}, h('a', { href: `/admin/galleries/${job.galleryId}#players`, text: job.gallery || `Gallery ${job.galleryId}` }),
+        h('span', { class: 'muted', text: job.running ? (job.waiting ? ' · waiting' : ' · running') : ' · finished' }),
+        pending ? h('span', {}, ' · ', h('a', { href: `/admin/galleries/${job.galleryId}#players`, text: `${pending} waiting for review` })) : null),
+      playerJobView(job, async () => { await api(`/api/admin/galleries/${job.galleryId}/players/stop`, { method: 'POST' }); load(); }, { recentCount: 5 }))));
+    if (r.data.some(x => x.job.running)) timer = setTimeout(load, 2000);
+    else timer = setTimeout(load, 15000);
+  };
+  load();
+  return panel;
 }
 
 // Teams with their jersey colours and roster. The model only reads numbers on players in these colours, and only
@@ -2983,7 +3007,8 @@ async function viewGallerySettings(app, id) {
       field('Comments', h('label', {}, allowComments, ' Let signed-in visitors comment on photos'),
         'Only people who sign in through your sign-in provider with a verified email can comment, under a display name they choose (never their email). You can always reply, marked as the photographer, and switch comments off for a single photo while viewing it. Needs sign-in set up in Settings, Sign-in (SSO).')));
 
-  const playersSection = section('Players', 'Tag your team\'s players automatically', false, playersManager(g));
+  const playersSection = section('Players', 'Tag your team\'s players automatically', location.hash === '#players', playersManager(g));
+  if (location.hash === '#players') setTimeout(() => playersSection.scrollIntoView({ block: 'start' }), 300);
 
   // --- RAW files (collapsed) ---
   const rawMode = track(h('select', {}, [[0, 'Same folder, same file name'], [1, 'Same file name, any folder'], [2, 'Name starts with the RAW name (IMG_1234-Edit.png)']].map(([v, t]) => h('option', { value: v, text: t, selected: v === g.rawMatchMode }))));
@@ -3030,6 +3055,37 @@ async function viewGallerySettings(app, id) {
 }
 
 // Gallery settings: which team plays in this gallery, checking photos for its players, and the suggestions to review.
+// What a gallery's player check is doing right now: the photo being read (with its thumbnail), which AI is reading it,
+// progress, and the latest results. Used in the gallery's Players section and in the activity list.
+const secsSince = (iso) => iso ? Math.max(0, Math.round((Date.now() - new Date(/Z$|[+-]\d\d:\d\d$/.test(iso) ? iso : iso + 'Z').getTime()) / 1000)) : 0;
+function playerJobView(job, onStop, { recentCount = 8 } = {}) {
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const out = h('div', { class: 'job-view' });
+  if (job.running && job.waiting) {
+    out.append(h('p', { class: 'muted' }, 'Waiting for another gallery\'s check to finish (one gallery is checked at a time). ',
+      onStop ? h('button', { text: 'Cancel', onclick: onStop }) : null));
+  } else if (job.running) {
+    const secs = secsSince(job.currentSince);
+    out.append(
+      h('p', {}, h('progress', { class: 'phone-progress', max: Math.max(job.total, 1), value: job.done }),
+        ` Checked ${job.done} of ${job.total}, ${plural(job.found, 'new suggestion')}` + (job.failed ? `, ${job.failed} failed` : '') + '. ',
+        onStop ? h('button', { text: job.stopRequested ? 'Stopping…' : 'Stop', disabled: job.stopRequested, title: 'Stop after cancelling the photo being read. Photos not checked yet stay unchecked.', onclick: onStop }) : null),
+      job.currentPhotoId ? h('div', { class: 'player-row now' },
+        h('a', { href: `/img/${job.currentPhotoId}/view`, target: '_blank', rel: 'noopener' }, h('img', { src: `/img/${job.currentPhotoId}/thumb`, alt: job.currentPhoto, width: 96, height: 72 })),
+        h('div', {}, h('div', {}, h('strong', { text: 'Now reading: ' }), job.currentPhoto),
+          h('div', { class: 'muted', text: (job.currentProvider ? `Asking ${job.currentProvider}` : 'Preparing the photo') + (secs >= 2 ? `, ${secs} s so far` : '') }))) : null);
+  } else if (job.finishedAt) {
+    out.append(h('p', { class: job.failed || job.stopRequested ? 'err' : 'muted', text: `Last check, finished ${fmtDate(job.finishedAt)}: ${plural(job.done, 'photo')}, ${plural(job.found, 'new suggestion')}` + (job.failed ? `, ${job.failed} failed` : '') + '.' + (job.lastError ? ' ' + job.lastError : '') }));
+  }
+  const recent = (job.recent || []).slice(0, recentCount);
+  if (recent.length) out.append(h('details', { class: 'job-recent', open: job.running },
+    h('summary', { text: `Latest photos (${recent.length}${(job.recent || []).length > recent.length ? ' of ' + job.recent.length : ''})` }),
+    h('ul', {}, recent.map(e => h('li', { class: e.ok ? '' : 'err' },
+      h('a', { href: `/img/${e.photoId}/view`, target: '_blank', rel: 'noopener', text: e.photo }), ': ', e.result,
+      h('span', { class: 'muted', text: ` (${e.provider || 'no provider'}, ${(e.ms / 1000).toFixed(1)} s)` }))))));
+  return out;
+}
+
 function playersManager(g) {
   const box = h('div', { 'aria-live': 'polite' });
   let timer = null;
@@ -3052,8 +3108,11 @@ function playersManager(g) {
     const job = d.job, running = job.running;
     const ready = d.providers.length > 0 && d.teamId && d.teamPlayers > 0;
     const left = d.photos - d.checked;
-    const progress = running ? h('p', {}, h('progress', { class: 'phone-progress', max: Math.max(job.total, 1), value: job.done }), ` Checked ${job.done} of ${job.total}, ${job.found} player${job.found === 1 ? '' : 's'} found so far…`)
-      : job.finishedAt ? h('p', { class: job.failed ? 'err' : 'muted', text: `Last check: ${job.done} photo${job.done === 1 ? '' : 's'}, ${job.found} found` + (job.failed ? `, ${job.failed} failed. ${job.lastError}` : '.') }) : null;
+    const stop = async () => {
+      const res = await api(`/api/admin/galleries/${g.id}/players/stop`, { method: 'POST' });
+      if (res.ok) load(); else msg.textContent = aiErr(res);
+    };
+    const progress = playerJobView(job, stop, { recentCount: 30 });
     const setupHint = !d.providers.length ? h('p', { class: 'muted' }, 'Set up an AI model first in ', h('a', { href: '/admin/settings/ai', text: 'Automatic tagging' }), '.')
       : !teams.data.length ? h('p', { class: 'muted' }, 'Add your team and its roster in ', h('a', { href: '/admin/settings/teams', text: 'Teams' }), '.')
       : d.teamId && !d.teamPlayers ? h('p', { class: 'muted' }, 'This team has no players yet. Add the roster in ', h('a', { href: '/admin/settings/teams', text: 'Teams' }), '.') : null;
