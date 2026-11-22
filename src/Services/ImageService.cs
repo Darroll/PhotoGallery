@@ -154,7 +154,7 @@ public class ImageService(AppConfig cfg, SettingsService settings, ILogger<Image
         var src = await GetSourceAsync(p);
         if (src == null || !File.Exists(src)) return null;
 
-        var ext = kind == "size" ? fmt : kind == "phone" ? "jpg" : "webp";
+        var ext = kind == "size" ? fmt : kind is "phone" or "ai" ? "jpg" : "webp";
         var stamp = File.GetLastWriteTimeUtc(src).Ticks.ToString("x");
         var wmTag = watermark ? "w" + WatermarkStamp() : "n";
         var dir = Path.Combine(cfg.CacheDir, "variants", p.Id.ToString());
@@ -198,6 +198,11 @@ public class ImageService(AppConfig cfg, SettingsService settings, ILogger<Image
             {
                 // a copy for a phone's photo app: a high-quality JPEG, which every camera roll accepts
                 result.Jpegsave(dest, q: 92);
+            }
+            else if (kind == "ai")
+            {
+                // the copy sent to an AI model to read jersey numbers: no watermark, no location or camera data
+                result.Jpegsave(dest, q: 85, keep: Enums.ForeignKeep.None);
             }
             else
             {

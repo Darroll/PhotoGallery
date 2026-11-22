@@ -115,7 +115,7 @@ public static class GalleryRules
         return System.Text.Json.JsonSerializer.Serialize(clean);
     }
 
-    static string Pretty(string folder) => folder.Length == 0 ? "Other photos" : folder.Replace('_', ' ').Trim();
+    public static string Pretty(string folder) => folder.Length == 0 ? "Other photos" : folder.Replace('_', ' ').Trim();
 
     /// <summary>The first sub folder of the gallery folder that holds this file; "" for a file directly in the gallery folder.</summary>
     public static string SectionOf(Gallery g, string relPath)

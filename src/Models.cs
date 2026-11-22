@@ -66,6 +66,12 @@ public class Gallery
     /// <summary>With CoverOnly or Banner the cover photo is left out of the photo grid, slideshow, counts and ZIPs.</summary>
     public CoverMode CoverMode { get; set; } = CoverMode.WithPhotos;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>The team whose players are tagged automatically in this gallery, or null.</summary>
+    public int? TeamId { get; set; }
+    /// <summary>What the team wears in this gallery: the name of one of its jersey sets ("Home"), colours typed for this gallery alone, or empty for any of its sets.</summary>
+    public string TeamKit { get; set; } = "";
+    /// <summary>JSON object: sub folder name (a tournament's game) to the jersey worn in it, like <see cref="TeamKit"/>. A folder not listed uses <see cref="TeamKit"/>.</summary>
+    public string FolderKits { get; set; } = "{}";
     public List<Photo> Photos { get; set; } = new();
     public List<ShareLink> Links { get; set; } = new();
 }
@@ -103,6 +109,10 @@ public class Photo
     public string Fingerprint { get; set; } = "";
     /// <summary>Comments are switched off for this photo even if the gallery allows them.</summary>
     public bool CommentsOff { get; set; }
+    /// <summary>When a model last looked for our players' numbers on this photo (null = not yet). See <see cref="PlayerTags"/>.</summary>
+    public DateTime? PlayersCheckedAt { get; set; }
+    /// <summary>Player checks tried on this photo; after a few failures it is skipped unless checked again on purpose.</summary>
+    public int PlayerCheckAttempts { get; set; }
     public bool RawOnly => RawRelPath != null && RawRelPath == RelPath;
 }
 
@@ -199,6 +209,10 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<CommentEvent> CommentEvents => Set<CommentEvent>();
     public DbSet<CommentBlock> CommentBlocks => Set<CommentBlock>();
     public DbSet<FeedbackMessage> FeedbackMessages => Set<FeedbackMessage>();
+    public DbSet<Team> Teams => Set<Team>();
+    public DbSet<Player> Players => Set<Player>();
+    public DbSet<PlayerSuggestion> PlayerSuggestions => Set<PlayerSuggestion>();
+    public DbSet<NumberSighting> NumberSightings => Set<NumberSighting>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -232,6 +246,16 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<Visit>().HasIndex(v => v.Time);
         b.Entity<Visit>().HasIndex(v => new { v.GalleryId, v.Time });
         b.Entity<Photo>().HasOne(p => p.Gallery).WithMany(g => g.Photos).HasForeignKey(p => p.GalleryId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<Player>().HasOne(p => p.Team).WithMany(t => t.Players).HasForeignKey(p => p.TeamId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<Player>().HasIndex(p => new { p.TeamId, p.Number }).IsUnique();
+        b.Entity<PlayerSuggestion>().HasOne<Photo>().WithMany().HasForeignKey(s => s.PhotoId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<PlayerSuggestion>().HasOne<Player>().WithMany().HasForeignKey(s => s.PlayerId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<PlayerSuggestion>().HasIndex(s => new { s.PhotoId, s.PlayerId }).IsUnique();
+        b.Entity<PlayerSuggestion>().HasIndex(s => s.Status);
+        b.Entity<NumberSighting>().HasOne<Photo>().WithMany().HasForeignKey(s => s.PhotoId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<NumberSighting>().HasOne<Team>().WithMany().HasForeignKey(s => s.TeamId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<NumberSighting>().HasIndex(s => new { s.TeamId, s.Number, s.PhotoId }).IsUnique();
+        b.Entity<NumberSighting>().HasIndex(s => s.PhotoId);
         b.Entity<ShareLink>().HasOne(l => l.Gallery).WithMany(g => g.Links).HasForeignKey(l => l.GalleryId).OnDelete(DeleteBehavior.Cascade);
     }
 }

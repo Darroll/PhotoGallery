@@ -26,6 +26,9 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<ThumbnailService>(
 builder.Services.AddSingleton<CacheService>();
 builder.Services.AddSingleton<ActivityLog>();
 builder.Services.AddSingleton<PhoneSaves>();
+builder.Services.AddSingleton<IVisionReader, VisionReader>();
+builder.Services.AddSingleton<PlayerTagJobs>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<PlayerTagJobs>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ActivityLog>());
 builder.Services.AddHostedService<EmailService>();
 builder.Services.AddHostedService<CaptionService>();
@@ -190,6 +193,7 @@ SsoApi.MapTestLogin(app);
 SubscribeApi.Map(app);
 CaptionApi.Map(app);
 SearchApi.Map(app);
+PlayerApi.Map(app);
 GroupApi.Map(app);
 
 app.Run();
