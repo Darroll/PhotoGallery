@@ -68,7 +68,7 @@ public class Gallery
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     /// <summary>The team whose players are tagged automatically in this gallery, or null.</summary>
     public int? TeamId { get; set; }
-    /// <summary>Which of the team's jersey colour sets the players wear in this gallery ("Home"), or empty for any of them.</summary>
+    /// <summary>What the team wears in this gallery: the name of one of its jersey sets ("Home"), colours typed for this gallery alone, or empty for any of its sets.</summary>
     public string TeamKit { get; set; } = "";
     public List<Photo> Photos { get; set; } = new();
     public List<ShareLink> Links { get; set; } = new();

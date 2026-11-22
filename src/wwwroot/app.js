@@ -2653,13 +2653,25 @@ async function teamsPanel() {
     const editor = (t) => {
       const msg = h('span', { class: 'muted', role: 'status' });
       const name = h('input', { type: 'text', maxlength: 30, value: t ? t.name : '', placeholder: 'Team name, such as Hurricanes U12', 'aria-label': 'Team name' });
-      const colors = h('textarea', { rows: 3, maxlength: 1000, placeholder: 'Home: white shirts with blue numbers\nAway: blue shirts with white numbers\nThird: black shirts with gold numbers', 'aria-label': 'Jersey colours' });
-      colors.value = t ? t.colors : '';
+      // jersey sets: one row each, a short name (Home, Away) and the colours in plain words
+      const kitList = h('div', { class: 'kit-list' });
+      const kitRow = (k) => {
+        const kname = h('input', { type: 'text', maxlength: 30, value: k ? k.name : '', placeholder: 'Home', 'aria-label': 'Jersey set name', class: 'kit-name' });
+        const kdesc = h('input', { type: 'text', maxlength: 200, value: k ? k.description : '', placeholder: 'white shirts with black numbers', 'aria-label': 'Jersey colours', class: 'kit-desc' });
+        const row = h('div', { class: 'row kit-row' }, kname, kdesc,
+          h('button', { text: '×', title: 'Remove this jersey set', 'aria-label': 'Remove this jersey set', onclick: () => { row.remove(); if (!kitList.children.length) kitList.append(kitRow(null)); } }));
+        row.read = () => { const n = kname.value.trim().replace(/:/g, ' '), c = kdesc.value.trim(); return c ? (n && n !== c ? `${n}: ${c}` : c) : ''; };
+        return row;
+      };
+      const kits0 = t && t.kits.length ? t.kits.map(k => ({ name: k.name === k.description ? '' : k.name, description: k.description })) : [null];
+      kitList.append(...kits0.map(kitRow));
+      const colors = h('div', {}, kitList, h('button', { text: '+ Add jersey set', onclick: () => kitList.append(kitRow(null)) }));
+      colors.read = () => [...kitList.children].map(r => r.read()).filter(Boolean).join('\n');
       const names = h('input', { type: 'checkbox', checked: t ? t.tagWithNames : false });
       const roster = h('textarea', { rows: 8, placeholder: '10 Emma\n7 Ava\n3', 'aria-label': 'Roster' });
       roster.value = t ? t.roster : '';
       const save = h('button', { class: 'primary', text: t ? 'Save' : 'Add team', onclick: async () => {
-        const body = { name: name.value, colors: colors.value, tagWithNames: names.checked, roster: roster.value };
+        const body = { name: name.value, colors: colors.read(), tagWithNames: names.checked, roster: roster.value };
         const res = await api(t ? `/api/admin/teams/${t.id}` : '/api/admin/teams', { method: t ? 'PUT' : 'POST', body });
         if (res.ok) { toast(t ? 'Team saved' : 'Team added'); render(); } else msg.textContent = aiErr(res);
       } });
@@ -2670,7 +2682,7 @@ async function teamsPanel() {
       } }) : null;
       const body = h('div', { class: 'form1' },
         field('Name', name, 'Used in tags, such as "Hurricanes U12 10".'),
-        field('Jersey colours', colors, 'How your team\'s jerseys look, one set per line, with a name before a colon if you have several (Home, Away). Each gallery picks the set worn that day. Players in other colours are ignored.'),
+        field('Jerseys', colors, 'Each set of jerseys the team wears, with a short name (Home, Away) and its colours in plain words. Each gallery picks the set worn that day, or you can type colours for one gallery. Other teams may use the same colours.'),
         field('Roster', roster, 'One player per line: the number, then a name if you like. Only these numbers are tagged.'),
         field('Names in tags', h('label', {}, names, ' Tag photos with the player\'s name ("Emma 10")'), 'Off keeps children\'s names off the site: tags use the team and number.'));
       const actions = h('div', { class: 'row' }, save, del, msg);
@@ -3106,11 +3118,22 @@ function playersManager(g) {
     } }, h('option', { value: '', text: 'No team (not tagged)' }), ...teams.data.map(t => h('option', { value: t.id, text: t.name, selected: t.id === d.teamId })));
     const team = teams.data.find(t => t.id === d.teamId);
     const kits = team ? team.kits : [];
-    const kitSel = kits.length > 1 ? h('select', { 'aria-label': 'Jerseys worn in this gallery', onchange: async () => {
-      const res = await api(`/api/admin/galleries/${g.id}/team`, { method: 'PUT', body: { teamId: d.teamId, kit: kitSel.value } });
-      if (res.ok) { msg.textContent = 'Saved.'; } else msg.textContent = aiErr(res);
-    } }, h('option', { value: '', text: 'Any of them (not sure)' }),
-      ...kits.map(k => h('option', { value: k.name, text: k.name === k.description ? k.name : `${k.name}: ${k.description}`, selected: k.name.toLowerCase() === (d.teamKit || '').toLowerCase() }))) : null;
+    // what the team wears here: one of its jersey sets, colours typed for this gallery alone, or any of its sets
+    const cur = (d.teamKit || '').trim();
+    const named = kits.find(k => k.name.toLowerCase() === cur.toLowerCase());
+    const saveKit = async (kit) => {
+      const res = await api(`/api/admin/galleries/${g.id}/team`, { method: 'PUT', body: { teamId: d.teamId, kit } });
+      msg.textContent = res.ok ? 'Saved.' : aiErr(res);
+      if (res.ok) d.teamKit = kit;
+    };
+    const custom = h('input', { type: 'text', maxlength: 200, value: cur && !named ? cur : '', placeholder: 'white shirts with black numbers', 'aria-label': 'Jersey colours in this gallery' });
+    const customRow = h('div', { class: 'row', hidden: !(cur && !named) }, custom, h('button', { text: 'Save colours', onclick: () => { if (custom.value.trim()) saveKit(custom.value.trim()); } }));
+    const kitSel = d.teamId ? h('select', { 'aria-label': 'Jerseys worn in this gallery', onchange: () => {
+      if (kitSel.value === '\u0000other') { customRow.hidden = false; custom.focus(); return; }
+      customRow.hidden = true; saveKit(kitSel.value);
+    } }, h('option', { value: '', text: kits.length > 1 ? 'Any of the team\'s sets (not sure)' : kits.length ? `${kits[0].name === kits[0].description ? kits[0].description : kits[0].name + ': ' + kits[0].description}` : 'Not set' , selected: !cur }),
+      ...(kits.length > 1 ? kits : []).map(k => h('option', { value: k.name, text: k.name === k.description ? k.name : `${k.name}: ${k.description}`, selected: named === k })),
+      h('option', { value: '\u0000other', text: 'Other colours for this gallery…', selected: !!cur && !named })) : null;
     // numbers read on players in our colours that are not on the roster: add the player, or say it is not ours
     const unknownRows = (d.unknown || []).map(u => {
       const pname = h('input', { type: 'text', maxlength: 30, placeholder: 'Name (optional)', 'aria-label': `Name for #${u.number}` });
@@ -3162,7 +3185,7 @@ function playersManager(g) {
     const allIds = d.pending.map(s => s.id);
     box.replaceChildren(
       h('div', { class: 'form1' }, field('Team', teamSel, 'Only this team\'s players are looked for, in its jersey colours.'),
-        kitSel ? field('Jerseys', kitSel, 'The colours worn in this gallery. Players in the team\'s other colours are then ignored too.') : null),
+        kitSel ? field('Jerseys', h('div', {}, kitSel, customRow), 'What the team wears in this gallery. Pick one of its sets from the Teams page, or type colours just for this gallery. Only players in these colours are read, so the other team can wear the same numbers.') : null),
       setupHint,
       h('p', { class: 'muted', text: `${d.checked} of ${d.photos} photos checked, ${d.approved} tag${d.approved === 1 ? '' : 's'} approved.` + (d.providers.length ? ` Uses ${d.providers.join(', then ')}.` : '') }),
       h('div', { class: 'row' },

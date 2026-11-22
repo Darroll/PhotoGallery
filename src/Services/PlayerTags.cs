@@ -104,13 +104,15 @@ public static class PlayerTags
         return list;
     }
 
-    /// <summary>The colours to tell the model for a gallery: its chosen set, or every set when none is chosen (or it was removed).</summary>
+    /// <summary>The colours to tell the model for a gallery: one of the team's sets by name, colours typed for that gallery alone, or every set when none is chosen.</summary>
     public static string ColorsFor(Team team, string? kit)
     {
         var kits = Kits(team.Colors);
-        if (kits.Count == 0) return "";
-        var chosen = kits.FirstOrDefault(x => string.Equals(x.Name, kit?.Trim(), StringComparison.OrdinalIgnoreCase));
+        kit = (kit ?? "").Trim();
+        var chosen = kits.FirstOrDefault(x => string.Equals(x.Name, kit, StringComparison.OrdinalIgnoreCase));
         if (chosen.Description != null) return chosen.Description;
+        if (kit.Length > 0) return kit;   // typed for this gallery only, not one of the team's sets
+        if (kits.Count == 0) return "";
         return kits.Count == 1 ? kits[0].Description : "one of these sets: " + string.Join("; or ", kits.Select(x => x.Description));
     }
 

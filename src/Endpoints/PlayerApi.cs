@@ -146,7 +146,7 @@ public static class PlayerApi
             var g = await db.Galleries.FindAsync(id);
             if (g == null) return Results.NotFound();
             if (input.TeamId != null && !await db.Teams.AnyAsync(t => t.Id == input.TeamId)) return Results.BadRequest("That team no longer exists.");
-            g.TeamKit = input.TeamId == null ? "" : Cut(input.Kit, 30);
+            g.TeamKit = input.TeamId == null ? "" : Cut(input.Kit, 200);
             g.TeamId = input.TeamId;
             await db.SaveChangesAsync();
             return Results.NoContent();
@@ -248,7 +248,7 @@ public static class PlayerApi
         if (name.Length == 0) return "Give the team a name.";
         if (await db.Teams.AnyAsync(x => x.Id != t.Id && x.Name.ToLower() == name.ToLower())) return "Another team already has that name.";
         t.Name = name;
-        t.Colors = string.Join("\n", PlayerTags.Kits(Cut(input.Colors, 1000)).Take(10).Select(k => k.Name == k.Description ? k.Description : $"{k.Name}: {k.Description}"));
+        t.Colors = string.Join("\n", PlayerTags.Kits(Cut(input.Colors, 20000)).Take(100).Select(k => k.Name == k.Description ? k.Description : $"{k.Name}: {k.Description}"));
         t.TagWithNames = input.TagWithNames == true;
         if (input.Roster != null)
         {

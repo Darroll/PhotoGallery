@@ -241,6 +241,12 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             Assert.Equal("away", s.GetProperty("teamKit").GetString());
             Assert.Contains("Our team wears: blue shirts with white numbers.", app.Reader.LastPrompt);
             Assert.DoesNotContain("gold", app.Reader.LastPrompt);
+
+            // colours typed for this gallery alone, not one of the team's sets
+            Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsJsonAsync($"/api/admin/galleries/{gid}/team", new { teamId, kit = "white shirts with black numbers" })).StatusCode);
+            await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { recheck = true });
+            await WaitAsync(admin, gid);
+            Assert.Contains("Our team wears: white shirts with black numbers.", app.Reader.LastPrompt);
         }
         finally { Serial.Release(); }
     }

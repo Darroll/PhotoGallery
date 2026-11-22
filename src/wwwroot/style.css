@@ -603,3 +603,7 @@ table.data td:last-child { text-align: right; font-variant-numeric: tabular-nums
 .job-gallery h4 { margin: 4px 0; }
 .unknown-thumbs { display: flex; gap: 4px; flex: none; }
 .player-row .row input[type=text] { max-width: 180px; }
+.kit-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; max-width: 520px; }
+.kit-row { flex-wrap: nowrap; }
+.kit-row .kit-name { flex: 0 0 110px; min-width: 0; }
+.kit-row .kit-desc { flex: 1 1 auto; min-width: 0; }
