@@ -207,6 +207,8 @@ td.ua2 { word-break: break-all; font-size: 12px; color: var(--muted); }
 .ph:hover .tile-fav, .ph:focus-within .tile-fav, .tile-fav.on, .tile-fav.counted { opacity: 1; }
 .tile-fav.on { color: #ff5a6e; }
 @media (hover: none) { .tile-fav { opacity: .85; } }
+/* a long press on a photo starts choosing photos, so keep the phone's own image menu out of the way */
+@media (pointer: coarse) { .grid .ph img { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; } }
 .tile-check { position: absolute; left: 6px; top: 6px; width: 26px; height: 26px; border-radius: 50%; border: 2px solid #fff; background: rgba(0,0,0,.4); color: #fff; text-align: center; line-height: 22px; font-weight: 700; }
 .ph.sel { outline: 4px solid var(--accent); outline-offset: -4px; }
 .ph.sel .tile-check { background: var(--accent); }

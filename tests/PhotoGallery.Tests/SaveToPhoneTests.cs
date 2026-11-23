@@ -138,5 +138,6 @@ public class SaveToPhoneTests(AppFactory app) : IClassFixture<AppFactory>
         Assert.True(PhoneSaves.PhoneReady("x.heic"));
         Assert.False(PhoneSaves.PhoneReady("x.tif"));
         Assert.False(PhoneSaves.PhoneReady("x.webp"));
+        Assert.False(PhoneSaves.PhoneReady("edit.png"));   // edited PNGs are often too big for a phone's share sheet: sent as a JPEG copy
     }
 }

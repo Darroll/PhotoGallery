@@ -2,6 +2,14 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.2.1 (not released yet)
+
+- **Save to phone works on Android.** Android's Chrome shares at most 10 files and 50 MB at a time, so it refused larger batches and big edited photos ("Your phone would not open the share sheet"). Photos now go 10 at a time and under 50 MB per batch. Edited photos saved as PNG, and any original over 20 MB, are sent to the phone as a high-quality JPEG (up to 4096 px) instead of the full file. If the phone still refuses, the message now says why.
+
+## 2.2.0
+
+- **Saving to a phone takes fewer taps.** On a phone that can save to its photo app (iPhone and Android browsers), the photo viewer's **Download** button is now **Save**: one tap puts that photo in the photo app, with **Sizes and formats…** there for the full choices. When choosing photos, a **long press** on a photo starts choosing (no need to find **Select** first), and the bar at the bottom has **Save to phone** straight away. A player's button reads **Save all N photos of #10** and goes straight to saving. When the photos are ready quickly, the phone's share sheet opens without the extra "Save the photo" tap. After the chosen photos are saved, the choice is cleared. Where the license must be agreed first, the download sheet opens as before. The database does not change.
+
 ## 2.1.2 (not released yet)
 
 - **RAW files come along by default.** In a gallery that allows RAW downloads, *Include the RAW files* in the download sheet is now ticked by default, so a ZIP of a player, a section, picked photos or the whole gallery holds each edited photo plus its RAW file (in a RAW folder) unless the visitor unticks it. The admin sees the option in every gallery. The database does not change.

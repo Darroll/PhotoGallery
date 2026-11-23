@@ -486,6 +486,20 @@ function playVideo(l) {
   document.addEventListener('keydown', onKey, true);
   document.body.append(box);
 }
+// A long press on a photo (touch screens): runs `onHold`, and when that returns true the tap that follows is swallowed
+// and the phone's own long-press menu is kept away, so the press only starts choosing photos.
+function holdToPick(el, onHold) {
+  let timer = 0, held = false, x = 0, y = 0;
+  el.addEventListener('touchstart', (e) => {
+    held = false; const t = e.touches[0]; x = t.clientX; y = t.clientY;
+    clearTimeout(timer); timer = setTimeout(() => { held = !!onHold(); if (held && navigator.vibrate) navigator.vibrate(20); }, 500);
+  }, { passive: true });
+  el.addEventListener('touchmove', (e) => { const t = e.touches[0]; if (Math.abs(t.clientX - x) > 10 || Math.abs(t.clientY - y) > 10) clearTimeout(timer); }, { passive: true });
+  el.addEventListener('touchend', (e) => { clearTimeout(timer); if (held) e.preventDefault(); });
+  el.addEventListener('touchcancel', () => clearTimeout(timer));
+  el.addEventListener('contextmenu', (e) => { if (held) e.preventDefault(); });
+  el.addEventListener('click', (e) => { if (held) { held = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+}
 function toggleSel(p) { sel.has(p.id) ? sel.delete(p.id) : sel.add(p.id); G.refresh && G.refresh(); }
 
 // A Specific people gallery: visitors must sign in with an address the photographer listed.
@@ -565,7 +579,11 @@ async function viewGallery(app, slug) {
         el.style.setProperty('--tag-c', tagColor(c.tag));
         return el;
       }),
-      player && G.allowDownload && G.allowZip && n ? h('button', { class: 'primary player-dl', text: `Download all ${n} photos of ${player.label}`, onclick: () => openDownloadSheet({ scope: 'player' }) }) : null);
+      player && G.allowDownload && G.allowZip && n ? h('button', { class: 'primary player-dl',
+        text: phoneSaveSupported() ? `Save all ${n} photos of ${player.label}` : `Download all ${n} photos of ${player.label}`,
+        onclick: () => phoneSaveSupported()
+          ? quickPhoneSave({ player: player.tag, curated: !!G.curatedOnly }, () => openDownloadSheet({ scope: 'player' }))
+          : openDownloadSheet({ scope: 'player' }) }) : null);
   };
   const tiles = new Map();
 
@@ -613,7 +631,13 @@ async function viewGallery(app, slug) {
     h('button', { text: 'Clear', onclick: () => { sel.clear(); G.refresh(); } }),
     h('span', { class: 'grow' }),
     G.admin ? h('button', { text: 'Tag…', onclick: () => bulkTagSheet() }) : null,
-    h('button', { class: 'primary', text: 'Download…', onclick: () => openDownloadSheet({ scope: 'selected' }) }),
+    phoneSaveSupported() ? h('button', { class: 'primary', text: 'Save to phone', onclick: () => {
+      if (!sel.size) { toast('Tap photos to choose them first'); return; }
+      if (sel.size > 500) { toast('Choose 500 photos or fewer at a time'); return; }
+      const ids = G.photos.filter(p => sel.has(p.id)).map(p => p.id);   // gallery order
+      quickPhoneSave({ ids }, () => openDownloadSheet({ scope: 'selected' }), () => { selectMode = false; sel.clear(); fill(); });
+    } }) : null,
+    h('button', { class: phoneSaveSupported() ? '' : 'primary', text: 'Download…', onclick: () => openDownloadSheet({ scope: 'selected' }) }),
     h('button', { text: 'Done', onclick: () => { selectMode = false; sel.clear(); fill(); } }));
 
   // favorites bar
@@ -678,6 +702,7 @@ async function viewGallery(app, slug) {
     favBar.classList.toggle('hidden', !favOnly);
     document.body.classList.toggle('selecting', selectMode);
     tiles.clear();
+    const canPick = G.allowDownload && G.allowZip && matchMedia('(pointer: coarse)').matches;   // a long press on a photo starts choosing photos
     const makeTile = (p, i) => {
       const ratio = (p.w || 3) / (p.h || 2);
       const heart = G.allowLikes === false ? null : h('button', { class: 'tile-fav', 'aria-label': 'Favorite', onclick: (e) => { e.stopPropagation(); toggleFav(p); } });
@@ -691,6 +716,7 @@ async function viewGallery(app, slug) {
         selectMode ? check : null, heart);
       item.style.setProperty('--r', String(ratio));
       tiles.set(p.id, { el: item, heart, check, p });
+      if (canPick) holdToPick(item, () => { if (selectMode) return false; selectMode = true; sel.add(p.id); fill(); return true; });
       return item;
     };
     if (!sections.length) grid.replaceChildren(...(photos.length || !player ? photos.map(makeTile) : [h('p', { class: 'muted', text: favOnly ? `None of your favorites are of ${player.label}.` : `No photos of ${player.label} here yet.` })]));
@@ -843,7 +869,8 @@ function openShareSheet(section) {
 // ---------- save to phone ----------
 // Phones that can share files (iPhone and Android browsers) can put photos straight into the photo app through the
 // share sheet ("Save image"), which is much easier than a ZIP. Only offered on touch devices that support it.
-const PHONE_BATCH = 15;
+// Android Chrome shares at most 10 files and 50 MB at a time, so a batch stays under both.
+const PHONE_BATCH = 10, PHONE_BATCH_BYTES = 45 * 1024 * 1024;
 function phoneSaveSupported() {
   try {
     return matchMedia('(pointer: coarse)').matches && !!navigator.canShare &&
@@ -853,14 +880,14 @@ function phoneSaveSupported() {
 
 // Starts a save (one download on a share link, like a ZIP) and walks the visitor through it in batches: the photos
 // of a batch are fetched first, then one tap hands them to the share sheet, because phones only open it from a tap.
-async function startPhoneSave(body, box) {
+async function startPhoneSave(body, box, opts = {}) {
   const r = await api(`/api/g/${encodeURIComponent(G.slug)}/phone`, { method: 'POST', body });
   if (!r.ok) {
     toast(r.status === 410 ? 'No downloads left on your link' : typeof r.data === 'string' && r.data ? r.data : 'Could not start the save. Try again.');
     return false;
   }
   const { token, photos } = r.data;
-  let next = 0, files = null;
+  let next = 0, files = null, first = true;
   const status = h('p', { 'aria-live': 'polite' });
   const bar = h('progress', { max: photos.length, value: 0, class: 'phone-progress' });
   const saveBtn = h('button', { class: 'primary', disabled: true });
@@ -879,42 +906,77 @@ async function startPhoneSave(body, box) {
     const name = blob.type === 'image/jpeg' && !/\.jpe?g$/i.test(p.name) ? p.name.replace(/\.[^.]+$/, '') + '.jpg' : p.name;
     return new File([blob], name, { type: blob.type || 'image/jpeg' });
   };
+  // A batch is up to PHONE_BATCH photos and PHONE_BATCH_BYTES; a photo that would go over the size is kept for the next batch.
+  let carry = null;
+  const range = () => photos.length > 1 ? `Photos ${next + 1} to ${next + files.length} of ${photos.length}` : 'The photo';
   const prepare = async () => {
-    const batch = photos.slice(next, next + PHONE_BATCH);
     saveBtn.disabled = true;
     saveBtn.textContent = 'Getting photos ready…';
-    status.textContent = photos.length > PHONE_BATCH ? `Getting photos ${next + 1} to ${next + batch.length} of ${photos.length} ready…` : `Getting ${plural(batch.length, 'photo')} ready…`;
+    status.textContent = photos.length > 1 ? `Getting photos ready from ${next + 1} of ${photos.length}…` : 'Getting the photo ready…';
+    files = [];
+    let bytes = 0;
     try {
-      files = [];
-      for (const p of batch) { files.push(await fileFor(p)); bar.value = next + files.length; }
+      for (let i = next; i < photos.length && files.length < PHONE_BATCH; i++) {
+        const f = carry || await fileFor(photos[i]);
+        carry = null;
+        if (files.length && bytes + f.size > PHONE_BATCH_BYTES) { carry = f; break; }
+        files.push(f); bytes += f.size; bar.value = next + files.length;
+      }
+      // the phone has the last word on what it will share: drop photos from the end until it agrees
+      while (files.length > 1 && navigator.canShare && !navigator.canShare({ files })) { carry = files.pop(); }
     } catch (e) {
       status.textContent = e.message === 'expired' ? 'This save has expired. Close and start again.' : 'A photo could not be fetched. Check your connection and try again.';
       saveBtn.textContent = 'Try again'; saveBtn.disabled = false; saveBtn.onclick = prepare;
       return;
     }
-    status.textContent = photos.length > PHONE_BATCH
-      ? `Photos ${next + 1} to ${next + batch.length} of ${photos.length} are ready. Tap the button, then choose "Save images" (or "Save to Photos").`
-      : 'Ready. Tap the button, then choose "Save images" (or "Save to Photos").';
+    status.textContent = photos.length > 1
+      ? `${range()} are ready. Tap the button, then choose "Save images" (or "Save to Photos").`
+      : 'Ready. Tap the button, then choose "Save image" (or "Save to Photos").';
     saveBtn.textContent = files.length === 1 ? 'Save the photo' : `Save ${files.length} photos`;
     saveBtn.disabled = false;
     saveBtn.onclick = share;
+    // When the photos came quickly enough that the tap which started the save still counts, open the share sheet
+    // straight away and skip the extra tap. Phones only open it from a fresh tap, so otherwise the button waits.
+    if (first && navigator.userActivation && navigator.userActivation.isActive) { first = false; share(); }
+    first = false;
   };
+  let sharing = false;
   const share = async () => {
+    if (sharing) return;   // a second tap while the share sheet is opening would make the phone refuse both
+    sharing = true;
     try {
       await navigator.share({ files });
     } catch (e) {
-      if (e && e.name === 'AbortError') { status.textContent = 'Not saved yet. Tap the button to try again.'; return; }
-      status.textContent = 'Your phone would not open the share sheet for these photos.' + (zipBtn ? ' You can download them as a ZIP instead.' : '');
+      const name = e && e.name;
+      if (name === 'AbortError') status.textContent = 'Not saved yet. Tap the button to try again.';
+      else if (name === 'NotAllowedError') status.textContent = 'Tap the button to open the share sheet.';   // the phone wants a fresh tap
+      else status.textContent = `Your phone would not open the share sheet for these photos (${name || 'unknown error'}).` + (zipBtn ? ' You can download them as a ZIP instead.' : '');
       return;
-    }
+    } finally { sharing = false; }
     next += files.length; files = null;
-    if (next >= photos.length) { closeSheet(); toast(photos.length === 1 ? 'Saved to your phone' : `${plural(photos.length, 'photo')} saved to your phone`); return; }
+    if (next >= photos.length) { closeSheet(); toast(photos.length === 1 ? 'Saved to your phone' : `${plural(photos.length, 'photo')} saved to your phone`); if (opts.onDone) opts.onDone(); return; }
     prepare();
   };
   box.replaceChildren(h('div', { class: 'sheet-grab' }), h('h3', { text: 'Save to phone' }), bar, status,
-    h('div', { class: 'row sheet-actions' }, saveBtn, zipBtn, h('button', { text: 'Close', onclick: closeSheet })));
+    h('div', { class: 'row sheet-actions' }, saveBtn, zipBtn,
+      opts.more ? h('button', { text: 'Sizes and formats…', onclick: opts.more }) : null,
+      h('button', { text: 'Close', onclick: closeSheet })));
   prepare();
   return true;
+}
+
+// One tap on a phone: straight to saving into the photo app, without the download sheet and its choices.
+// `more` opens the full download sheet instead (sizes, formats, RAW), which is also used when the license must be agreed first.
+async function quickPhoneSave(body, more, onDone) {
+  if (license.enabled && license.require && !license.accepted) { more(); return; }
+  closeSheet();
+  const box = h('div', { class: 'sheet', role: 'dialog', 'aria-label': 'Save to phone' },
+    h('div', { class: 'sheet-grab' }), h('h3', { text: 'Save to phone' }), h('p', { class: 'muted', text: 'Starting…' }));
+  const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } }, box);
+  sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } };
+  document.addEventListener('keydown', sheet._key, true);
+  document.body.append(sheet);
+  if (!(await startPhoneSave(body, box, { more, onDone }))) closeSheet();
 }
 
 function openDownloadSheet(opts = {}) {
@@ -1427,7 +1489,14 @@ function openLightbox(index, play, mode = 'push') {
   };
   favA.el.onclick = () => toggleFav(cur());
   selA.el.onclick = () => toggleSel(cur());
-  dlA.el.onclick = () => openDownloadSheet({ photo: cur() });
+  // On a phone the button saves the photo straight into the photo app; "Sizes and formats…" there opens the full sheet.
+  const phoneSave = phoneSaveSupported();
+  if (phoneSave) { dlA.i.textContent = '⬇'; dlA.l.textContent = 'Save'; dlA.el.title = 'Save to your phone'; }
+  dlA.el.onclick = () => {
+    const p = cur();
+    if (phoneSave) quickPhoneSave({ ids: [p.id] }, () => openDownloadSheet({ photo: p }));
+    else openDownloadSheet({ photo: p });
+  };
   // The details open in a panel beside the photo (under it on a phone) and follow the photo as you move through the gallery.
   let panelKind = 'info';
   const setDetails = (open, kind = panelKind) => {
