@@ -79,6 +79,7 @@ class AppSettings
     public TuningSettings Tuning { get; set; } = new();
     public VisionSettings Vision { get; set; } = new();
     public FollowSettings Follow { get; set; } = new();
+    public PresetSettings Presets { get; set; } = new();
 }
 
 /// <summary>App-level settings kept in DATA_DIR/settings.json (editable from the admin Settings page).</summary>
@@ -115,6 +116,7 @@ public class SettingsService
                 data.Sso = (data.Sso ?? new()).Sanitized();
                 data.Tuning = (data.Tuning ?? new()).Sanitized();
                 data.Vision = (data.Vision ?? new()).Sanitized(cfg.CaptionUrl);
+                data.Presets = (data.Presets ?? new()).Sanitized();
                 cfg.ApplyTuning(data.Tuning);
                 if (string.IsNullOrWhiteSpace(data.SiteName)) { data.SiteName = SanitizeName(cfg.SiteTitle); Save(); }
             }
@@ -327,6 +329,24 @@ public class SettingsService
         }
     }
 
+    public PresetSettings Presets
+    {
+        get { lock (gate) return (data.Presets ?? new()).Sanitized(); }
+    }
+
+    /// <summary>Changes the saved presets in one step, so two quick changes cannot undo each other.</summary>
+    public PresetSettings UpdatePresets(Action<PresetSettings> change)
+    {
+        lock (gate)
+        {
+            var copy = (data.Presets ?? new()).Sanitized();
+            change(copy);
+            data.Presets = copy.Sanitized();
+            Save();
+            return data.Presets.Sanitized();
+        }
+    }
+
     public LicenseSettings License
     {
         get { lock (gate) return data.License.Clone(); }
@@ -382,6 +402,7 @@ public class SettingsService
                 if (Has("LinkPreviews")) data.LinkPreviews = incoming.LinkPreviews.Sanitized();
                 if (Has("Updates")) data.Updates = incoming.Updates.Sanitized();
                 if (Has("Privacy")) data.Privacy = incoming.Privacy.Sanitized();
+                if (Has("Presets")) data.Presets = (incoming.Presets ?? new()).Sanitized();
                 if (Has("Follow")) data.Follow = (incoming.Follow ?? new()).Sanitized();
                 if (Has("Vision")) data.Vision = (incoming.Vision ?? new()).Sanitized(appCfg.CaptionUrl).WithStoredKeys((data.Vision ?? new()).Sanitized(appCfg.CaptionUrl));
                 if (Has("Sso"))

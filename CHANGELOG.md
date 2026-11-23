@@ -2,6 +2,11 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.4.0 (not released yet)
+
+- **Gallery presets.** Set up one gallery the way you like, then press **Save as preset** at the bottom of its settings. New galleries can start with those settings: who can open it and its password, invited groups, tags, location, downloads, RAW and curated only, likes and comments, watermark, the team and its jersey, automatic player checks, parent suggestions and follow a player. The new gallery box on the Galleries page has a preset picker and says what the preset sets, so a weekly game gallery needs only a folder (the title starts as the folder name), and its new photos are checked for players straight away when the preset says so. One preset can be the one new galleries start with; manage them in Settings, **Gallery presets**. Title, dates, cover, links and sections are never part of a preset, and changing a preset does not change galleries already made with it.
+- Presets are kept with the other site settings (and in a settings export). The database does not change.
+
 ## 2.3.2 (not released yet)
 
 - **The right-click fix menu in a gallery's Players section stays open.** It closed at the slightest scroll, including the page settling as photos load, so it could vanish as soon as it opened. It now closes only when you really scroll away (or click elsewhere, or press Escape). The database does not change.
