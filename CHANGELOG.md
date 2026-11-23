@@ -2,9 +2,9 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
-## 2.6.1 (not released yet)
+## 2.6.2 (not released yet)
 
-- On Settings, **Teams**, each season lists its players who are also on another team, such as "Reagan is also #11 on East Ridge (Fall 2026)", so you can see who is linked. Seasons of the same team are not listed. To unlink two girls, change the name on one roster.
+- **The roster is one row per player.** On Settings, **Teams**, each season's roster is a list of rows: the jersey number, the name, and on the right the other teams a player with that name is on, such as "also #11 on East Ridge (Fall 2026)" (seasons of the same team are not listed; to unlink two girls, change the name on one roster). The number box takes any number, or offers the numbers the AI found in this team's photos, with how many photos each was found in. Numbers found but not on the roster yet are shown as buttons under the roster that add a row with that number. A number used twice, or a name without a number, is marked before saving. Pasting a whole roster ("10 Emma" per line) into a number box still fills one row per line.
 
 ## 2.6.0 (not released yet)
 

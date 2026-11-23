@@ -3209,19 +3209,20 @@ async function teamsPanel() {
   const render = async () => {
     const r = await api('/api/admin/teams');
     if (!r.ok) { box.replaceChildren(h('p', { class: 'err', text: 'Could not load the teams.' })); return; }
-    // every roster place of each girl, so a season can say where else she plays
+    // every roster place of each name: players with the same name are the same girl (the server links them the same way),
+    // so a roster row can say where else she plays, even while the name is being typed
     const placesOf = new Map();
-    for (const t of r.data) for (const p of t.players) if (p.athleteId != null) {
-      if (!placesOf.has(p.athleteId)) placesOf.set(p.athleteId, []);
-      placesOf.get(p.athleteId).push({ team: t, number: p.number });
+    for (const t of r.data) for (const p of t.players) {
+      const k = (p.name || '').trim().toLowerCase();
+      if (!k) continue;
+      if (!placesOf.has(k)) placesOf.set(k, []);
+      placesOf.get(k).push({ team: t, number: p.number });
     }
-    // "Reagan is also #11 on East Ridge (Fall 2026)": only places on teams with another name, not this team's other seasons
-    const alsoOn = (t) => t.players.filter(p => p.athleteId != null).map(p => {
-      const other = (placesOf.get(p.athleteId) || []).filter(x => x.team.name.toLowerCase() !== t.name.toLowerCase());
-      if (!other.length) return null;
-      return h('li', {}, h('b', { text: p.name || '#' + p.number }), ' is also ',
-        ...other.flatMap((x, i) => [i ? (i === other.length - 1 ? ' and ' : ', ') : '', `#${x.number} on ${x.team.fullName || x.team.name}`]));
-    }).filter(Boolean);
+    // "also #11 on East Ridge (Fall 2026)": only teams with another name, not this team's other seasons
+    const alsoOnText = (teamName, playerName) => {
+      const other = (placesOf.get((playerName || '').trim().toLowerCase()) || []).filter(x => x.team.name.toLowerCase() !== (teamName || '').trim().toLowerCase());
+      return other.length ? 'also ' + other.map((x, i) => (i ? (i === other.length - 1 ? ' and ' : ', ') : '') + `#${x.number} on ${x.team.fullName || x.team.name}`).join('') : '';
+    };
     const editor = (t) => {
       const msg = h('span', { class: 'muted', role: 'status' });
       const name = h('input', { type: 'text', maxlength: 30, value: t ? t.name : '', placeholder: 'Team name, such as Hurricanes U12', 'aria-label': 'Team name' });
@@ -3249,10 +3250,70 @@ async function teamsPanel() {
         kitList, h('button', { text: '+ Add jersey', onclick: () => { const r = kitRow(null); kitList.append(r); r.querySelector('input').focus(); } }));
       colors.read = () => [...kitList.children].map(r => r.read()).filter(Boolean).join('\n');
       const names = h('input', { type: 'checkbox', checked: t ? t.tagWithNames : false });
-      const roster = h('textarea', { rows: 8, placeholder: '10 Emma\n7 Ava\n3', 'aria-label': 'Roster' });
-      roster.value = t ? t.roster : '';
+      // roster: one row per player, the jersey number (typed, or picked from the numbers found in this team's photos), the name,
+      // and on the right the other teams a player with this name is on
+      const found = (t && t.found) || [];
+      const foundId = 'found-numbers-' + (t ? t.id : 'new');
+      const foundList = h('datalist', { id: foundId }, found.map(f => h('option', { value: f.number, label: `found in ${f.photos} photo${f.photos === 1 ? '' : 's'}` })));
+      const rosterList = h('div', { class: 'roster-list' });
+      const rosterRow = (p) => {
+        const num = h('input', { type: 'text', inputmode: 'numeric', maxlength: 3, value: p ? p.number : '', placeholder: '#', list: foundId, 'aria-label': 'Jersey number', class: 'roster-num', oninput: () => { num.value = num.value.replace(/[^0-9]/g, ''); check(); } });
+        const pname = h('input', { type: 'text', maxlength: 30, value: p ? p.name : '', placeholder: 'Name (optional)', 'aria-label': 'Player name', class: 'roster-name', oninput: () => note() });
+        const also = h('span', { class: 'roster-also muted' });
+        const note = () => { also.textContent = alsoOnText(name.value, pname.value); };
+        pname.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addRow(); } });
+        // pasting a whole roster ("10 Emma" per line) into a number box fills one row per line
+        num.addEventListener('paste', e => {
+          const text = (e.clipboardData || window.clipboardData).getData('text');
+          if (!/\n/.test(text.trim())) return;
+          e.preventDefault();
+          const lines = text.split(/\r?\n/).map(l => /^#?\s*([0-9]{1,3})\b[\s\-:.,]*(.*)$/.exec(l.trim())).filter(Boolean);
+          lines.forEach((m, i) => { const r = i === 0 ? row : rosterRow(null); r.num.value = m[1]; r.pname.value = m[2].trim().slice(0, 30); r.note(); if (i) rosterList.append(r); });
+          check(); drawFound();
+        });
+        const row = h('div', { class: 'roster-row' }, num, pname,
+          h('button', { text: '×', class: 'kit-x', title: 'Remove this player', 'aria-label': 'Remove this player', onclick: () => { row.remove(); if (!rosterList.children.length) rosterList.append(rosterRow(null)); check(); } }), also);
+        row.num = num; row.pname = pname; row.note = note;
+        note();
+        return row;
+      };
+      const addRow = () => { const r = rosterRow(null); rosterList.append(r); r.num.focus(); };
+      const rosterMsg = h('div', { class: 'err', role: 'status' });
+      // flags a number used twice or a name without a number; returns false when the roster cannot be saved
+      const check = () => {
+        const rows = [...rosterList.children], seen = new Map();
+        let ok = true, problem = '';
+        for (const row of rows) {
+          const n = row.num.value.trim();
+          row.num.classList.remove('bad');
+          if (!n && row.pname.value.trim()) { row.num.classList.add('bad'); ok = false; problem ||= `${row.pname.value.trim()} needs a jersey number.`; }
+          if (n) { if (seen.has(n)) { row.num.classList.add('bad'); seen.get(n).num.classList.add('bad'); ok = false; problem ||= `#${n} is on the roster twice.`; } else seen.set(n, row); }
+        }
+        rosterMsg.textContent = problem;
+        return ok;
+      };
+      rosterList.append(...(t && t.players.length ? t.players : [null]).map(rosterRow));
+      name.addEventListener('input', () => [...rosterList.children].forEach(r => r.note()));
+      const onRoster = () => new Set([...rosterList.children].map(r => r.num.value.trim()).filter(Boolean));
+      // numbers found in photos that are not on the roster yet: one tap adds a row with that number
+      const foundChips = h('div', { class: 'found-chips' });
+      const drawFound = () => {
+        const have = onRoster(), left = found.filter(f => !have.has(f.number));
+        foundChips.replaceChildren(...(left.length ? [h('span', { class: 'muted', text: 'Found in photos: ' }), ...left.slice(0, 20).map(f => h('button', { class: 'num-chip', text: `#${f.number}`, title: `Found in ${f.photos} photo${f.photos === 1 ? '' : 's'}. Add to the roster.`, onclick: () => {
+          const empty = [...rosterList.children].find(r => !r.num.value.trim() && !r.pname.value.trim());
+          const r = empty || rosterRow(null); if (!empty) rosterList.append(r);
+          r.num.value = f.number; check(); drawFound(); r.pname.focus();
+        } }))] : []));
+      };
+      rosterList.addEventListener('input', drawFound);
+      rosterList.addEventListener('click', () => setTimeout(drawFound));
+      drawFound();
+      const roster = h('div', {}, foundList, rosterList, rosterMsg,
+        h('div', { class: 'row' }, h('button', { text: '+ Add player', onclick: addRow })), foundChips);
+      roster.read = () => [...rosterList.children].map(r => { const n = r.num.value.trim(), nm = r.pname.value.trim(); return n ? (nm ? `${n} ${nm}` : n) : ''; }).filter(Boolean).join('\n');
       const save = h('button', { class: 'primary', text: t ? 'Save' : 'Add team', onclick: async () => {
-        const body = { name: name.value, season: season.value, colors: colors.read(), tagWithNames: names.checked, roster: roster.value };
+        if (!check()) { msg.textContent = 'Fix the roster first.'; return; }
+        const body = { name: name.value, season: season.value, colors: colors.read(), tagWithNames: names.checked, roster: roster.read() };
         const res = await api(t ? `/api/admin/teams/${t.id}` : '/api/admin/teams', { method: t ? 'PUT' : 'POST', body });
         if (res.ok) { toast(t ? 'Team saved' : 'Team added'); render(); } else msg.textContent = aiErr(res);
       } });
@@ -3265,8 +3326,7 @@ async function teamsPanel() {
         field('Name', name, 'Used in tags, such as "Hurricanes U12 10". Every season of a team has the same name.'),
         field('Season', season, 'Such as Fall 2026. Each season has its own roster and jerseys. A gallery of this season is listed under it on the home page.'),
         field('Jerseys', colors, 'Each jersey the team wears: a name (Home, Away), the shirt colour and the number colour. Each gallery picks the jersey worn that day. Other teams may use the same colours.'),
-        field('Roster', roster, 'One player per line: the number, then a name if you like. Only these numbers are tagged. Type a girl\'s name the same way on every roster she is on (#42 on one team, #11 on another, or a new season) so she is one player: a parent who follows her gets her photos from all of them. Two different girls with the same name need names that differ, such as Emma S. and Emma K. Names stay off the site unless names in tags is on.'),
-        t && alsoOn(t).length ? field('Other teams', h('ul', { class: 'also-on' }, ...alsoOn(t)), 'Linked because the name is the same on both rosters, so following her covers every team. Change a name on one roster to unlink them.') : null,
+        field('Roster', roster, 'One player per row: the jersey number (type it, or pick one the AI found in this team\'s photos), then a name if you like. Only these numbers are tagged. On the right you see the other teams a player with that name is on. Type a girl\'s name the same way on every roster she is on (#42 on one team, #11 on another, or a new season) so she is one player: a parent who follows her gets her photos from all of them. Two different girls with the same name need names that differ, such as Emma S. and Emma K. Names stay off the site unless names in tags is on.'),
         field('Names in tags', h('label', {}, names, ' Tag photos with the player\'s name ("Emma 10")'), 'Off keeps children\'s names off the site: tags use the team and number.'));
       const actions = h('div', { class: 'row' }, save, del, msg);
       if (!t) return h('div', { class: 'group-card' }, h('b', { text: 'Add a team' }), body, actions);

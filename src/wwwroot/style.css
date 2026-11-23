@@ -719,5 +719,11 @@ details.season .season-name { font-family: var(--font-heading); font-size: 20px;
 /* Teams page: a team's seasons inside its card */
 .team-card > .season-card { margin: 10px 0 10px 12px; }
 .team-card .new-season { margin: 12px 0 4px 12px; }
-.also-on { margin: 0; padding-left: 18px; }
-.also-on li { margin: 2px 0; }
+.roster-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.roster-row { display: flex; align-items: center; gap: 8px; }
+.field .roster-row input.roster-num { width: 64px; flex: none; }
+.field .roster-row input.roster-name { width: 200px; flex: none; }
+.roster-row input.bad { border-color: #c62828; outline-color: #c62828; }
+.roster-also { font-size: 13px; }
+.found-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+@media (max-width: 640px) { .roster-row { flex-wrap: wrap; } .roster-also { flex-basis: 100%; } }
