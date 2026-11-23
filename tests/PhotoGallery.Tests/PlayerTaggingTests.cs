@@ -192,19 +192,20 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             var admin = await app.AdminAsync();
             await SetProvidersAsync(admin, new { kind = "ollama", enabled = true, url = "http://ollama.local:11434", model = "qwen3-vl:8b" });
             var (gid, slug, teamId) = await GalleryWithTeamAsync(admin, "New Flow", 2);
-            app.Reader.Answers["ollama"] = () => "{\"numbers\": [{\"number\": \"21\", \"confidence\": 85}, {\"number\": \"88\", \"confidence\": 70}]}";
+            app.Reader.Answers["ollama"] = () => "{\"numbers\": [{\"number\": \"88\", \"confidence\": 70}, {\"number\": \"21\", \"confidence\": 85}, {\"number\": \"9\", \"confidence\": 60}]}";
             await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { });
             var s = await WaitAsync(admin, gid);
             Assert.Empty(s.GetProperty("pending").EnumerateArray());
             Assert.Equal(2, s.GetProperty("checked").GetInt32());
             var unknown = s.GetProperty("unknown").EnumerateArray().ToList();
-            Assert.Equal(new[] { "21", "88" }, unknown.Select(u => u.GetProperty("number").GetString()).Order().ToArray());
+            Assert.Equal(new[] { "9", "21", "88" }, unknown.Select(u => u.GetProperty("number").GetString()).ToArray());   // in number order
             Assert.All(unknown, u => Assert.Equal(2, u.GetProperty("photos").GetInt32()));
 
             var add = await (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/players", new { number = "21", name = "Mia" })).ReadAsync();
             Assert.Equal(2, add.GetProperty("suggestions").GetInt32());
             Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/players", new { number = "21" })).StatusCode);
             Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/numbers/dismiss", new { number = "88" })).StatusCode);
+            Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/numbers/dismiss", new { number = "9" })).StatusCode);
 
             s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
             Assert.Empty(s.GetProperty("unknown").EnumerateArray());
@@ -502,8 +503,57 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
         var best = PlayerPrompt.Parse("{\"numbers\":[{\"number\":\"5\",\"confidence\":40},{\"number\":\"5\",\"confidence\":90}]}").Single();
         Assert.Equal(90, best.Confidence);
 
-        var roster = PlayerTags.ParseRoster("10 Emma\n#7 - Ava\n03\nnot a player\n10 Again");
-        Assert.Equal(new[] { ("10", "Emma"), ("7", "Ava"), ("3", "") }, roster);
+        var roster = PlayerTags.ParseRoster("10 Emma\n#7 - Ava\n03\nnot a player\n10 Again\n0 Zoe\n00 Lily\n7 Again");
+        Assert.Equal(new[] { ("10", "Emma"), ("7", "Ava"), ("03", ""), ("0", "Zoe"), ("00", "Lily") }, roster);   // 0, 00 and 03 kept as written
         Assert.Contains("other team", PlayerPrompt.Build("blue", new[] { "3", "10" }));
+        Assert.Contains("0 and 00 are different", PlayerPrompt.Build("blue", new[] { "3", "10" }));
+
+        // a hidden digit: "?" (or x, _) and the partial flag
+        var hidden = PlayerPrompt.Parse("{\"numbers\":[{\"number\":\"1?\",\"confidence\":70},{\"number\":\"2x\"},{\"number\":\"4\",\"partial\":true},{\"number\":\"??\"},{\"number\":\"00\"}]}");
+        Assert.Equal(new[] { ("1?", true), ("2?", true), ("4", true), ("00", false) }, hidden.Select(x => (x.Number, x.Partial)));
+        Assert.Equal(new[] { "10", "19" }, PlayerTags.Candidates("1?", true, new[] { "1", "10", "19", "21" }));
+        Assert.Equal(new[] { "1", "10", "19", "21" }, PlayerTags.Candidates("1", true, new[] { "1", "10", "19", "21", "32" }));
+        Assert.Equal(new[] { "19" }, PlayerTags.MissingDigit("1", new[] { "1", "19", "100" }));
+        Assert.Equal(new[] { "00", "10" }, PlayerTags.MissingDigit("0", new[] { "0", "00", "10", "7" }));
+    }
+
+    [Fact]
+    public async Task Partly_hidden_numbers_are_offered_as_choices_and_never_approved_automatically()
+    {
+        await Serial.WaitAsync();
+        try
+        {
+            var admin = await app.AdminAsync();
+            Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync("/api/admin/settings/vision", new { providers = new[] { new { kind = "ollama", enabled = true, url = "http://ollama.local:11434", model = "qwen3-vl:8b" } }, autoApproveAt = 50 })).StatusCode);
+            var (gid, _, teamId) = await GalleryWithTeamAsync(admin, "Hidden Flow", 1, "0 Zoe\n00 Lily\n7 Ava\n07 Mae\n12 Kim\n19 Emma\n15 Ivy");
+            // 1? (the 9 covered), 07 read clearly, 0 that could be 00 with a digit covered
+            app.Reader.Answers["ollama"] = () => "{\"numbers\": [{\"number\": \"1?\", \"confidence\": 90}, {\"number\": \"07\", \"confidence\": 95}, {\"number\": \"0\", \"confidence\": 92}]}";
+            await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { });
+            var s = await WaitAsync(admin, gid);
+            var pending = s.GetProperty("pending").EnumerateArray().ToList();
+            string[] Nums(IEnumerable<JsonElement> l) => l.Select(p => p.GetProperty("number").GetString()!).Order(StringComparer.Ordinal).ToArray();
+            // 07 is clear and approved automatically (not 7); the rest wait, marked unsure
+            Assert.Equal(new[] { "0", "00", "12", "15", "19" }, Nums(pending));
+            Assert.All(pending, p => Assert.True(p.GetProperty("unsure").GetBoolean()));
+            Assert.Equal(1, s.GetProperty("approved").GetInt32());
+            Assert.Contains("partly hidden", pending.First(p => p.GetProperty("number").GetString() == "19").GetProperty("note").GetString());
+            Assert.Contains("#00", pending.First(p => p.GetProperty("number").GetString() == "0").GetProperty("note").GetString());
+
+            // picking 19 rejects 12 and 15 from the same reading, and leaves the 0/00 choice waiting
+            var id19 = pending.First(p => p.GetProperty("number").GetString() == "19").GetProperty("id").GetInt32();
+            var r = await (await admin.PostAsJsonAsync("/api/admin/players/review", new { approve = new[] { id19 } })).ReadAsync();
+            Assert.Equal(1, r.GetProperty("approved").GetInt32());
+            Assert.Equal(2, r.GetProperty("rejected").GetInt32());
+            s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
+            Assert.Equal(new[] { "0", "00" }, Nums(s.GetProperty("pending").EnumerateArray()));
+
+            // a clear reading later settles the unsure one
+            app.Reader.Answers["ollama"] = () => "{\"numbers\": [{\"number\": \"00\", \"confidence\": 97}]}";
+            await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { recheck = true });
+            s = await WaitAsync(admin, gid);
+            var lily = s.GetProperty("pending").EnumerateArray().First(p => p.GetProperty("number").GetString() == "00");
+            Assert.False(lily.GetProperty("unsure").GetBoolean());
+        }
+        finally { Serial.Release(); }
     }
 }

@@ -182,7 +182,7 @@ public static class PlayerApi
                               join p in db.Photos on s.PhotoId equals p.Id
                               join pl in db.Players on s.PlayerId equals pl.Id
                               where p.GalleryId == id && s.Status == "pending"
-                              select new { s.Id, s.PhotoId, photo = p.Name, p.TakenAt, pl.Number, player = pl.Name, s.Confidence, s.Source, pl.TeamId })
+                              select new { s.Id, s.PhotoId, photo = p.Name, p.TakenAt, pl.Number, player = pl.Name, s.Confidence, s.Source, pl.TeamId, s.Unsure, s.Note, s.ReadAs })
                              .ToListAsync();
             var teamNames = await db.Teams.ToDictionaryAsync(t => t.Id, t => t);
             var sightings = g.TeamId == null ? new() : await (from x in db.NumberSightings
@@ -191,7 +191,7 @@ public static class PlayerApi
                                    select new { x.Number, x.PhotoId, x.Confidence }).ToListAsync();
             var unknown = sightings.GroupBy(x => x.Number)
                 .Select(x => new { number = x.Key, photos = x.Select(y => y.PhotoId).Distinct().Count(), confidence = x.Max(y => y.Confidence), photoIds = x.OrderByDescending(y => y.Confidence).Select(y => y.PhotoId).Distinct().Take(6) })
-                .OrderByDescending(x => x.photos).ThenBy(x => x.number.Length).ThenBy(x => x.number, StringComparer.Ordinal).ToList();
+                .OrderBy(x => int.TryParse(x.number, out var n) ? n : int.MaxValue).ThenBy(x => x.number.Length).ThenBy(x => x.number, StringComparer.Ordinal).ToList();   // in number order, like a roster
             var approved = await (from s in db.PlayerSuggestions join p in db.Photos on s.PhotoId equals p.Id where p.GalleryId == id && s.Status == "approved" select s.Id).CountAsync();
             // sub folders (the games of a tournament), each with its own jersey: the gallery's sections first, then any other folder holding photos
             var folderKits = PlayerTags.FolderKits(g);
@@ -210,7 +210,7 @@ public static class PlayerApi
                 unknown,
                 pending = rows.OrderBy(r => r.TakenAt).ThenBy(r => r.photo).Select(r => new
                 {
-                    r.Id, r.PhotoId, r.photo, r.Number, r.player, r.Confidence, r.Source,
+                    r.Id, r.PhotoId, r.photo, r.Number, r.player, r.Confidence, r.Source, r.Unsure, r.Note, r.ReadAs,
                     tag = teamNames.TryGetValue(r.TeamId, out var t) ? PlayerTags.TagName(t, new Player { Number = r.Number, Name = r.player }) : r.Number,
                 }),
             });
@@ -256,7 +256,15 @@ public static class PlayerApi
             int a = 0, r = 0;
             foreach (var s in list)
             {
-                if (approve.Contains(s.Id) && players.TryGetValue(s.PlayerId, out var pl)) { await PlayerTags.ApproveAsync(db, s, pl.Team!, pl); a++; }
+                if (s.Status != "pending") continue;   // already settled by a choice below
+                if (approve.Contains(s.Id) && players.TryGetValue(s.PlayerId, out var pl))
+                {
+                    await PlayerTags.ApproveAsync(db, s, pl.Team!, pl); a++;
+                    if (!s.Unsure) continue;
+                    // one partly hidden number is one player: picking it rejects the other players it could have been
+                    var others = await db.PlayerSuggestions.Where(x => x.PhotoId == s.PhotoId && x.Id != s.Id && x.Status == "pending" && x.Unsure && x.ReadAs == s.ReadAs).ToListAsync();
+                    foreach (var o in others) { o.Status = "rejected"; o.ReviewedAt = DateTime.UtcNow; r++; }
+                }
                 else { s.Status = "rejected"; s.ReviewedAt = DateTime.UtcNow; r++; }
             }
             await db.SaveChangesAsync();

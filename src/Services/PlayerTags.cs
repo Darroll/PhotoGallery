@@ -44,6 +44,12 @@ public class PlayerSuggestion
     public string Status { get; set; } = "pending";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ReviewedAt { get; set; }
+    /// <summary>The number may be someone else's: part of it was hidden, or it reads like another player's with a digit missing. Never approved automatically.</summary>
+    public bool Unsure { get; set; }
+    /// <summary>What the model actually read, such as "1?" (a hidden digit) or "1". Unsure suggestions from one reading share it, so approving one rejects the others.</summary>
+    public string ReadAs { get; set; } = "";
+    /// <summary>Why it is unsure, shown in review: "read as 1?, number partly hidden".</summary>
+    public string Note { get; set; } = "";
 }
 
 /// <summary>
@@ -79,7 +85,7 @@ public static class PlayerTags
         {
             var m = System.Text.RegularExpressions.Regex.Match(raw.Trim(), @"^#?\s*([0-9]{1,3})\b[\s\-:.,]*(.*)$");
             if (!m.Success) continue;
-            var number = m.Groups[1].Value.TrimStart('0') is { Length: > 0 } n ? n : "0";
+            var number = m.Groups[1].Value;   // exactly as written: 0, 00 and 07 are different jerseys
             var name = m.Groups[2].Value.Trim();
             if (name.Length > 30) name = name[..30];
             if (list.Any(x => x.Item1 == number)) continue;
@@ -141,7 +147,23 @@ public static class PlayerTags
         return kits.Count == 1 ? kits[0].Description : "one of these sets: " + string.Join("; or ", kits.Select(x => x.Description));
     }
 
-    static string Norm(string number) => number.TrimStart('0') is { Length: > 0 } n ? n : "0";
+    /// <summary>A number with a digit hidden, as in a missing digit: the roster numbers it could be. "1?" fits 10 to 19; "1" marked partly hidden fits 1, 10 to 19, 21, 31...</summary>
+    public static List<string> Candidates(string read, bool partial, IEnumerable<string> roster)
+    {
+        if (read.Contains('?'))
+        {
+            var rx = new System.Text.RegularExpressions.Regex("^" + read.Replace("?", "[0-9]") + "$");
+            return roster.Where(r => rx.IsMatch(r)).ToList();
+        }
+        return partial ? roster.Where(r => r == read || (r.Length > read.Length && (r.StartsWith(read, StringComparison.Ordinal) || r.EndsWith(read, StringComparison.Ordinal)))).ToList() : new();
+    }
+
+    /// <summary>Roster numbers this reading could be if one digit was hidden without the model noticing: 1 for 19, 9 for 19, 0 for 00.</summary>
+    public static List<string> MissingDigit(string read, IEnumerable<string> roster) =>
+        roster.Where(r => r.Length == read.Length + 1 && (r.StartsWith(read, StringComparison.Ordinal) || r.EndsWith(read, StringComparison.Ordinal))).ToList();
+
+    /// <summary>More roster numbers than this for one partial reading tells nothing; it is skipped.</summary>
+    const int MaxCandidates = 4;
 
     /// <summary>
     /// Checks one photo: asks each set-up provider in order until one answers (no fallback when only one is set up), then
@@ -152,7 +174,7 @@ public static class PlayerTags
     {
         var chain = vision.Chain;
         if (chain.Count == 0) throw new VisionException("No provider is set up. Open Settings, Automatic tagging.");
-        var players = team.Players.ToDictionary(p => Norm(p.Number));
+        var players = team.Players.ToDictionary(p => p.Number);
         var v = await images.GetVariantAsync(photo, "ai", ImageSize, "jpg", false) ?? throw new VisionException("The photo file could not be read");
         var jpeg = await File.ReadAllBytesAsync(v.path, ct);
         var prompt = PlayerPrompt.Build(ColorsFor(team, kit), players.Keys);
@@ -173,38 +195,73 @@ public static class PlayerTags
         if (answer == null) throw new VisionException(string.Join(" / ", errors));
 
         photo.PlayersCheckedAt = DateTime.UtcNow;
-        var known = (await db.PlayerSuggestions.Where(s => s.PhotoId == photo.Id).Select(s => s.PlayerId).ToListAsync(ct)).ToHashSet();
+        var known = await db.PlayerSuggestions.Where(s => s.PhotoId == photo.Id).ToDictionaryAsync(s => s.PlayerId, ct);
         var added = 0;
         var seenOurs = new List<string>();
+        var source = $"{answer.Provider} {answer.Model}";
+        var roster = players.Keys.ToList();
+        async Task Suggest(Player player, int confidence, bool unsure, string readAs, string note)
+        {
+            if (known.TryGetValue(player.Id, out var had))
+            {
+                // a clear reading settles an unsure one still waiting
+                if (!unsure && had.Unsure && had.Status == "pending") { had.Unsure = false; had.Note = ""; had.ReadAs = readAs; had.Confidence = Math.Max(had.Confidence, confidence); had.Source = source; }
+                return;
+            }
+            var s = new PlayerSuggestion { PhotoId = photo.Id, PlayerId = player.Id, Confidence = confidence, Source = source, Status = "pending", Unsure = unsure, ReadAs = readAs, Note = note };
+            db.PlayerSuggestions.Add(s);
+            known[player.Id] = s;
+            added++;
+            if (!unsure && vision.AutoApproveAt > 0 && confidence >= vision.AutoApproveAt) await ApproveAsync(db, s, team, player);
+        }
+        var unknown = new List<SeenNumber>();
         foreach (var seen in answer.Numbers)
         {
-            if (!players.TryGetValue(Norm(seen.Number), out var player)) continue;
-            seenOurs.Add($"#{player.Number} ({seen.Confidence}%)");
-            if (known.Contains(player.Id)) continue;
-            var auto = vision.AutoApproveAt > 0 && seen.Confidence >= vision.AutoApproveAt;
-            var s = new PlayerSuggestion { PhotoId = photo.Id, PlayerId = player.Id, Confidence = seen.Confidence, Source = $"{answer.Provider} {answer.Model}", Status = "pending" };
-            db.PlayerSuggestions.Add(s);
-            known.Add(player.Id);
-            added++;
-            if (auto) await ApproveAsync(db, s, team, player);
+            var hidden = seen.Partial || seen.Number.Contains('?');
+            if (hidden)
+            {
+                // part of the number is hidden: suggest each roster number it could be, for the admin to pick one
+                var maybe = Candidates(seen.Number, true, roster);
+                if (maybe.Count == 0 || maybe.Count > MaxCandidates) { seenOurs.Add($"#{seen.Number} partly hidden ({(maybe.Count == 0 ? "no roster number fits" : $"{maybe.Count} roster numbers fit")})"); continue; }
+                seenOurs.Add($"#{seen.Number} partly hidden, maybe {string.Join(" or ", maybe.Select(n => "#" + n))} ({seen.Confidence}%)");
+                foreach (var n in maybe) await Suggest(players[n], seen.Confidence, true, seen.Number, $"read as {seen.Number}, number partly hidden");
+                continue;
+            }
+            var longer = MissingDigit(seen.Number, roster);
+            if (players.TryGetValue(seen.Number, out var player))
+            {
+                // on the roster, but another player's number with one more digit reads like this when a digit is covered
+                var unsure = longer.Count > 0;
+                seenOurs.Add($"#{player.Number} ({seen.Confidence}%)" + (unsure ? $", could be {string.Join(" or ", longer.Select(n => "#" + n))}" : ""));
+                await Suggest(player, seen.Confidence, unsure, seen.Number, unsure ? $"could also be {string.Join(" or ", longer.Select(n => "#" + n))} with a digit hidden" : "");
+                if (unsure && longer.Count <= MaxCandidates)
+                    foreach (var n in longer) await Suggest(players[n], seen.Confidence, true, seen.Number, $"read as {seen.Number}, maybe a digit was hidden");
+                continue;
+            }
+            unknown.Add(seen);
+            if (longer.Count is > 0 and <= MaxCandidates)
+            {
+                // not on the roster, but it is a roster number with a digit missing (1 read for 19)
+                seenOurs.Add($"#{seen.Number} not on the roster, maybe {string.Join(" or ", longer.Select(n => "#" + n))} ({seen.Confidence}%)");
+                foreach (var n in longer) await Suggest(players[n], seen.Confidence, true, seen.Number, $"read as {seen.Number}, maybe a digit was hidden");
+            }
         }
-        var unknown = answer.Numbers.Where(n => !players.ContainsKey(Norm(n.Number))).ToList();
         if (unknown.Count > 0)
         {
-            var nums = unknown.Select(n => Norm(n.Number)).Distinct().ToList();
+            var nums = unknown.Select(n => n.Number).Distinct().ToList();
             var existing = await db.NumberSightings.Where(x => x.TeamId == team.Id && nums.Contains(x.Number) && (x.PhotoId == photo.Id || x.Dismissed)).ToListAsync(ct);
             foreach (var n in unknown)
             {
-                var num = Norm(n.Number);
+                var num = n.Number;
                 var same = existing.FirstOrDefault(x => x.PhotoId == photo.Id && x.Number == num) ?? db.NumberSightings.Local.FirstOrDefault(x => x.TeamId == team.Id && x.PhotoId == photo.Id && x.Number == num);
                 if (same != null) { same.Confidence = Math.Max(same.Confidence, n.Confidence); continue; }
-                db.NumberSightings.Add(new NumberSighting { TeamId = team.Id, PhotoId = photo.Id, Number = num, Confidence = n.Confidence, Source = $"{answer.Provider} {answer.Model}", Dismissed = existing.Any(x => x.Number == num && x.Dismissed) });
+                db.NumberSightings.Add(new NumberSighting { TeamId = team.Id, PhotoId = photo.Id, Number = num, Confidence = n.Confidence, Source = source, Dismissed = existing.Any(x => x.Number == num && x.Dismissed) });
             }
         }
         var ignored = unknown.Count;
         log.LogInformation("Player check of photo {Id} ({Name}) with {Provider}: {Seen}, {Ignored} not on the roster, {Ms} ms",
             photo.Id, photo.Name, answer.Provider, seenOurs.Count == 0 ? "no players" : string.Join(", ", seenOurs), ignored, answer.Ms);
-        return new PhotoCheckResult(added, seenOurs, unknown.Select(n => "#" + Norm(n.Number)).Distinct().ToList(), VisionProvider.Label(answer.Provider), answer.Ms);
+        return new PhotoCheckResult(added, seenOurs, unknown.Select(n => "#" + n.Number).Distinct().ToList(), VisionProvider.Label(answer.Provider), answer.Ms);
     }
 
     /// <summary>Puts the player's tag on the photo and marks the suggestion approved.</summary>

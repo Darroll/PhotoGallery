@@ -3223,7 +3223,8 @@ function playersManager(g) {
     const rows = [...byPhoto.entries()].map(([pid, list]) => h('div', { class: 'player-row' },
       h('img', { src: `/img/${pid}/thumb`, alt: list[0].photo, loading: 'lazy', width: 96, height: 72 }),
       h('div', {}, h('div', { class: 'muted', text: list[0].photo }),
-        h('div', { class: 'chips' }, list.map(s => h('span', { class: 'tag-chip', title: `${s.confidence}% sure, read by ${s.source}` }, `${s.tag} · ${s.confidence}%`,
+        list.filter(s => s.unsure).map(s => s.note).filter((n, i, a) => a.indexOf(n) === i).map(n => h('div', { class: 'muted unsure-note', text: `Not sure: ${n}. Approve the right player; the others it could be are rejected.` })),
+        h('div', { class: 'chips' }, list.map(s => h('span', { class: 'tag-chip' + (s.unsure ? ' unsure' : ''), title: `${s.confidence}% sure, read by ${s.source}` + (s.note ? ` (${s.note})` : '') }, `${s.unsure ? 'maybe ' : ''}${s.tag} · ${s.confidence}%`,
           h('button', { class: 'chip-ok', 'aria-label': `Approve ${s.tag} on ${s.photo}`, title: 'Approve', text: '✓', onclick: () => review([s.id], true) }),
           h('button', { class: 'chip-x', 'aria-label': `Reject ${s.tag} on ${s.photo}`, title: 'Reject', text: '×', onclick: () => review([s.id], false) })))))));
     const allIds = d.pending.map(s => s.id);

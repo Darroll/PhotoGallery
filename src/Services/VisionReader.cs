@@ -8,7 +8,8 @@ using Anthropic.Models.Messages;
 namespace PhotoGallery;
 
 /// <summary>A jersey number a model read on a photo, with how sure it was (0-100).</summary>
-public record SeenNumber(string Number, int Confidence);
+/// <summary>A number read on a player. "?" stands for a digit that could not be seen; <paramref name="Partial"/> says part of the number was hidden.</summary>
+public record SeenNumber(string Number, int Confidence, bool Partial = false);
 
 /// <summary>What one provider answered: the numbers, which provider and model, and how long it took.</summary>
 public record VisionAnswer(List<SeenNumber> Numbers, string Provider, string Model, long Ms);
@@ -154,13 +155,16 @@ public static class PlayerPrompt
         var numbers = string.Join(", ", rosterNumbers.Distinct().OrderBy(n => n.Length).ThenBy(n => n, StringComparer.Ordinal));
         return "This is a photo from a youth sports game. Our team wears: " + colors + ". " +
                (numbers.Length > 0 ? "Our players' jersey numbers are: " + numbers + ". " : "") +
-               "List the jersey numbers you can actually read on players wearing our team's jersey. " +
-               "Ignore players in any other colors (the other team may wear the same numbers), referees, coaches, spectators, and numbers that are hidden, blurred or cut off. " +
+               "List the jersey numbers you can read on players wearing our team's jersey. " +
+               "Write each number exactly as printed, as a string: 0 and 00 are different numbers, and so are 7 and 07. " +
+               "If part of a number is hidden (by an arm, another player, a fold or the edge of the photo), write \"?\" for each digit you cannot see (\"1?\" when the second digit is covered) and set \"partial\": true. " +
+               "Never drop or guess a hidden digit: a 19 with the 9 covered is \"1?\", not \"1\" or \"10\". " +
+               "Ignore players in any other colors (the other team may wear the same numbers), referees, coaches, spectators, and numbers too blurred to read. " +
                "Do not guess a number from a player's look or position. " +
-               "Reply only with JSON: {\"numbers\": [{\"number\": \"10\", \"confidence\": 0-100}]}. Use an empty list when no number is readable.";
+               "Reply only with JSON: {\"numbers\": [{\"number\": \"10\", \"confidence\": 0-100, \"partial\": false}]}. Use an empty list when no number is readable.";
     }
 
-    /// <summary>Reads the model's reply. Tolerates text around the JSON. Numbers are 1 to 3 digits; anything else is dropped.</summary>
+    /// <summary>Reads the model's reply. Tolerates text around the JSON. Numbers are 1 to 3 digits, kept exactly as written, with "?" for a hidden digit; anything else is dropped.</summary>
     public static List<SeenNumber> Parse(string reply)
     {
         var start = reply.IndexOf('{');
@@ -175,21 +179,24 @@ public static class PlayerPrompt
             if (!doc.RootElement.TryGetProperty("numbers", out var arr) || arr.ValueKind != JsonValueKind.Array) return list;
             foreach (var item in arr.EnumerateArray())
             {
-                string? n = null; double conf = 50;
+                string? n = null; double conf = 50; var partial = false;
                 if (item.ValueKind == JsonValueKind.Object)
                 {
                     if (item.TryGetProperty("number", out var nv)) n = nv.ValueKind == JsonValueKind.Number ? nv.GetRawText() : nv.GetString();
                     if (item.TryGetProperty("confidence", out var cv))
                         conf = cv.ValueKind == JsonValueKind.Number ? cv.GetDouble() : double.TryParse(cv.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 50;
+                    if (item.TryGetProperty("partial", out var pv)) partial = pv.ValueKind == JsonValueKind.True || (pv.ValueKind == JsonValueKind.String && pv.GetString() is "true" or "yes");
                 }
                 else if (item.ValueKind is JsonValueKind.String or JsonValueKind.Number) n = item.ValueKind == JsonValueKind.Number ? item.GetRawText() : item.GetString();
                 n = (n ?? "").Trim().TrimStart('#');
-                if (!Regex.IsMatch(n, "^[0-9]{1,3}$")) continue;
+                n = n.Replace('_', '?').Replace('x', '?').Replace('X', '?');   // other ways of writing a hidden digit
+                if (!Regex.IsMatch(n, "^[0-9?]{1,3}$") || !n.Any(char.IsDigit)) continue;
+                if (n.Contains('?')) partial = true;
                 if (conf is > 0 and <= 1) conf *= 100;   // some models answer 0.9 for 90%
                 var c = (int)Math.Round(Math.Clamp(conf, 0, 100));
-                var existing = list.FindIndex(x => x.Number == n);
-                if (existing >= 0) { if (list[existing].Confidence < c) list[existing] = new SeenNumber(n, c); }
-                else list.Add(new SeenNumber(n, c));
+                var existing = list.FindIndex(x => x.Number == n && x.Partial == partial);
+                if (existing >= 0) { if (list[existing].Confidence < c) list[existing] = new SeenNumber(n, c, partial); }
+                else list.Add(new SeenNumber(n, c, partial));
             }
             return list;
         }

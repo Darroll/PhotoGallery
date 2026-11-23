@@ -618,3 +618,5 @@ table.data td:last-child { text-align: right; font-variant-numeric: tabular-nums
 @media (max-width: 640px) { .kit-row { flex-wrap: wrap; } }
 .folder-kit { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
 .folder-kit-name { min-width: 120px; max-width: 200px; padding-top: 6px; overflow-wrap: anywhere; }
+.tag-chip.unsure { border-style: dashed; }
+.unsure-note { font-size: 13px; }

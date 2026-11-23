@@ -840,11 +840,19 @@ namespace PhotoGallery.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Note")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("PhotoId")
                         .HasColumnType("INTEGER");
 
                     b.Property<int>("PlayerId")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("ReadAs")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("ReviewedAt")
                         .HasColumnType("TEXT");
@@ -856,6 +864,9 @@ namespace PhotoGallery.Migrations
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<bool>("Unsure")
+                        .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
