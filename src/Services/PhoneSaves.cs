@@ -29,9 +29,14 @@ public class PhoneSaves
     public bool Covers(string? token, int galleryId, int photoId) =>
         token != null && tickets.TryGetValue(token, out var t) && t.Expires > DateTime.UtcNow && t.GalleryId == galleryId && t.PhotoIds.Contains(photoId);
 
-    /// <summary>Formats a phone's photo app saves as they are. Anything else is sent as a JPEG.</summary>
+    /// <summary>Largest original sent as it is. Android Chrome shares at most 50 MB at a time, so bigger files go as a JPEG copy.</summary>
+    public const long MaxOriginalBytes = 20L * 1024 * 1024;
+
+    /// <summary>Formats a phone's photo app saves as they are. Anything else is sent as a JPEG. PNG is not on the list:
+    /// an edited photo exported as PNG is often 30 to 80 MB, too big for a phone's share sheet, and a high-quality JPEG
+    /// looks the same in a camera roll.</summary>
     public static bool PhoneReady(string fileName) =>
-        Path.GetExtension(fileName).ToLowerInvariant() is ".jpg" or ".jpeg" or ".heic" or ".heif" or ".png";
+        Path.GetExtension(fileName).ToLowerInvariant() is ".jpg" or ".jpeg" or ".heic" or ".heif";
 
     /// <summary>The size a phone copy is made at: the largest offered size up to 4096 px, or the smallest offered when all are larger.</summary>
     public static int? PhoneSize(int[] sizes) =>
