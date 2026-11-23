@@ -42,6 +42,8 @@ public class Gallery
     /// <summary>Last day of an event that spans several days (the weekend of a tournament). Null for a one-day event.</summary>
     public DateTime? EventEndDate { get; set; }
     public string Location { get; set; } = "";
+    /// <summary>The season the gallery is listed under on the home page ("Fall 2026"). Empty means worked out from the event date (see <see cref="GalleryRules.SeasonOf"/>).</summary>
+    public string Season { get; set; } = "";
     /// <summary>Comma separated long-edge sizes offered for download; empty = all configured sizes.</summary>
     public string AllowedSizes { get; set; } = "";
     /// <summary>Comma separated lossless formats (png,webp,tif); empty = all.</summary>

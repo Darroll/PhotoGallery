@@ -34,7 +34,16 @@ public static class SearchApi
             return Results.Ok(rows.ToDictionary(r => r.Name.ToLowerInvariant(), r => r.Color));
         });
 
-        app.MapGet("/api/search", async (string? q, string? where, string? tag, string? from, string? to, string? scope, AppDb db) =>
+        // teams that have a public gallery, for the team filter on the home page and in search
+        app.MapGet("/api/teams", async (AppDb db) =>
+        {
+            var used = (await db.Galleries.AsNoTracking().Where(g => g.Visibility == Visibility.Public && g.TeamId != null).ToListAsync())
+                .Where(g => !GalleryRules.IsExpired(g)).Select(g => g.TeamId!.Value).Distinct().ToList();
+            var rows = await db.Teams.AsNoTracking().Where(t => used.Contains(t.Id)).Select(t => new { t.Id, t.Name }).ToListAsync();
+            return Results.Ok(rows.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase));
+        });
+
+        app.MapGet("/api/search", async (string? q, string? where, string? tag, string? from, string? to, string? scope, int? team, AppDb db) =>
         {
             var term = Clean(q, 80);
             var place = Clean(where, 80);
@@ -47,7 +56,7 @@ public static class SearchApi
             DateTime? end = DateTime.TryParse(to, out var toDate) ? toDate.Date.AddDays(1) : null;
 
             var galleries = (await db.Galleries.AsNoTracking().Where(g => g.Visibility == Visibility.Public).ToListAsync())
-                .Where(g => !GalleryRules.IsExpired(g)).ToList();
+                .Where(g => !GalleryRules.IsExpired(g) && (team == null || g.TeamId == team)).ToList();
             var byId = galleries.ToDictionary(g => g.Id);
             var ids = byId.Keys.ToList();
 

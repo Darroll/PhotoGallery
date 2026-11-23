@@ -20,6 +20,8 @@ public class GalleryPreset
     public List<int> GroupIds { get; set; } = new();
     public List<string> Tags { get; set; } = new();
     public string Location { get; set; } = "";
+    /// <summary>The season new galleries are listed under ("Fall 2026"), or empty to work it out from the event date.</summary>
+    public string Season { get; set; } = "";
 
     public bool AllowDownload { get; set; } = true;
     public bool AllowRaw { get; set; }
@@ -56,6 +58,7 @@ public class GalleryPreset
         c.Name = Clean(Name, MaxName);
         c.FromGallery = Clean(FromGallery, 100);
         c.Location = Clean(Location, 200);
+        c.Season = GalleryRules.CleanSeason(Season);
         c.TeamKit = Clean(TeamKit, 200);
         c.AllowedSizes = AllowedSizes ?? "";
         c.AllowedFormats = AllowedFormats ?? "";
@@ -95,7 +98,7 @@ public static class GalleryPresets
         return new GalleryPreset
         {
             Name = name, FromGallery = g.Title,
-            Visibility = g.Visibility, PasswordHash = g.PasswordHash, GroupIds = groups, Tags = tags, Location = g.Location,
+            Visibility = g.Visibility, PasswordHash = g.PasswordHash, GroupIds = groups, Tags = tags, Location = g.Location, Season = g.Season,
             AllowDownload = g.AllowDownload, AllowRaw = g.AllowRaw, AllowZip = g.AllowZip,
             AllowedSizes = g.AllowedSizes, AllowedFormats = g.AllowedFormats,
             RawMatchMode = g.RawMatchMode, HideRawOnly = g.HideRawOnly, SortMode = g.SortMode, SortDesc = g.SortDesc,
@@ -113,6 +116,7 @@ public static class GalleryPresets
         g.Visibility = p.Visibility;
         g.PasswordHash = p.PasswordHash;
         g.Location = p.Location;
+        g.Season = p.Season;
         g.AllowDownload = p.AllowDownload; g.AllowRaw = p.AllowRaw; g.AllowZip = p.AllowZip;
         g.AllowedSizes = p.AllowedSizes; g.AllowedFormats = p.AllowedFormats;
         g.RawMatchMode = p.RawMatchMode; g.HideRawOnly = p.HideRawOnly; g.SortMode = p.SortMode; g.SortDesc = p.SortDesc;
@@ -141,7 +145,7 @@ public static class GalleryPresets
     public static object Dto(GalleryPreset p, string? defaultId, Dictionary<int, string> teams) => new
     {
         p.Id, p.Name, p.FromGallery, p.CreatedAt, isDefault = p.Id == defaultId,
-        p.Visibility, hasPassword = p.PasswordHash != null, groups = p.GroupIds.Count, p.Tags, p.Location,
+        p.Visibility, hasPassword = p.PasswordHash != null, groups = p.GroupIds.Count, p.Tags, p.Location, p.Season,
         p.AllowDownload, p.AllowRaw, p.AllowZip, p.HideRawOnly, p.AllowLikes, p.AllowComments, p.AllowFeedback, p.AllowGuestUpload,
         p.WatermarkView, p.WatermarkDownload,
         p.TeamId, team = p.TeamId is { } t ? teams.GetValueOrDefault(t) : null, p.TeamKit, p.AutoTag, p.AllowPlayerTags, p.FollowPlayers
