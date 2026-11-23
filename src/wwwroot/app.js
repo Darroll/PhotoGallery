@@ -2169,6 +2169,13 @@ function newGalleryPanel(folders, presets) {
   if (!folders.length) return h('div', { class: 'panel' }, h('h3', { text: 'New gallery from a library folder' }), h('p', { class: 'muted', text: 'Every folder in the photo library already has a gallery. Add a new folder to the library, then reload this page.' }));
   const title = h('input', { type: 'text', placeholder: 'Gallery title' });
   const folder = h('select', {}, folders.map(f => h('option', { value: f, text: f })));
+  // the title starts as the folder's name (2026-11-29_Game -> 2026-11-29 Game) until the admin types their own
+  const nice = (p) => p.split('/').pop().replace(/_+/g, ' ').replace(/(\D)-+|-+(?=\D)/g, '$1 ').replace(/\s+/g, ' ').trim();
+  let typed = false;
+  title.addEventListener('input', () => { typed = title.value.trim().length > 0; });
+  const fillTitle = () => { if (!typed) title.value = nice(folder.value); };
+  folder.addEventListener('change', fillTitle);
+  fillTitle();
   const vis = h('select', { 'aria-label': 'Who can open it' }, Object.entries(visLabels).map(([v, t]) => h('option', { value: v, text: t, selected: v === '2' })));
   const out = h('span', { class: 'muted' });
   // a preset fills in the rest of the settings: team, player checks, follow, downloads, curated only, tags...
