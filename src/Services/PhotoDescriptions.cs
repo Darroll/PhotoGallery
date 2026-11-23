@@ -148,13 +148,16 @@ public static class PhotoDescriptions
         return list.OrderByDescending(x => x.Stale).ThenByDescending(x => x.PhotoId).Take(max).ToList();
     }
 
-    /// <summary>Writes one photo's description with the first provider that answers. False when every provider failed.</summary>
-    public static async Task<bool> DescribeAsync(AppDb db, ImageService images, IVisionReader reader, VisionSettings vision, Todo todo, ILogger log, CancellationToken ct)
+    /// <summary>What writing one photo's description gave: the text, or why it failed.</summary>
+    public record Outcome(bool Ok, string Photo, int GalleryId, string Text, string Provider, long Ms);
+
+    /// <summary>Writes one photo's description with the first provider that answers. Not Ok when every provider failed (or you wrote one meanwhile).</summary>
+    public static async Task<Outcome> DescribeAsync(AppDb db, ImageService images, IVisionReader reader, VisionSettings vision, Todo todo, ILogger log, CancellationToken ct)
     {
         var photo = await db.Photos.FirstOrDefaultAsync(p => p.Id == todo.PhotoId, ct);
-        if (photo == null) return false;
+        if (photo == null) return new Outcome(false, "", 0, "The photo is gone", "", 0);
         var chain = vision.Chain;
-        if (chain.Count == 0) return false;
+        if (chain.Count == 0) return new Outcome(false, photo.Name, photo.GalleryId, "No provider is set up", "", 0);
         string? text = null;
         VisionText? answer = null;
         var errors = new List<string>();
@@ -182,13 +185,13 @@ public static class PhotoDescriptions
         catch (VisionException ex) { errors.Add(ex.Message); }
 
         await db.Entry(photo).ReloadAsync(ct);   // you may have written one by hand while the model was looking
-        if (photo.DescriptionSource == Admin) return false;
+        if (photo.DescriptionSource == Admin) return new Outcome(false, photo.Name, photo.GalleryId, "Skipped: you wrote a description while the AI was looking", answer?.Provider ?? "", answer?.Ms ?? 0);
         if (text == null)
         {
             photo.DescriptionAttempts++;
             await db.SaveChangesAsync(ct);
             log.LogWarning("Describing photo {Id} failed (try {Attempt}): {Error}", photo.Id, photo.DescriptionAttempts, string.Join(" / ", errors));
-            return false;
+            return new Outcome(false, photo.Name, photo.GalleryId, $"Try {photo.DescriptionAttempts} of {MaxAttempts} failed: " + string.Join(" / ", errors), "", 0);
         }
         photo.Description = text;
         photo.DescriptionSource = Ai;
@@ -197,7 +200,7 @@ public static class PhotoDescriptions
         photo.DescribedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
         log.LogInformation("Described photo {Id}{Again} with {Provider} in {Ms} ms", photo.Id, todo.Stale ? " again after a retag" : "", answer?.Provider, answer?.Ms);
-        return true;
+        return new Outcome(true, photo.Name, photo.GalleryId, text, answer?.Provider ?? "", answer?.Ms ?? 0);
     }
 
     /// <summary>
@@ -214,12 +217,19 @@ public static class PhotoDescriptions
         var images = sp.GetRequiredService<ImageService>();
         var reader = sp.GetRequiredService<IVisionReader>();
         var log = sp.GetRequiredService<ILogger<DescriptionService>>();
+        var svc = sp.GetService<DescriptionService>();
         int written = 0, failed = 0, inARow = 0;
         foreach (var todo in await PendingAsync(db, vision, jobs, max, ct))
         {
             ct.ThrowIfCancellationRequested();
             if (jobs != null && jobs.All().Any(s => s.Running && !s.Waiting)) break;
-            if (await DescribeAsync(db, images, reader, vision, todo, log, ct)) { written++; inARow = 0; }
+            svc?.Working(todo.PhotoId);
+            var started = DateTime.UtcNow;
+            Outcome r;
+            try { r = await DescribeAsync(db, images, reader, vision, todo, log, ct); }
+            finally { svc?.Working(null); }
+            svc?.Add(new DescriptionEntry(todo.PhotoId, r.Photo, r.GalleryId, r.Ok, r.Text, todo.Stale, VisionProvider.Label(r.Provider), r.Ok ? r.Ms : (long)(DateTime.UtcNow - started).TotalMilliseconds, DateTime.UtcNow));
+            if (r.Ok) { written++; inARow = 0; }
             else { failed++; if (++inARow >= 3) break; }
         }
         return (written, failed);
@@ -244,6 +254,22 @@ public class DescriptionService(IServiceScopeFactory scopes, ILogger<Description
 {
     const int PerRound = 10;
     readonly SemaphoreSlim wake = new(0, 1);
+    readonly object gate = new();
+    readonly List<DescriptionEntry> recent = new();
+
+    /// <summary>The photo being described now, and since when. Null between photos.</summary>
+    public int? CurrentPhotoId { get; private set; }
+    public DateTime? CurrentSince { get; private set; }
+    /// <summary>When the next round runs at the latest (sooner if something changes). After failures this backs off.</summary>
+    public DateTime? NextRoundAt { get; private set; }
+    /// <summary>The last round had only failures, so rounds are spaced out until one works.</summary>
+    public bool BackingOff { get; private set; }
+
+    public void Working(int? photoId) { CurrentPhotoId = photoId; CurrentSince = photoId == null ? null : DateTime.UtcNow; }
+
+    /// <summary>The last 50 photos described or failed, newest first. Kept in memory only.</summary>
+    public List<DescriptionEntry> Recent { get { lock (gate) return recent.ToList(); } }
+    public void Add(DescriptionEntry e) { lock (gate) { recent.Insert(0, e); if (recent.Count > 50) recent.RemoveAt(recent.Count - 1); } }
 
     /// <summary>Stops the background rounds (tests run rounds themselves).</summary>
     public bool Paused { get; set; }
@@ -271,9 +297,15 @@ public class DescriptionService(IServiceScopeFactory scopes, ILogger<Description
             }
             // nothing worked: the provider is likely down, so wait longer each time (up to 30 minutes) before trying again
             backoff = failed > 0 && written == 0 ? TimeSpan.FromMinutes(Math.Min(backoff.TotalMinutes * 2, 30)) : TimeSpan.FromMinutes(1);
+            BackingOff = failed > 0 && written == 0;
             if (written >= PerRound) continue;   // more are waiting
-            await wake.WaitAsync(backoff, ct);   // a change you make (such as fixing the provider settings) tries again straight away
+            NextRoundAt = DateTime.UtcNow + backoff;
+            await wake.WaitAsync(backoff, ct);
+            NextRoundAt = null;   // a change you make (such as fixing the provider settings) tries again straight away
             await Task.Delay(TimeSpan.FromSeconds(5), ct);   // let a burst of retagging settle
         }
     }
 }
+
+/// <summary>One line of the descriptions activity list: the text written, or why it failed.</summary>
+public record DescriptionEntry(int PhotoId, string Photo, int GalleryId, bool Ok, string Text, bool Retag, string Provider, long Ms, DateTime At);

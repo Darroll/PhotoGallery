@@ -479,7 +479,7 @@ async function viewSearch(app) {
       h('div', { class: 'meta' }, h('b', { text: x.title }), h('span', { class: 'muted', text: x.gallery }), eventLines(x))))));
   if (photos.length) app.append(h('h2', { text: 'Photos' }), h('div', { class: 'photo-cards' }, photos.map(p =>
     h('a', { class: 'photo-card', href: `/g/${encodeURIComponent(p.slug)}/p/${p.id}` },
-      h('img', { loading: 'lazy', src: `/img/${p.id}/thumb`, alt: p.altText || p.name }),
+      h('img', { loading: 'lazy', src: `/img/${p.id}/thumb`, alt: p.altText || p.description || p.name }),
       h('div', { class: 'pc-name', text: p.caption || p.name, title: p.name }),
       p.description ? h('div', { class: 'pc-desc muted', text: p.description, title: p.description }) : null,
       h('div', { class: 'muted', text: [p.gallery, p.takenAt ? new Date(p.takenAt + (/Z$/.test(p.takenAt) ? '' : 'Z')).toLocaleDateString() : ''].filter(Boolean).join(' \u00B7 ') }),
@@ -737,7 +737,7 @@ async function viewGallery(app, slug) {
     strip.replaceChildren(h('h2', { class: 'vid-head', text: 'Most liked' }),
       h('div', { class: 'strip' }, top.map(p =>
         h('button', { class: 'strip-ph', title: `${p.name} · ${plural(p.likes, 'like')}`, onclick: () => { const i = G.list.findIndex(x => x.id === p.id); if (i >= 0) openLightbox(i, false); } },
-          h('img', { src: photoUrl(p, 'thumb'), alt: p.altText || p.name, loading: 'lazy' }),
+          h('img', { src: photoUrl(p, 'thumb'), alt: p.altText || p.description || p.name, loading: 'lazy' }),
           h('span', { class: 'strip-n', text: '♥ ' + p.likes })))));
   };
 
@@ -827,7 +827,7 @@ async function viewGallery(app, slug) {
       const item = h('div', { class: 'ph' + (p.approved ? '' : ' pending'), title: p.name, tabindex: 0,
         onclick: () => { if (selectMode) toggleSel(p); else openLightbox(i, false); },
         onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); if (selectMode) toggleSel(p); else openLightbox(i, false); } } },
-        h('img', { loading: 'lazy', src: photoUrl(p, 'thumb'), alt: p.altText || p.name }),
+        h('img', { loading: 'lazy', src: photoUrl(p, 'thumb'), alt: p.altText || p.description || p.name }),
         p.approved ? null : h('span', { class: 'badge', text: 'pending' }),
         p.rawOnly ? h('span', { class: 'badge', text: 'RAW' }) : null,
         selectMode ? check : null, heart);
@@ -1727,8 +1727,10 @@ function openLightbox(index, play, mode = 'push') {
     const p = cur(); if (!p) return;
     const players = photoPlayersRow(p, () => { if (cur() === p) lb.drawCaption(); });
     const tags = tagLine(p.tags, { ...photoTagEdit(p), hide: isPlayerTag });
-    captionEl.replaceChildren(...[p.caption ? h('div', { text: p.caption }) : null, players, tags].filter(Boolean));
-    captionEl.classList.toggle('hidden', !p.caption && !tags && !players);
+    // no caption of its own: the scene description stands in for it
+    const text = p.caption || p.description || '';
+    captionEl.replaceChildren(...[text ? h('div', { class: p.caption ? '' : 'lb-desc', text }) : null, players, tags].filter(Boolean));
+    captionEl.classList.toggle('hidden', !text && !tags && !players);
   };
   const show = (i, updateUrl = true) => {
     lb.i = (i + list.length) % list.length;
@@ -1738,7 +1740,7 @@ function openLightbox(index, play, mode = 'push') {
     img.src = photoUrl(p, viewKind());
     if (p.id !== lb.lastSeen) { lb.lastSeen = p.id; fetch(`/api/g/${encodeURIComponent(G.slug)}/viewed/${p.id}`, { method: 'POST', headers: { 'X-Requested-With': 'pg' }, credentials: 'same-origin', keepalive: true }).catch(() => {}); }
     title.textContent = p.name;
-    lb.drawCaption(); img.alt = p.altText || p.name;
+    lb.drawCaption(); img.alt = p.altText || p.description || p.name;
     document.title = photoTitle(p); counter.textContent = `${lb.i + 1} / ${list.length}`;
     lb.sync(); lb.drawDetails();
     const n = list[(lb.i + 1) % list.length]; new Image().src = photoUrl(n, viewKind());   // preload
@@ -3191,7 +3193,7 @@ async function visionPanel() {
     const ready = rows.filter(p => p.ready).map(p => p.label);
     msg.textContent = ready.length === 0 ? 'Saved. No provider is ready yet, so nothing will be checked.' : ready.length === 1 ? `Saved. Only ${ready[0]} will be used; there is no fallback.` : `Saved. Tried in this order: ${ready.join(', then ')}.`;
   } });
-  return h('div', {}, taggingActivity(), h('div', { class: 'panel' }, h('h3', { text: 'Automatic tagging' }),
+  return h('div', {}, taggingActivity(), descriptionActivity(), h('div', { class: 'panel' }, h('h3', { text: 'Automatic tagging' }),
     h('p', { class: 'muted', text: 'An AI model looks at each photo and reads the jersey numbers of your team\'s players, so parents can find their child. Providers are tried from the top. Only providers that are switched on and fully set up are used, so if you set up just one, nothing else is ever tried. Photos are checked when you press a button in a gallery\'s Players section, or by themselves when new photos arrive if you switch that on below.' }),
     list,
     h('div', { class: 'form1' }, field('Approve automatically', h('label', {}, auto, ' % sure or more'), '0 (recommended) means every suggestion waits for you to check it. Tags are only added after you approve them.'),
@@ -3220,6 +3222,42 @@ function taggingActivity() {
       playerJobView(job, async () => { await api(`/api/admin/galleries/${job.galleryId}/players/stop`, { method: 'POST' }); load(); }, { recentCount: 5 }))));
     if (r.data.some(x => x.job.running)) timer = setTimeout(load, 2000);
     else timer = setTimeout(load, 15000);
+  };
+  load();
+  return panel;
+}
+
+// Photo descriptions as they are written: the photo being described, how many wait, and the latest results with their
+// text (or why they failed). Refreshes every 3 seconds while something is being written, otherwise every 15.
+function descriptionActivity() {
+  const box = h('div', { 'aria-live': 'polite' });
+  const panel = h('div', { class: 'panel' }, h('h3', { text: 'Descriptions' }), box);
+  let timer = null, started = false;
+  const when = (t) => new Date(t + (/Z$/.test(t) ? '' : 'Z')).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  const load = async () => {
+    clearTimeout(timer);
+    if (started && !panel.isConnected) return;
+    started = true;
+    const r = await api('/api/admin/settings/vision/descriptions/activity');
+    if (!r.ok) { box.replaceChildren(h('p', { class: 'err', text: 'Could not load the descriptions activity.' })); timer = setTimeout(load, 15000); return; }
+    const d = r.data, c = d.counts;
+    const state = !d.on ? 'Switched off. Tick "Describe each photo" below and save to start.'
+      : !d.ready ? 'No provider is ready, so nothing is being described.'
+      : d.current ? `Describing ${d.current.name} (${d.current.gallery})…`
+      : d.playerCheckRunning ? 'Waiting: a player check is running, and it goes first.'
+      : d.waiting && d.backingOff ? `The last tries failed, so it waits before trying again${d.nextRoundAt ? ' (next at ' + when(d.nextRoundAt) + ')' : ''}. Saving these settings tries again straight away.`
+      : d.waiting ? `${plural(d.waiting, 'photo')} waiting${d.nextRoundAt ? ', next round at ' + when(d.nextRoundAt) : ''}.`
+      : 'All caught up.';
+    box.replaceChildren(
+      h('p', { text: state }),
+      h('p', { class: 'muted', text: `${c.described} of ${c.total} photos have a description` + (c.byHand ? `, ${c.byHand} written by you` : '') + (d.on && d.waiting ? `; ${d.waiting} waiting` : '') + (c.failed ? `; ${c.failed} failed three times` : '') + '.' }),
+      d.recent.length ? h('ul', { class: 'desc-log' }, d.recent.slice(0, 20).map(e => h('li', { class: e.ok ? '' : 'failed' },
+        h('img', { src: `/img/${e.photoId}/thumb`, alt: '', loading: 'lazy' }),
+        h('div', {},
+          h('div', {}, e.slug ? h('a', { href: `/g/${encodeURIComponent(e.slug)}/p/${e.photoId}`, text: e.photo }) : e.photo,
+            h('span', { class: 'muted', text: ` · ${e.gallery || ''} · ${when(e.at)}` + (e.retag ? ' · rewritten after a retag' : '') + (e.ok && e.ms ? ` · ${(e.ms / 1000).toFixed(1)} s` : '') })),
+          h('div', { text: e.text }))))) : h('p', { class: 'muted', text: d.on ? 'Nothing written since the app started.' : '' }));
+    timer = setTimeout(load, d.current || (d.on && d.ready && d.waiting && !d.backingOff) ? 3000 : 15000);
   };
   load();
   return panel;
@@ -3904,7 +3942,7 @@ function playerJobView(job, onStop, { recentCount = 8 } = {}) {
   const recent = (job.recent || []).slice(0, recentCount);
   if (recent.length) out.append(h('details', { class: 'job-recent', open: job.running },
     h('summary', { text: `Latest photos (${recent.length}${(job.recent || []).length > recent.length ? ' of ' + job.recent.length : ''})` }),
-    h('ul', {}, recent.map(e => h('li', { class: e.ok ? '' : 'err' },
+    h('ul', {}, recent.map(e => h('li', { class: e.ok ? '' : 'failed' },
       h('a', { href: `/img/${e.photoId}/view`, target: '_blank', rel: 'noopener', text: e.photo }), ': ', e.result,
       h('span', { class: 'muted', text: ` (${e.provider || 'no provider'}, ${(e.ms / 1000).toFixed(1)} s)` }))))));
   return out;

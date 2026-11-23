@@ -730,3 +730,9 @@ details.season .season-name { font-family: var(--font-heading); font-size: 20px;
 .roster-also { font-size: 13px; }
 .found-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
 @media (max-width: 640px) { .roster-row { flex-wrap: wrap; } .roster-also { flex-basis: 100%; } }
+
+.lb-desc { opacity: .85; font-size: 13px; }
+.desc-log { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 10px; }
+.desc-log li { display: flex; gap: 10px; align-items: flex-start; }
+.desc-log img { width: 64px; height: 48px; object-fit: cover; border-radius: 4px; flex: none; }
+.desc-log li.failed > div > div:last-child { color: var(--danger); }

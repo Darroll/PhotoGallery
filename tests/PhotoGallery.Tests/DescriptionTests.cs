@@ -143,6 +143,11 @@ public class DescriptionTests(VisionAppFactory app) : IClassFixture<VisionAppFac
             Assert.StartsWith("#3, #7 wins", fixedText);
             Assert.DoesNotContain("#10", fixedText);
 
+            // the settings page lists it, marked as a rewrite after a retag
+            var activity = await (await admin.GetAsync("/api/admin/settings/vision/descriptions/activity")).ReadAsync();
+            Assert.True(activity.GetProperty("on").GetBoolean());
+            Assert.Contains(activity.GetProperty("recent").EnumerateArray(), e => e.GetProperty("photoId").GetInt32() == id && e.GetProperty("retag").GetBoolean() && e.GetProperty("text").GetString() == fixedText && e.GetProperty("slug").GetString() == slug);
+
             // parents find it by searching in their own words
             var found = await (await app.NewClient().GetAsync("/api/search?q=" + Uri.EscapeDataString("header in the rain"))).ReadAsync();
             Assert.Contains(found.GetProperty("photos").EnumerateArray(), x => x.GetProperty("id").GetInt32() == id && x.GetProperty("description").GetString() == fixedText);

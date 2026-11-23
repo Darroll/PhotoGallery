@@ -2,6 +2,11 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.7.1 (not released yet)
+
+- **Descriptions show as captions.** A photo without a caption of its own shows its scene description under it in the viewer, and uses it as alt text when it has none. Captions you write still come first, and descriptions are kept apart from them so a retag can rewrite the AI's text without touching yours.
+- **Watch descriptions being written.** Settings, **Automatic tagging** has a **Descriptions** panel: the photo being described now, how many are waiting (or why it is waiting: switched off, no provider, a player check running, backing off after failures), and the latest 20 results with their text, time, whether a retag caused them, and any errors. It refreshes every few seconds while it works.
+
 ## 2.7.0 (not released yet)
 
 - **Search by what is happening in a photo.** Switch on **Describe each photo so parents can search for it** in Settings, **Automatic tagging**, and the AI writes a sentence or two about each photo's scene: the action (a header, a save, a corner kick, a celebration), the weather and light, and the setting. Parents then find photos in their own words: "header in the rain" finds "#10 wins a header as rain pours down". Every word that matters must appear, in any order (small words like "the" are left out), and "headers" also finds "header". Site search covers descriptions, results show them under the photo, and each gallery with descriptions or captions has a **Search this gallery** box that works together with the player chips.
