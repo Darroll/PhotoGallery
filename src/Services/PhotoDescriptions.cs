@@ -20,8 +20,25 @@ public static class PhotoDescriptions
     public const string Ai = "ai";
     public const string Admin = "admin";
 
-    /// <summary>How a player is named in a description: "Emma (#10)" when the team uses names in tags, otherwise "#10".</summary>
-    public static string Label(Team t, Player p) => t.TagWithNames && p.Name.Trim().Length > 0 ? $"{p.Name.Trim()} (#{p.Number})" : $"#{p.Number}";
+    /// <summary>How a player is named in a description: her name ("Reagan") when the team uses names in tags, otherwise "#11".</summary>
+    public static string Label(Team t, Player p) => t.TagWithNames && p.Name.Trim().Length > 0 ? p.Name.Trim() : $"#{p.Number}";
+
+    /// <summary>
+    /// The other team's name, from the section or gallery title: "OCSS vs Rovers", "vs. Rovers", "Rovers v OCSS",
+    /// "against Rovers". Empty when the title names no opponent.
+    /// </summary>
+    public static string Opponent(string? title, string ourTeam)
+    {
+        var m = Regex.Match(title ?? "", @"^(.*?)\s*\b(?:vs\.?|v\.?|versus|against)\s+(.+)$", RegexOptions.IgnoreCase);
+        if (!m.Success) return "";
+        static string Tidy(string x) => Regex.Replace(x, @"\s*[\(\[].*$|\s*[-–,:|]\s.*$|\s+\d{1,2}[/.-]\d{1,2}([/.-]\d{2,4})?$", "").Trim();
+        var left = Tidy(m.Groups[1].Value);
+        var right = Tidy(m.Groups[2].Value);
+        bool Ours(string x) => ourTeam.Length > 0 && x.Contains(ourTeam, StringComparison.OrdinalIgnoreCase);
+        var other = Ours(right) && left.Length > 0 ? left : right;
+        if (Ours(other)) return "";
+        return other.Length is > 0 and <= 40 ? other : "";
+    }
 
     /// <summary>The team's players carrying a tag among these names, in jersey order.</summary>
     public static List<Player> PlayersOn(Team team, IEnumerable<string> tagNames)
@@ -32,9 +49,11 @@ public static class PhotoDescriptions
     }
 
     /// <summary>What the model is told about players: the team and the labels. A change means the description is out of date.</summary>
-    public static string Signature(Team? team, IEnumerable<string> labels) => team == null ? "" : $"t{team.Id}:" + string.Join("|", labels);
+    /// <summary>"v2" is the prompt's version: a description written by an older prompt is written again.</summary>
+    public static string Signature(Team? team, IEnumerable<string> labels, string opponent = "") =>
+        team == null ? "" : $"v2|t{team.Id}:{team.Name}|vs:{opponent}|" + string.Join("|", labels);
 
-    public static string Prompt(bool hasTeam, string colors, IReadOnlyList<string> labels)
+    public static string Prompt(bool hasTeam, string colors, IReadOnlyList<string> labels, string teamName = "", string opponent = "")
     {
         var what = "Describe the scene in one to three sentences, at most 60 words, so parents can find this photo by searching: what is happening " +
                    "(for example a header, a shot, a save, a tackle, a throw-in, a corner kick, a goal celebration, a team huddle), the weather and light " +
@@ -43,13 +62,17 @@ public static class PhotoDescriptions
         if (!hasTeam)
             return "This photo is from a photo gallery. " + what +
                    "Do not name or guess who anyone is, do not read out jersey numbers, and do not guess where the photo was taken. " + json;
-        var wear = string.IsNullOrWhiteSpace(colors) ? "" : "Our team wears: " + colors.Trim() + ". ";
+        var name = teamName.Trim();
+        var wear = string.IsNullOrWhiteSpace(colors) ? "" : (name.Length > 0 ? name : "Our team") + " wears: " + colors.Trim() + ". ";
+        var teams = (name.Length > 0 ? $"Our team is {name}: call it \"{name}\", never by its jersey color. " : "") +
+                    (opponent.Length > 0 ? $"The other team is {opponent}: call it \"{opponent}\" or \"the opponents\", never by its jersey color. "
+                                         : "Call the other team \"the opponents\", never by its jersey color. ");
         var ours = labels.Count == 0 ? ""
-            : "These players from our team are in the photo: " + string.Join(", ", labels) + ". Refer to them only by exactly these labels " +
-              $"(for example \"{labels[0]} heads the ball\"), and only to the ones you can see. ";
-        return "This is a photo from one of our team's youth sports games. " + wear + what + ours +
-               "Call any other player in our team's jersey \"a teammate\". Players in other colors are opponents: mention them only in general words, " +
-               "such as \"an opponent\" or \"a defender in red\", never by number or name. " +
+            : "These players from our team are in the photo: " + string.Join(", ", labels) + ". Refer to them only by exactly these names " +
+              $"(for example \"{labels[0]} heads the ball\"), never as \"player\" with a number, and only to the ones you can see. ";
+        return "This is a photo from one of our team's youth sports games. " + wear + teams + what + ours +
+               $"Call any other player in our team's jersey \"a {(name.Length > 0 ? name + " player" : "teammate")}\" or \"a teammate\". Players in other colors are opponents: mention them only in general words, " +
+               "such as \"an opponent\" or \"a defender\", never by number or name. " +
                "Do not read out any jersey number yourself, do not name or guess who anyone is, and do not guess where the photo was taken. " + json;
     }
 
@@ -83,7 +106,7 @@ public static class PhotoDescriptions
         return (cut > MaxLength / 2 ? s[..cut] : s[..MaxLength]).TrimEnd(',', ';', ' ');
     }
 
-    static readonly Regex NumberRef = new(@"\s*(?:#\s?|\bno\.\s?|\bnumber\s)(\d{1,3})\b", RegexOptions.IgnoreCase);
+    static readonly Regex NumberRef = new(@"\s*(?:#\s?|\bno\.\s?|\bnumber\s|\bplayer\s#?)(\d{1,3})\b", RegexOptions.IgnoreCase);
 
     /// <summary>
     /// Takes out jersey numbers that are not one of the labels given, in case the model read an opponent's number anyway:
@@ -108,7 +131,7 @@ public static class PhotoDescriptions
     }
 
     /// <summary>A photo that needs a description written, with what the model is told.</summary>
-    public record Todo(int PhotoId, Team? Team, string Colors, List<string> Labels, List<string> Numbers, string Signature, bool Stale);
+    public record Todo(int PhotoId, Team? Team, string Colors, List<string> Labels, List<string> Numbers, string Signature, bool Stale, string Opponent = "");
 
     /// <summary>
     /// The photos waiting for a description, retagged ones first, then the newest. Waits on photos a player check will
@@ -134,7 +157,14 @@ public static class PhotoDescriptions
             if (team != null && PlayerTagJobs.AutoTagOn(g, vision) && r.PlayersCheckedAt == null && r.PlayerCheckAttempts < PlayerTagJobs.AutoAttempts) continue;
             var on = team == null ? new List<Player>() : PlayersOn(team, tags.GetValueOrDefault(r.Id) ?? new());
             var labels = team == null ? new List<string>() : on.Select(p => Label(team, p)).ToList();
-            var sig = Signature(team, labels);
+            var opponent = "";
+            if (team != null)
+            {
+                var section = GalleryRules.SectionOf(g, r.RelPath);
+                var sectionTitle = section.Length == 0 ? "" : GalleryRules.Sections(g).FirstOrDefault(x => string.Equals(x.Folder, section, StringComparison.OrdinalIgnoreCase))?.Title ?? section;
+                opponent = Opponent(sectionTitle, team.Name) is { Length: > 0 } o ? o : Opponent(g.Title, team.Name);
+            }
+            var sig = Signature(team, labels, opponent);
             var stale = r.DescriptionSource == Ai && r.DescriptionPlayers != sig;
             if (r.DescriptionSource == Ai && !stale) continue;
             var colors = "";
@@ -143,7 +173,7 @@ public static class PhotoDescriptions
                 if (!kits.TryGetValue(g.Id, out var fk)) kits[g.Id] = fk = PlayerTags.FolderKits(g);
                 colors = PlayerTags.ColorsFor(team, PlayerTags.KitFor(g, r.RelPath, fk));
             }
-            list.Add(new Todo(r.Id, team, colors, labels, on.Select(p => p.Number).ToList(), sig, stale));
+            list.Add(new Todo(r.Id, team, colors, labels, on.Select(p => p.Number).ToList(), sig, stale, opponent));
         }
         return list.OrderByDescending(x => x.Stale).ThenByDescending(x => x.PhotoId).Take(max).ToList();
     }
@@ -165,7 +195,7 @@ public static class PhotoDescriptions
         {
             var v = await images.GetVariantAsync(photo, "ai", PlayerTags.ImageSize, "jpg", false) ?? throw new VisionException("The photo file could not be read");
             var jpeg = await File.ReadAllBytesAsync(v.path, ct);
-            var prompt = Prompt(todo.Team != null, todo.Colors, todo.Labels);
+            var prompt = Prompt(todo.Team != null, todo.Colors, todo.Labels, todo.Team?.Name ?? "", todo.Opponent);
             foreach (var provider in chain)
             {
                 try

@@ -10,8 +10,11 @@ public class DescriptionUnitTests
     [Fact]
     public void The_prompt_names_only_the_tagged_players_and_keeps_opponents_general()
     {
-        var p = PhotoDescriptions.Prompt(true, "white shirts with blue numbers", new[] { "#10", "Ava (#7)" });
-        Assert.Contains("#10, Ava (#7)", p);
+        var p = PhotoDescriptions.Prompt(true, "white shirts with blue numbers", new[] { "#10", "Ava" }, "Hurricanes", "Rovers");
+        Assert.Contains("#10, Ava", p);
+        Assert.Contains("Our team is Hurricanes", p);
+        Assert.Contains("The other team is Rovers", p);
+        Assert.Contains("never by its jersey color", p);
         Assert.Contains("white shirts with blue numbers", p);
         Assert.Contains("a teammate", p);
         Assert.Contains("never by number or name", p);
@@ -28,6 +31,18 @@ public class DescriptionUnitTests
         Assert.Equal("#10 shoots past an opponent in the rain.", PhotoDescriptions.Scrub("#10 shoots past an opponent #12 in the rain.", new[] { "10" }));
         Assert.Equal("Emma (#10) heads the ball as a defender closes in.", PhotoDescriptions.Scrub("Emma (#10) heads the ball as a defender number 4 closes in.", new[] { "10" }));
         Assert.Equal("A goalkeeper dives.", PhotoDescriptions.Scrub("A goalkeeper No. 1 dives.", Array.Empty<string>()));
+        Assert.Equal("Reagan passes to a teammate.", PhotoDescriptions.Scrub("Reagan passes to a teammate Player 11.", Array.Empty<string>()));
+    }
+
+    [Fact]
+    public void The_opponent_comes_from_the_title()
+    {
+        Assert.Equal("Rovers", PhotoDescriptions.Opponent("Hurricanes vs Rovers", "Hurricanes"));
+        Assert.Equal("Rovers", PhotoDescriptions.Opponent("Rovers v. Hurricanes", "Hurricanes"));
+        Assert.Equal("East Ridge", PhotoDescriptions.Opponent("vs East Ridge (home)", "OCSS"));
+        Assert.Equal("Rovers", PhotoDescriptions.Opponent("Game 2 against Rovers - 11/23", "OCSS"));
+        Assert.Equal("", PhotoDescriptions.Opponent("Fall tournament", "OCSS"));
+        Assert.Equal("Rovers", PhotoDescriptions.Opponent("ocss vs Rovers", "OCSS"));
     }
 
     [Fact]
@@ -58,7 +73,7 @@ public class DescriptionUnitTests
     {
         var p = new Player { Number = "10", Name = "Emma" };
         Assert.Equal("#10", PhotoDescriptions.Label(new Team { Name = "FC" }, p));
-        Assert.Equal("Emma (#10)", PhotoDescriptions.Label(new Team { Name = "FC", TagWithNames = true }, p));
+        Assert.Equal("Emma", PhotoDescriptions.Label(new Team { Name = "FC", TagWithNames = true }, p));
         Assert.Equal("#3", PhotoDescriptions.Label(new Team { Name = "FC", TagWithNames = true }, new Player { Number = "3" }));
     }
 }
@@ -205,7 +220,7 @@ public class DescriptionTests(VisionAppFactory app) : IClassFixture<VisionAppFac
             var (_, slug, _, photos) = await GalleryAsync(admin, "Describe Three", 1, names: true);
             Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/photos/{photos[0]}/players", new { add = new[] { "10" } })).StatusCode);
             await RoundAsync();
-            Assert.StartsWith("Emma (#10) wins", (await PhotoAsync(admin, slug, photos[0])).GetProperty("description").GetString());
+            Assert.StartsWith("Emma wins", (await PhotoAsync(admin, slug, photos[0])).GetProperty("description").GetString());
         }
         finally { Serial.Release(); }
     }

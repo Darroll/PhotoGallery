@@ -2,6 +2,10 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.7.2 (not released yet)
+
+- **Descriptions use team and player names.** The AI is told our team's name and calls it that ("Hurricanes"), never "the yellow team". The other team's name comes from the section or gallery title ("Hurricanes vs Rovers", "vs. Rovers", "against Rovers"); without one it is "the opponents". When the team uses names in tags, tagged players are named ("Reagan heads the ball"); otherwise by number ("#11"). A "Player 11" the AI reads off an untagged jersey is taken out. Descriptions written before this update are written again with the new wording.
+
 ## 2.7.1 (not released yet)
 
 - **Descriptions show as captions.** A photo without a caption of its own shows its scene description under it in the viewer, and uses it as alt text when it has none. Captions you write still come first, and descriptions are kept apart from them so a retag can rewrite the AI's text without touching yours.
