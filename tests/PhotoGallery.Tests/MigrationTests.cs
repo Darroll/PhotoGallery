@@ -233,7 +233,7 @@ public class MigrationTests : IDisposable
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Photos\" DROP COLUMN \"PlayersCheckedAt\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"TeamId\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"Season\"");
-        foreach (var c in new[] { "DescribedAt", "Description", "DescriptionAttempts", "DescriptionPlayers", "DescriptionSource" })
+        foreach (var c in new[] { "DescribedAt", "Description", "DescriptionAttempts", "DescriptionNotes", "DescriptionPlayers", "DescriptionSource" })
             db.Database.ExecuteSqlRaw($"ALTER TABLE \"Photos\" DROP COLUMN \"{c}\"");
     }
 

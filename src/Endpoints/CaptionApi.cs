@@ -28,10 +28,11 @@ public static class CaptionApi
             {
                 if (input.Caption != null) Captions.Set(p, "caption", input.Caption, "admin");
                 if (input.Alt != null) Captions.Set(p, "alt", input.Alt, "admin");
-                // the scene description for search: yours stays as written; cleared, the model writes a new one
-                if (input.Description != null && PhotoDescriptions.Clean(input.Description) != p.Description) PhotoDescriptions.SetByHand(p, input.Description);
+                // the scene description for search: yours stays as written (and is rewritten from it if the players change); cleared, the model writes a new one
+                if (input.Description != null && PhotoDescriptions.Clean(input.Description) != p.Description)
+                    PhotoDescriptions.SetByHand(p, input.Description, await PhotoDescriptions.SignatureNowAsync(db, p));
                 await db.SaveChangesAsync();
-                return Results.Ok(new { applied = true, caption = p.Caption, alt = p.AltText, description = p.Description, descriptionSource = p.DescriptionSource });
+                return Results.Ok(new { applied = true, caption = p.Caption, alt = p.AltText, description = p.Description, descriptionSource = p.DescriptionSource, descriptionNotes = p.DescriptionNotes });
             }
 
             var sub = AuthApi.Sub(ctx);

@@ -2,6 +2,12 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.8.0 (not released yet)
+
+- **A cleaner photo viewer.** The description no longer sits over the photo: it, the players, the tags, and the caption and alt text each have their own section in the viewer's **Details**, folded by default. The viewer remembers which sections you opened, so they are open again next time. Only a caption you wrote shows over the photo.
+- **Edit the description from the photo.** As the photographer, open **Details**, **Description** to change the text and **Save**, or **Let the AI write it** to clear it and have the AI write a new one.
+- **Your edits are kept as facts.** What you write becomes notes for the AI. It stays exactly as written until the players on the photo change; then the AI writes it again from your notes, keeping your facts ("warm-ups", "pre-match gathering") and only changing who is named, so it won't turn warm-ups into "the game is paused". **Let the AI write it** drops your notes too.
+
 ## 2.7.3 (not released yet)
 
 - **Known players are named, others keep their number.** A player in a description is called by her roster name when the roster has one ("Lilly did a thing") and by her number when it does not ("#3 did a thing"), whether or not the team uses names in tags. Players tagged on the photo are always named this way. The AI also gets the gallery team's roster, so a player in our jersey whose number it reads clearly is named the same way even before she is tagged; a number not on the roster, and any player in the other team's colors, is never named or numbered. Adding or changing a name on the roster rewrites the descriptions.

@@ -26,6 +26,16 @@ public class DescriptionUnitTests
     }
 
     [Fact]
+    public void Your_notes_go_into_the_prompt_as_facts_to_keep()
+    {
+        var p = PhotoDescriptions.Prompt(true, "", new[] { "Ava" }, "Hurricanes", notes: "Pre-match gathering at the \"big\" tree");
+        Assert.Contains("The photographer wrote this about the photo: \"Pre-match gathering at the 'big' tree\"", p);
+        Assert.Contains("never contradict it", p);
+        Assert.DoesNotContain("photographer wrote", PhotoDescriptions.Prompt(true, "", new[] { "Ava" }, "Hurricanes"));
+        Assert.Contains("Pre-match gathering", PhotoDescriptions.Prompt(false, "", Array.Empty<string>(), notes: "Pre-match gathering"));
+    }
+
+    [Fact]
     public void Numbers_that_are_not_our_tagged_players_are_taken_out()
     {
         Assert.Equal("#10 shoots past an opponent in the rain.", PhotoDescriptions.Scrub("#10 shoots past an opponent #12 in the rain.", new[] { "10" }));
@@ -173,7 +183,7 @@ public class DescriptionTests(VisionAppFactory app) : IClassFixture<VisionAppFac
     }
 
     [Fact]
-    public async Task A_description_you_wrote_is_never_replaced_and_clearing_it_hands_it_back()
+    public async Task A_description_you_wrote_stays_and_a_retag_rewrites_it_keeping_your_facts()
     {
         await Serial.WaitAsync();
         try
@@ -185,26 +195,49 @@ public class DescriptionTests(VisionAppFactory app) : IClassFixture<VisionAppFac
             await RoundAsync();
             Assert.StartsWith("A teammate wins", (await PhotoAsync(admin, slug, id)).GetProperty("description").GetString());
 
-            var r = await admin.PostAsJsonAsync($"/api/g/{slug}/photo/{id}/suggest", new { description = "Ava scores the winner in the last minute" });
-            Assert.Equal("admin", (await r.ReadAsync()).GetProperty("descriptionSource").GetString());
-            Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/photos/{id}/players", new { add = new[] { "7" } })).StatusCode);
+            var r = await (await admin.PostAsJsonAsync($"/api/g/{slug}/photo/{id}/suggest", new { description = "Warm-ups before the match, passing in pairs" })).ReadAsync();
+            Assert.Equal("admin", r.GetProperty("descriptionSource").GetString());
+            Assert.Equal("Warm-ups before the match, passing in pairs", r.GetProperty("descriptionNotes").GetString());
+
+            // nothing changed: yours stays exactly as written
+            app.Reader.TextPrompts.Clear();
             await RoundAsync();
-            var p = await PhotoAsync(admin, slug, id);
-            Assert.Equal("Ava scores the winner in the last minute", p.GetProperty("description").GetString());
-            Assert.Equal("admin", p.GetProperty("descriptionSource").GetString());
+            Assert.Empty(app.Reader.TextPrompts);
+            Assert.Equal("Warm-ups before the match, passing in pairs", (await PhotoAsync(admin, slug, id)).GetProperty("description").GetString());
 
             // saving the caption alone leaves your description as it is
-            await admin.PostAsJsonAsync($"/api/g/{slug}/photo/{id}/suggest", new { caption = "Winner", description = "Ava scores the winner in the last minute" });
+            await admin.PostAsJsonAsync($"/api/g/{slug}/photo/{id}/suggest", new { caption = "Warm-ups", description = "Warm-ups before the match, passing in pairs" });
             Assert.Equal("admin", (await PhotoAsync(admin, slug, id)).GetProperty("descriptionSource").GetString());
 
+            // a player tagged: rewritten from your notes, which the model is told to keep
+            Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/photos/{id}/players", new { add = new[] { "7" } })).StatusCode);
+            await RoundAsync();
+            Assert.Contains(app.Reader.TextPrompts, x => x.Contains("The photographer wrote this about the photo: \"Warm-ups before the match, passing in pairs\"") && x.Contains("never contradict it") && x.Contains("in the photo: Ava."));
+            var p = await PhotoAsync(admin, slug, id);
+            Assert.StartsWith("Ava wins", p.GetProperty("description").GetString());
+            Assert.Equal("ai", p.GetProperty("descriptionSource").GetString());
+            Assert.Equal("Warm-ups before the match, passing in pairs", p.GetProperty("descriptionNotes").GetString());
+
+            // another retag still uses your notes
+            app.Reader.TextPrompts.Clear();
+            Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/photos/{id}/players", new { add = new[] { "10" } })).StatusCode);
+            await RoundAsync();
+            Assert.Contains(app.Reader.TextPrompts, x => x.Contains("Warm-ups before the match") && x.Contains("in the photo: Ava, Emma."));
+
+            // "Let the AI write it": your notes go too, and it starts from scratch
+            app.Reader.TextPrompts.Clear();
             await admin.PostAsJsonAsync($"/api/g/{slug}/photo/{id}/suggest", new { description = "" });
             await RoundAsync();
             p = await PhotoAsync(admin, slug, id);
-            Assert.StartsWith("Ava wins", p.GetProperty("description").GetString());
+            Assert.StartsWith("Ava, Emma wins", p.GetProperty("description").GetString());
             Assert.Equal("ai", p.GetProperty("descriptionSource").GetString());
+            Assert.Equal("", p.GetProperty("descriptionNotes").GetString());
+            Assert.DoesNotContain(app.Reader.TextPrompts, x => x.Contains("The photographer wrote"));
 
-            // visitors never see who wrote it
-            Assert.Equal(JsonValueKind.Null, (await PhotoAsync(app.NewClient(), slug, id)).GetProperty("descriptionSource").ValueKind);
+            // visitors never see who wrote it or your notes
+            var pub = await PhotoAsync(app.NewClient(), slug, id);
+            Assert.Equal(JsonValueKind.Null, pub.GetProperty("descriptionSource").ValueKind);
+            Assert.Equal(JsonValueKind.Null, pub.GetProperty("descriptionNotes").ValueKind);
         }
         finally { Serial.Release(); }
     }

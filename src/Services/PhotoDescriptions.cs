@@ -58,14 +58,18 @@ public static class PhotoDescriptions
     public static string Signature(Team? team, IEnumerable<string> labels, string opponent = "") =>
         team == null ? "" : $"v3|t{team.Id}:{team.Name}|vs:{opponent}|r:{string.Join(",", RosterLines(team))}|" + string.Join("|", labels);
 
-    public static string Prompt(bool hasTeam, string colors, IReadOnlyList<string> labels, string teamName = "", string opponent = "", IReadOnlyList<string>? roster = null)
+    public static string Prompt(bool hasTeam, string colors, IReadOnlyList<string> labels, string teamName = "", string opponent = "", IReadOnlyList<string>? roster = null, string notes = "")
     {
+        var keep = notes.Trim().Length == 0 ? ""
+            : "The photographer wrote this about the photo: \"" + notes.Trim().Replace("\"", "'") + "\". It is true: keep every fact in it (for example that it is warm-ups, " +
+              "a pre-match gathering or a team photo) and never contradict it, even if the photo looks otherwise. Write it again with the same facts, " +
+              "changing only who is named. ";
         var what = "Describe the scene in one to three sentences, at most 60 words, so parents can find this photo by searching: what is happening " +
                    "(for example a header, a shot, a save, a tackle, a throw-in, a corner kick, a goal celebration, a team huddle), the weather and light " +
                    "(rain, snow, sun, wind, evening, under lights) and the setting. ";
         var json = "Reply only with JSON: {\"description\": \"...\"}.";
         if (!hasTeam)
-            return "This photo is from a photo gallery. " + what +
+            return "This photo is from a photo gallery. " + keep + what +
                    "Do not name or guess who anyone is, do not read out jersey numbers, and do not guess where the photo was taken. " + json;
         var name = teamName.Trim();
         var wear = string.IsNullOrWhiteSpace(colors) ? "" : (name.Length > 0 ? name : "Our team") + " wears: " + colors.Trim() + ". ";
@@ -79,7 +83,7 @@ public static class PhotoDescriptions
             ? "Our roster, jersey number = what to call her: " + string.Join(", ", roster) + ". For any other player in our team's jersey whose number you can clearly read, " +
               "call her exactly as this list says (a name, or \"#\" and the number). If you cannot read her number clearly, or it is not on this list, call her \"a teammate\". "
             : "Call any other player in our team's jersey \"a teammate\". ";
-        return "This is a photo from one of our team's youth sports games. " + wear + teams + what + ours + list +
+        return "This is a photo from one of our team's youth sports games. " + keep + wear + teams + what + ours + list +
                "Players in other colors are opponents: mention them only in general words, such as \"an opponent\" or \"a defender\", never by number or name, " +
                "even when their number is on our roster. Do not guess who anyone is from their look, and do not guess where the photo was taken. " + json;
     }
@@ -128,18 +132,47 @@ public static class PhotoDescriptions
         return Regex.Replace(s, @"\s{2,}", " ").Trim();
     }
 
-    /// <summary>You wrote (or cleared) the description. Cleared hands it back to the model, which writes a new one.</summary>
-    public static void SetByHand(Photo p, string? text)
+    /// <summary>
+    /// You wrote (or cleared) the description. Your text is also kept as notes: when the players in the photo change later,
+    /// the model writes it again from your notes, keeping your facts. <paramref name="signature"/> is who is in the photo now.
+    /// Cleared hands it back to the model, which writes a new one from scratch.
+    /// </summary>
+    public static void SetByHand(Photo p, string? text, string signature)
     {
         p.Description = Clean(text);
+        p.DescriptionNotes = p.Description;
         p.DescriptionSource = p.Description.Length > 0 ? Admin : "";
-        p.DescriptionPlayers = "";
+        p.DescriptionPlayers = p.Description.Length > 0 ? signature : "";
         p.DescriptionAttempts = 0;
         p.DescribedAt = p.Description.Length > 0 ? DateTime.UtcNow : null;
     }
 
+    /// <summary>What the model would be told about one photo's players right now: the labels, the opponent and the signature.</summary>
+    record Context(Team? Team, List<string> Labels, string Opponent, string Signature);
+
+    static Context ContextFor(Gallery g, Team? team, string relPath, List<string> tagNames)
+    {
+        if (team == null) return new Context(null, new List<string>(), "", "");
+        var labels = PlayersOn(team, tagNames).Select(p => Label(team, p)).ToList();
+        var section = GalleryRules.SectionOf(g, relPath);
+        var sectionTitle = section.Length == 0 ? "" : GalleryRules.Sections(g).FirstOrDefault(x => string.Equals(x.Folder, section, StringComparison.OrdinalIgnoreCase))?.Title ?? section;
+        var opponent = Opponent(sectionTitle, team.Name) is { Length: > 0 } o ? o : Opponent(g.Title, team.Name);
+        return new Context(team, labels, opponent, Signature(team, labels, opponent));
+    }
+
+    /// <summary>The signature for one photo as it is tagged now (empty when its gallery has no team).</summary>
+    public static async Task<string> SignatureNowAsync(AppDb db, Photo p, CancellationToken ct = default)
+    {
+        var g = p.Gallery ?? await db.Galleries.AsNoTracking().FirstOrDefaultAsync(x => x.Id == p.GalleryId, ct);
+        if (g?.TeamId is not { } tid) return "";
+        var team = await db.Teams.AsNoTracking().Include(t => t.Players).FirstOrDefaultAsync(t => t.Id == tid, ct);
+        if (team == null) return "";
+        var tags = await Tags.NamesByPhotoAsync(db, new List<int> { p.Id });
+        return ContextFor(g, team, p.RelPath, tags.GetValueOrDefault(p.Id) ?? new()).Signature;
+    }
+
     /// <summary>A photo that needs a description written, with what the model is told.</summary>
-    public record Todo(int PhotoId, Team? Team, string Colors, List<string> Labels, List<string> Numbers, string Signature, bool Stale, string Opponent = "");
+    public record Todo(int PhotoId, Team? Team, string Colors, List<string> Labels, List<string> Numbers, string Signature, bool Stale, string Opponent = "", string Notes = "", DateTime? DescribedAt = null);
 
     /// <summary>
     /// The photos waiting for a description, retagged ones first, then the newest. Waits on photos a player check will
@@ -150,8 +183,8 @@ public static class PhotoDescriptions
         var galleries = await db.Galleries.AsNoTracking().ToDictionaryAsync(g => g.Id, ct);
         var teams = await db.Teams.AsNoTracking().Include(t => t.Players).ToDictionaryAsync(t => t.Id, ct);
         var rows = await db.Photos.AsNoTracking()
-            .Where(p => p.Approved && p.DescriptionSource != Admin && p.DescriptionAttempts < MaxAttempts)
-            .Select(p => new { p.Id, p.GalleryId, p.RelPath, p.DescriptionSource, p.DescriptionPlayers, p.PlayersCheckedAt, p.PlayerCheckAttempts })
+            .Where(p => p.Approved && p.DescriptionAttempts < MaxAttempts)
+            .Select(p => new { p.Id, p.GalleryId, p.RelPath, p.DescriptionSource, p.DescriptionPlayers, p.DescriptionNotes, p.DescribedAt, p.PlayersCheckedAt, p.PlayerCheckAttempts })
             .ToListAsync(ct);
         var inTeams = rows.Where(r => galleries.TryGetValue(r.GalleryId, out var g) && g.TeamId != null && teams.ContainsKey(g.TeamId.Value)).Select(r => r.Id).ToList();
         var tags = inTeams.Count == 0 ? new Dictionary<int, List<string>>() : await Tags.NamesByPhotoAsync(db, inTeams);
@@ -163,18 +196,10 @@ public static class PhotoDescriptions
             if (jobs != null && jobs.Status(g.Id).Running) continue;
             var team = g.TeamId is { } tid && teams.TryGetValue(tid, out var t) ? t : null;
             if (team != null && PlayerTagJobs.AutoTagOn(g, vision) && r.PlayersCheckedAt == null && r.PlayerCheckAttempts < PlayerTagJobs.AutoAttempts) continue;
-            var on = team == null ? new List<Player>() : PlayersOn(team, tags.GetValueOrDefault(r.Id) ?? new());
-            var labels = team == null ? new List<string>() : on.Select(p => Label(team, p)).ToList();
-            var opponent = "";
-            if (team != null)
-            {
-                var section = GalleryRules.SectionOf(g, r.RelPath);
-                var sectionTitle = section.Length == 0 ? "" : GalleryRules.Sections(g).FirstOrDefault(x => string.Equals(x.Folder, section, StringComparison.OrdinalIgnoreCase))?.Title ?? section;
-                opponent = Opponent(sectionTitle, team.Name) is { Length: > 0 } o ? o : Opponent(g.Title, team.Name);
-            }
-            var sig = Signature(team, labels, opponent);
-            var stale = r.DescriptionSource == Ai && r.DescriptionPlayers != sig;
-            if (r.DescriptionSource == Ai && !stale) continue;
+            var c = ContextFor(g, team, r.RelPath, team == null ? new() : tags.GetValueOrDefault(r.Id) ?? new());
+            // written before (by the model, or by you): only again when the players changed; yours is rewritten from your notes
+            var stale = r.DescriptionSource is Ai or Admin && r.DescriptionPlayers != c.Signature;
+            if (r.DescriptionSource is Ai or Admin && !stale) continue;
             var colors = "";
             if (team != null)
             {
@@ -182,7 +207,7 @@ public static class PhotoDescriptions
                 colors = PlayerTags.ColorsFor(team, PlayerTags.KitFor(g, r.RelPath, fk));
             }
             // numbers allowed in the text: anyone on our roster (the model may name an untagged teammate it reads); opponents' numbers are taken out
-            list.Add(new Todo(r.Id, team, colors, labels, team == null ? new List<string>() : team.Players.Select(p => p.Number).ToList(), sig, stale, opponent));
+            list.Add(new Todo(r.Id, team, colors, c.Labels, team == null ? new List<string>() : team.Players.Select(p => p.Number).ToList(), c.Signature, stale, c.Opponent, r.DescriptionNotes, r.DescribedAt));
         }
         return list.OrderByDescending(x => x.Stale).ThenByDescending(x => x.PhotoId).Take(max).ToList();
     }
@@ -204,7 +229,7 @@ public static class PhotoDescriptions
         {
             var v = await images.GetVariantAsync(photo, "ai", PlayerTags.ImageSize, "jpg", false) ?? throw new VisionException("The photo file could not be read");
             var jpeg = await File.ReadAllBytesAsync(v.path, ct);
-            var prompt = Prompt(todo.Team != null, todo.Colors, todo.Labels, todo.Team?.Name ?? "", todo.Opponent, todo.Team == null ? null : RosterLines(todo.Team));
+            var prompt = Prompt(todo.Team != null, todo.Colors, todo.Labels, todo.Team?.Name ?? "", todo.Opponent, todo.Team == null ? null : RosterLines(todo.Team), todo.Notes);
             foreach (var provider in chain)
             {
                 try
@@ -224,7 +249,7 @@ public static class PhotoDescriptions
         catch (VisionException ex) { errors.Add(ex.Message); }
 
         await db.Entry(photo).ReloadAsync(ct);   // you may have written one by hand while the model was looking
-        if (photo.DescriptionSource == Admin) return new Outcome(false, photo.Name, photo.GalleryId, "Skipped: you wrote a description while the AI was looking", answer?.Provider ?? "", answer?.Ms ?? 0);
+        if (photo.DescriptionSource == Admin && (photo.DescribedAt != todo.DescribedAt || photo.DescriptionNotes != todo.Notes)) return new Outcome(false, photo.Name, photo.GalleryId, "Skipped: you wrote a description while the AI was looking", answer?.Provider ?? "", answer?.Ms ?? 0);
         if (text == null)
         {
             photo.DescriptionAttempts++;

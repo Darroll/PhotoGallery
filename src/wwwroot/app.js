@@ -1323,8 +1323,9 @@ async function photoDetails(photo) {
   const d = r.data;
   const table = (fields) => h('table', { class: 'info-table' }, Object.entries(fields).map(([k, v]) => h('tr', {}, h('th', { text: k }), h('td', { text: String(v) }))));
   const version = (v) => h('div', { class: 'info-version' }, h('h4', { text: `${v.role}: ${v.file}` }),
-    Object.entries(v.groups).map(([g, fields]) => h('details', { open: g === 'File' || g === 'EXIF' }, h('summary', { text: g }), table(fields))));
-  return [captionBlock(photo),
+    Object.entries(v.groups).map(([g, fields]) => h('details', {}, h('summary', { text: g }), table(fields))));
+  // every section starts folded; the ones a visitor opens or closes stay that way for the next photo and the next visit
+  return [...photoSections(photo),
     ...(d.versions.length ? d.versions.map(version) : [h('p', { class: 'muted', text: 'No details could be read for this photo.' })]),
     h('p', { class: 'muted', text: 'Where the photo was taken is not shown to visitors.' })];
 }
@@ -1555,14 +1556,52 @@ async function playersSheet(p, redraw) {
   document.body.append(sheet);
 }
 
-function captionBlock(photo) {
-  return h('div', { class: 'info-caption' }, h('h4', { text: 'Caption and description' }),
-    h('p', { text: photo.caption || 'No caption yet.' }),
-    h('p', { class: 'muted', text: photo.altText ? `Alt text: ${photo.altText}` : 'No alt text yet.' }),
-    photo.description ? h('p', { class: 'info-desc' }, h('span', { class: 'muted', text: 'Scene: ' }), photo.description,
-      me && me.admin && photo.descriptionSource ? h('span', { class: 'muted', text: photo.descriptionSource === 'ai' ? ' (written by AI)' : ' (written by you)' }) : null) : null,
-    h('div', {}, h('span', { class: 'muted', text: 'Tags' }), tagLine(photo.tags, { ...photoTagEdit(photo), onSaved: (t) => { photo.tags = t; if (lb && lb.drawCaption) lb.drawCaption(); } }) || h('span', { class: 'muted', text: ': none yet.' })),
-    h('button', { text: me && me.admin ? 'Edit' : 'Suggest a change', onclick: () => captionSheet(photo) }));
+// The folded sections at the top of a photo's details: its description (the admin edits it in place), its players
+// (tag, follow), its other tags, and its caption and alt text.
+function photoSections(photo) {
+  const isAdmin = !!(me && me.admin);
+  const sec = (title, body) => h('details', { class: 'info-sec' }, h('summary', { text: title }), body);
+
+  const descBox = h('div', { class: 'info-desc' });
+  const drawDesc = () => {
+    const notes = (photo.descriptionNotes || '').trim();
+    const who = !isAdmin ? ''
+      : photo.descriptionSource === 'admin' ? 'Written by you. If players are tagged later, the AI rewrites it and keeps your facts.'
+      : photo.descriptionSource === 'ai' && notes ? 'Rewritten by AI from your notes after a retag, keeping your facts.'
+      : photo.descriptionSource === 'ai' ? 'Written by AI. Edit it to add facts the AI should keep (like "warm-ups").' : '';
+    if (!isAdmin) { descBox.replaceChildren(h('p', { text: photo.description || 'No description yet.' })); return; }
+    const ta = h('textarea', { rows: 4, maxlength: 400, 'aria-label': 'Description' }); ta.value = photo.description || '';
+    const msg = h('span', { class: 'muted', role: 'status' });
+    const save = async (text) => {
+      const r = await api(`/api/g/${encodeURIComponent(G.slug)}/photo/${photo.id}/suggest`, { method: 'POST', body: { description: text } });
+      if (!r.ok || !r.data || !r.data.applied) { msg.textContent = 'Could not save. Try again.'; return; }
+      photo.description = r.data.description; photo.descriptionSource = r.data.descriptionSource; photo.descriptionNotes = r.data.descriptionNotes;
+      drawDesc(); toast(text ? 'Saved' : 'The AI will write a new description shortly');
+    };
+    descBox.replaceChildren(ta,
+      h('div', { class: 'row' },
+        h('button', { class: 'primary', text: 'Save', onclick: () => save(ta.value.trim()) }),
+        photo.descriptionSource === 'admin' || photo.description ? h('button', { text: 'Let the AI write it', title: 'Clear it and your notes; the AI writes a new one from scratch within a minute or so', onclick: () => save('') }) : null,
+        msg),
+      who ? h('p', { class: 'muted', text: who }) : null,
+      photo.descriptionSource === 'ai' && notes && notes !== photo.description ? h('p', { class: 'muted', text: `Your notes: ${notes}` }) : null);
+  };
+  drawDesc();
+
+  const playersBox = h('div');
+  const drawPlayers = () => { playersBox.replaceChildren(photoPlayersRow(photo, () => { if (playersBox.isConnected) drawPlayers(); }) || h('p', { class: 'muted', text: 'No players tagged.' })); };
+  drawPlayers();
+
+  const tagsBox = h('div');
+  const drawTags = () => tagsBox.replaceChildren(tagLine(photo.tags, { ...photoTagEdit(photo), hide: isPlayerTag, onSaved: (t) => { photo.tags = t; drawTags(); drawPlayers(); } }) || h('p', { class: 'muted', text: 'No tags.' }));
+  drawTags();
+
+  const capBox = h('div', {},
+    h('p', { text: photo.caption || 'No caption.' }),
+    h('p', { class: 'muted', text: photo.altText ? `Alt text: ${photo.altText}` : 'No alt text.' }),
+    h('button', { text: isAdmin ? 'Edit' : 'Suggest a change', onclick: () => captionSheet(photo) }));
+
+  return [sec('Description', descBox), sec('Players', playersBox), sec('Tags', tagsBox), sec('Caption and alt text', capBox)];
 }
 
 // Edit (the photographer) or suggest (a signed-in visitor, who the photographer then reviews like a merge).
@@ -1573,8 +1612,7 @@ function captionSheet(photo) {
   const alt = h('textarea', { rows: 3, maxlength: 300, 'aria-label': 'Alt text' });
   alt.value = photo.altText || '';
   const tags = isAdmin ? tagEditor(photo.tags || [], null, { gallery: G && G.id }) : null;
-  const desc = isAdmin ? h('textarea', { rows: 3, maxlength: 400, 'aria-label': 'Scene description' }) : null;
-  if (desc) desc.value = photo.description || '';
+  const desc = null;   // the description is edited in place, in the viewer's Details
   const msg = h('span', { class: 'muted' });
   const note = isAdmin ? 'Your changes apply straight away.'
     : signedIn ? 'Your suggestion goes to the photographer, who approves it before it appears.'
@@ -1584,7 +1622,7 @@ function captionSheet(photo) {
     if (r.status === 401) { msg.textContent = 'Sign in to suggest a change.'; return; }
     if (!r.ok) { msg.textContent = 'Could not save. Try again.'; return; }
     if (tags) { const tr = await api(`/api/admin/photos/${photo.id}/tags`, { method: 'PUT', body: { names: tags.names() } }); if (tr.ok) photo.tags = tr.data; }
-    if (r.data && r.data.applied) { photo.caption = r.data.caption; photo.altText = r.data.alt; photo.description = r.data.description; photo.descriptionSource = r.data.descriptionSource; closeSheet(); toast('Saved'); return; }
+    if (r.data && r.data.applied) { photo.caption = r.data.caption; photo.altText = r.data.alt; closeSheet(); toast('Saved'); if (lb && lb.drawCaption) lb.drawCaption(); if (lb && lb.drawDetails) lb.drawDetails(); return; }
     msg.textContent = r.data && r.data.suggested ? 'Thanks. The photographer will review it.' : 'Nothing new to suggest.';
   };
   const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } },
@@ -1722,15 +1760,11 @@ function openLightbox(index, play, mode = 'push') {
   };
   const centre = (e) => { const r = stage.getBoundingClientRect(); return [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2]; };
 
-  // the caption, the players and the other tags under the photo; the admin also gets a + to add tags without leaving the viewer
+  // only a caption you wrote sits under the photo; the description, players and tags are in Details, to keep the photo clear
   lb.drawCaption = () => {
     const p = cur(); if (!p) return;
-    const players = photoPlayersRow(p, () => { if (cur() === p) lb.drawCaption(); });
-    const tags = tagLine(p.tags, { ...photoTagEdit(p), hide: isPlayerTag });
-    // no caption of its own: the scene description stands in for it
-    const text = p.caption || p.description || '';
-    captionEl.replaceChildren(...[text ? h('div', { class: p.caption ? '' : 'lb-desc', text }) : null, players, tags].filter(Boolean));
-    captionEl.classList.toggle('hidden', !text && !tags && !players);
+    captionEl.replaceChildren(...(p.caption ? [h('div', { text: p.caption })] : []));
+    captionEl.classList.toggle('hidden', !p.caption);
   };
   const show = (i, updateUrl = true) => {
     lb.i = (i + list.length) % list.length;

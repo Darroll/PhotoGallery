@@ -736,3 +736,9 @@ details.season .season-name { font-family: var(--font-heading); font-size: 20px;
 .desc-log li { display: flex; gap: 10px; align-items: flex-start; }
 .desc-log img { width: 64px; height: 48px; object-fit: cover; border-radius: 4px; flex: none; }
 .desc-log li.failed > div > div:last-child { color: var(--danger); }
+
+.info-sec { margin: 0 0 6px; border-bottom: 1px solid #2a2a2a; padding-bottom: 6px; }
+.info-sec > summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.info-sec > div { padding: 4px 0 6px; }
+.info-desc textarea { width: 100%; box-sizing: border-box; }
+.info-desc .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
