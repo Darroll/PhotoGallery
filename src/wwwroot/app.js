@@ -3095,6 +3095,69 @@ async function viewGallerySettings(app, id) {
     h('div', { class: 'savebar' }, saveBtn, status));
 }
 
+// A large preview of a photo while the pointer is over its thumbnail (or a long press on a phone), so a face or a
+// number can be checked without opening the photo. The thumbnail shows at once, the 2048 px version replaces it when loaded.
+const photoPreview = (() => {
+  let box = null, img = null, cap = null, showTimer = 0, current = 0, pointer = { x: 0, y: 0 };
+  const cache = new Map();   // photo id -> Image being loaded, so moving back and forth is instant
+  const load = (id) => { if (!cache.has(id)) { const im = new Image(); im.decoding = 'async'; im.src = `/img/${id}/view`; cache.set(id, im); if (cache.size > 60) cache.delete(cache.keys().next().value); } return cache.get(id); };
+  const ensure = () => {
+    if (box) return;
+    img = h('img', { alt: '' });
+    cap = h('div', { class: 'pp-cap' });
+    box = h('div', { class: 'photo-preview', hidden: true, 'aria-hidden': 'true' }, img, cap);
+    box.addEventListener('click', hide);
+    document.body.append(box);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') hide(); });
+    window.addEventListener('scroll', () => { if (!box.hidden && !touchOpen) hide(); }, { passive: true });
+  };
+  let touchOpen = false;
+  const place = () => {
+    if (!box || box.hidden) return;
+    const vw = window.innerWidth, vh = window.innerHeight, gap = 24;
+    const w = box.offsetWidth, hh = box.offsetHeight;
+    if (touchOpen) { box.style.left = `${Math.max(8, (vw - w) / 2)}px`; box.style.top = `${Math.max(8, (vh - hh) / 2)}px`; return; }
+    // beside the pointer, on the side with more room, kept on screen
+    let x = pointer.x > vw / 2 ? pointer.x - gap - w : pointer.x + gap;
+    x = Math.min(Math.max(8, x), vw - w - 8);
+    const y = Math.min(Math.max(8, pointer.y - hh / 2), vh - hh - 8);
+    box.style.left = `${x}px`; box.style.top = `${y}px`;
+  };
+  function show(id, label, touch) {
+    ensure();
+    current = id; touchOpen = !!touch;
+    const big = load(id);
+    img.onload = place;
+    img.src = big.complete && big.naturalWidth ? big.src : `/img/${id}/thumb`;
+    img.classList.toggle('pp-loading', !(big.complete && big.naturalWidth));
+    if (!big.complete) big.addEventListener('load', () => { if (current === id) { img.src = big.src; img.classList.remove('pp-loading'); } }, { once: true });
+    cap.textContent = label || '';
+    box.hidden = false;
+    place();
+  }
+  function hide() { clearTimeout(showTimer); current = 0; touchOpen = false; if (box) box.hidden = true; }
+  // wires a thumbnail: hover (after a short pause), keyboard focus, or a long press on a touch screen
+  function attach(el, id, label) {
+    el.addEventListener('pointerenter', e => {
+      if (e.pointerType === 'touch') return;
+      pointer = { x: e.clientX, y: e.clientY };
+      load(id);   // start the download while the pointer settles
+      clearTimeout(showTimer); showTimer = setTimeout(() => show(id, label), 120);
+    });
+    el.addEventListener('pointermove', e => { if (e.pointerType === 'touch') return; pointer = { x: e.clientX, y: e.clientY }; if (current === id) place(); });
+    el.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') hide(); });
+    el.addEventListener('focus', () => { const r = el.getBoundingClientRect(); pointer = { x: r.right, y: r.top + r.height / 2 }; show(id, label); });
+    el.addEventListener('blur', hide);
+    let press = 0, pressed = false;
+    el.addEventListener('touchstart', () => { pressed = false; load(id); press = setTimeout(() => { pressed = true; show(id, label, true); }, 400); }, { passive: true });
+    el.addEventListener('touchmove', () => clearTimeout(press), { passive: true });
+    el.addEventListener('touchend', e => { clearTimeout(press); if (pressed) e.preventDefault(); });   // a long press only previews
+    el.addEventListener('contextmenu', e => { if (pressed) e.preventDefault(); });
+    return el;
+  }
+  return { attach, hide };
+})();
+
 // Gallery settings: which team plays in this gallery, checking photos for its players, and the suggestions to review.
 // What a gallery's player check is doing right now: the photo being read (with its thumbnail), which AI is reading it,
 // progress, and the latest results. Used in the gallery's Players section and in the activity list.
@@ -3113,7 +3176,7 @@ function playerJobView(job, onStop, { recentCount = 8 } = {}) {
         ` Checked ${job.done} of ${job.total}, ${plural(job.found, 'new suggestion')}` + (job.failed ? `, ${job.failed} failed` : '') + '. ',
         onStop ? h('button', { text: job.stopRequested ? 'Stopping…' : 'Stop', disabled: job.stopRequested, title: 'Stop after cancelling the photo being read. Photos not checked yet stay unchecked.', onclick: onStop }) : null),
       job.currentPhotoId ? h('div', { class: 'player-row now' },
-        h('a', { href: `/img/${job.currentPhotoId}/view`, target: '_blank', rel: 'noopener' }, h('img', { src: `/img/${job.currentPhotoId}/thumb`, alt: job.currentPhoto, width: 96, height: 72 })),
+        photoPreview.attach(h('a', { href: `/img/${job.currentPhotoId}/view`, target: '_blank', rel: 'noopener' }, h('img', { src: `/img/${job.currentPhotoId}/thumb`, alt: job.currentPhoto, width: 96, height: 72 })), job.currentPhotoId, job.currentPhoto),
         h('div', {}, h('div', {}, h('strong', { text: 'Now reading: ' }), job.currentPhoto),
           h('div', { class: 'muted', text: (job.currentProvider ? `Asking ${job.currentProvider}` : 'Preparing the photo') + (secs >= 2 ? `, ${secs} s so far` : '') }))) : null);
   } else if (job.finishedAt) {
@@ -3207,8 +3270,8 @@ function playersManager(g) {
       const thumbs = u.photoIds.map(pid => {
         const tick = h('input', { type: 'checkbox', checked: true, 'aria-label': `Photo ${pid} shows #${u.number}` });
         const picker = fixPicker(pid, { sighting: u.number }, `Not #${u.number}? This photo is:`);
-        const img = h('button', { class: 'thumb-btn', title: 'Tap to tag this photo as someone else', onclick: () => toggle(picker) },
-          h('img', { src: `/img/${pid}/thumb`, alt: `Photo with #${u.number}`, loading: 'lazy', width: 96, height: 72 }));
+        const img = photoPreview.attach(h('button', { class: 'thumb-btn', title: 'Click to tag this photo as someone else', onclick: () => { photoPreview.hide(); toggle(picker); } },
+          h('img', { src: `/img/${pid}/thumb`, alt: `Photo with #${u.number}`, loading: 'lazy', width: 96, height: 72 })), pid, `Read as #${u.number}`);
         return { pid, tick, picker, el: h('div', { class: 'unknown-thumb' }, img, h('label', { class: 'muted' }, tick, ' this one')) };
       });
       const add = h('button', { class: 'primary', text: `Add #${u.number} to ${team ? team.name : 'the team'}`, title: 'Adds the player and tags the ticked photos for review', onclick: async () => {
@@ -3263,7 +3326,7 @@ function playersManager(g) {
       const addPicker = fixPicker(pid, null, 'Add a player:');
       const fixers = list.map(s => fixPicker(pid, { suggestion: s.id }, `Not ${s.tag}? It is:`));
       return h('div', { class: 'player-row' },
-        h('button', { class: 'thumb-btn', title: 'Tap to add a player the model missed', onclick: () => toggle(addPicker) }, h('img', { src: `/img/${pid}/thumb`, alt: list[0].photo, loading: 'lazy', width: 96, height: 72 })),
+        photoPreview.attach(h('button', { class: 'thumb-btn', title: 'Click to add a player the model missed', onclick: () => { photoPreview.hide(); toggle(addPicker); } }, h('img', { src: `/img/${pid}/thumb`, alt: list[0].photo, loading: 'lazy', width: 96, height: 72 })), pid, `${list[0].photo}: ${list.map(s => (s.unsure ? 'maybe ' : '') + s.tag + ' ' + s.confidence + '%').join(', ')}`),
         h('div', {}, h('div', { class: 'muted' }, list[0].photo, ' ', h('a', { href: `/img/${pid}/view`, target: '_blank', rel: 'noopener', text: 'open' })),
           list.filter(s => s.unsure).map(s => s.note).filter((n, i, a) => a.indexOf(n) === i).map(n => h('div', { class: 'muted unsure-note', text: `Not sure: ${n}.` + (list.filter(s => s.unsure).length > 1 ? ' Approve the right player; the others it could be are rejected.' : '') })),
           h('div', { class: 'chips' }, list.map((s, i) => h('span', { class: 'tag-chip' + (s.unsure ? ' unsure' : ''), title: `${s.confidence}% sure, read by ${s.source}` + (s.note ? ` (${s.note})` : '') }, `${s.unsure ? 'maybe ' : ''}${s.tag} · ${s.confidence}%`,

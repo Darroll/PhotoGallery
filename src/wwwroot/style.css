@@ -630,3 +630,10 @@ table.data td:last-child { text-align: right; font-variant-numeric: tabular-nums
 .num-chip { min-width: 44px; min-height: 36px; border-radius: 999px; }
 .fix-picker input.fix-num { width: 64px; }
 .player-row .tag-chip .chip-fix:hover, .player-row .tag-chip .chip-fix:focus-visible { color: var(--accent, var(--fg)); }
+/* large photo preview while hovering a thumbnail in the tagging review */
+.photo-preview { position: fixed; z-index: 1000; pointer-events: none; background: var(--card, #111); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px; box-shadow: 0 12px 40px rgb(0 0 0 / 0.45); }
+.photo-preview[hidden] { display: none; }
+.photo-preview img { display: block; width: auto; height: auto; max-width: min(70vw, 1400px); max-height: 80vh; min-width: min(480px, 90vw); object-fit: contain; border-radius: var(--radius-sm); }
+.photo-preview img.pp-loading { filter: blur(2px); }
+.photo-preview .pp-cap { font-size: 13px; padding: 4px 2px 0; color: var(--fg); max-width: min(70vw, 1400px); }
+@media (hover: none) { .photo-preview { pointer-events: auto; } .photo-preview img { max-width: 94vw; max-height: 75vh; min-width: 0; } }
