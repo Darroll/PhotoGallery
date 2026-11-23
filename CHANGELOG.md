@@ -2,6 +2,10 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.5.1 (not released yet)
+
+- **Copy a team for a new season.** Each team on the Teams page has **Copy for a new season**: type the new name ("Hurricanes U12 Spring 2027") and it makes a new team with the same jerseys, names-in-tags choice and roster, so only the players who left or joined need changing. Galleries, photo tags and follows stay with the old team, so last season's #10 keeps her own photos and followers. Make one team per season; choose the new team in the new season's galleries (or in your preset). The database does not change.
+
 ## 2.5.0 (not released yet)
 
 - **Galleries are grouped by season on the home page.** This season's galleries come first and open; earlier seasons are folded under their heading ("Spring 2026, 4 galleries") and open with a tap, so parents find this season's games straight away. A gallery's season comes from its event date (or the day it was made): Fall is August to December and Spring January to July. Settings, **Site and appearance** can switch to August-to-July seasons ("2026-27 season"), calendar years, or off (one list as before). To name a season yourself, such as "Indoor 2027", type it in the gallery's new **Season** box; galleries with the same season are listed together. A preset carries the Season box too. Inside each season the galleries keep the home page order.

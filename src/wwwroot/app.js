@@ -3249,7 +3249,22 @@ async function teamsPanel() {
         field('Jerseys', colors, 'Each jersey the team wears: a name (Home, Away), the shirt colour and the number colour. Each gallery picks the jersey worn that day. Other teams may use the same colours.'),
         field('Roster', roster, 'One player per line: the number, then a name if you like. Only these numbers are tagged.'),
         field('Names in tags', h('label', {}, names, ' Tag photos with the player\'s name ("Emma 10")'), 'Off keeps children\'s names off the site: tags use the team and number.'));
-      const actions = h('div', { class: 'row' }, save, del, msg);
+      // a new season usually means a new roster: copy the jerseys and players to a new team and edit who left or joined
+      const copyBox = h('div', { class: 'row', hidden: true });
+      const copy = t ? h('button', { text: 'Copy for a new season', title: 'Make a new team with the same jerseys and roster', onclick: () => {
+        if (!copyBox.hidden) { copyBox.hidden = true; return; }
+        const nm = h('input', { type: 'text', maxlength: 30, value: t.name, 'aria-label': 'Name of the new team', placeholder: 'Hurricanes U12 Spring 2027' });
+        const make = async () => {
+          const res = await api(`/api/admin/teams/${t.id}/copy`, { method: 'POST', body: { name: nm.value } });
+          if (res.ok) { toast(`Made ${res.data.name}. Edit its roster, then choose it in the new season's galleries.`); render(); } else msg.textContent = aiErr(res);
+        };
+        nm.addEventListener('keydown', e => { if (e.key === 'Enter') make(); });
+        copyBox.replaceChildren(h('label', {}, 'New team name ', nm), h('button', { class: 'primary', text: 'Make copy', onclick: make }),
+          h('span', { class: 'muted', text: `Galleries, tags and follows stay with ${t.name}.` }));
+        copyBox.hidden = false;
+        nm.focus(); nm.select();
+      } }) : null;
+      const actions = h('div', {}, h('div', { class: 'row' }, save, copy, del, msg), copyBox);
       if (!t) return h('div', { class: 'group-card' }, h('b', { text: 'Add a team' }), body, actions);
       const count = `${t.players.length} player${t.players.length === 1 ? '' : 's'}, ${t.galleries} galler${t.galleries === 1 ? 'y' : 'ies'}`;
       return h('details', { class: 'group-card' }, h('summary', {}, h('b', { text: t.name }), h('span', { class: 'muted', text: ' ' + count })), body, actions);
@@ -3267,6 +3282,7 @@ async function teamsPanel() {
     + (fr.data.mail ? '' : ' Needs email set up first (Settings, Email alerts), including the site address.')), fmsg) : null;
   return h('div', { class: 'panel' }, h('h3', { text: 'Teams' }), followBox,
     h('p', { class: 'muted' }, 'Choose a team in a gallery\'s Players section, then let the AI model find your players. Set up the model in ', h('a', { href: '/admin/settings/ai', text: 'Automatic tagging' }), '.'),
+    h('p', { class: 'muted', text: 'Make a new team for each season, such as "Hurricanes U12 Fall 2026": a player is a team and a number, so last season\'s #10 keeps her own photos and followers. Copy for a new season starts the new team with the same jerseys and roster.' }),
     box);
 }
 

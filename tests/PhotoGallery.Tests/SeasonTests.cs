@@ -146,3 +146,32 @@ public class SeasonTests(AppFactory app) : IClassFixture<AppFactory>
         finally { Serial.Release(); }
     }
 }
+
+public class TeamCopyTests(AppFactory app) : IClassFixture<AppFactory>
+{
+    [Fact]
+    public async Task A_team_is_copied_for_a_new_season_with_its_jerseys_and_roster()
+    {
+        var admin = await app.AdminAsync();
+        var src = await (await admin.PostAsJsonAsync("/api/admin/teams", new { name = "Copy FC Fall 2026", colors = "Home: white shirts with blue numbers\nAway: blue shirts", tagWithNames = true, roster = "10 Emma\n7 Ava\n3" })).ReadAsync();
+        var srcId = src.GetProperty("id").GetInt32();
+        var gid = (await (await admin.PostAsJsonAsync("/api/admin/galleries", new { title = "Copy FC game", folder = app.NewFolder(1), presetId = "" })).ReadAsync()).GetProperty("gallery").GetProperty("id").GetInt32();
+        Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsJsonAsync($"/api/admin/galleries/{gid}/team", new { teamId = srcId, kit = "Home" })).StatusCode);
+
+        var r = await admin.PostAsJsonAsync($"/api/admin/teams/{srcId}/copy", new { name = "Copy FC Spring 2027" });
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var copy = await r.ReadAsync();
+        Assert.NotEqual(srcId, copy.GetProperty("id").GetInt32());
+        Assert.Equal("Copy FC Spring 2027", copy.GetProperty("name").GetString());
+        Assert.Equal(src.GetProperty("colors").GetString(), copy.GetProperty("colors").GetString());
+        Assert.Equal(src.GetProperty("roster").GetString(), copy.GetProperty("roster").GetString());
+        Assert.True(copy.GetProperty("tagWithNames").GetBoolean());
+        Assert.Equal(0, copy.GetProperty("galleries").GetInt32());
+        // the gallery stays with the old team
+        Assert.Equal(srcId, (await app.WithDbAsync(db => db.Galleries.FindAsync(gid).AsTask()))!.TeamId);
+
+        // the name must be new
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/api/admin/teams/{srcId}/copy", new { name = "copy fc fall 2026" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await admin.PostAsJsonAsync("/api/admin/teams/999999/copy", new { name = "Nobody" })).StatusCode);
+    }
+}

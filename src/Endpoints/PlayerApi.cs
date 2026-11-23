@@ -18,6 +18,7 @@ public static class PlayerApi
     record TestInput(string? Kind, VisionSettings? Settings);
     record NewPlayerInput(string? Number, string? Name, List<int>? Skip = null);
     record NumberInput(string? Number);
+    record CopyTeamInput(string? Name);
 
     static bool Csrf(HttpContext ctx) => ctx.Request.Headers["X-Requested-With"] == "pg";
     static string Cut(string? s, int max) { s = (s ?? "").Trim(); return s.Length > max ? s[..max] : s; }
@@ -99,6 +100,22 @@ public static class PlayerApi
             await db.SaveChangesAsync();
             await PlayerTags.AdoptSightingsAsync(db, t);
             return Results.Ok(TeamOut(t, await db.Galleries.CountAsync(g => g.TeamId == id)));
+        });
+
+        // A new team for a new season: the same jerseys, names-in-tags choice and roster under a new name, so only the players who
+        // left or joined need changing. Galleries, tags and follows stay with the old team, so last season's #10 stays her own player.
+        secured.MapPost("/teams/{id:int}/copy", async (int id, CopyTeamInput input, HttpContext ctx, AppDb db) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var src = await db.Teams.AsNoTracking().Include(x => x.Players).FirstOrDefaultAsync(x => x.Id == id);
+            if (src == null) return Results.NotFound();
+            var roster = string.Join("\n", src.Players.OrderBy(p => p.Number.Length).ThenBy(p => p.Number, StringComparer.Ordinal).Select(p => p.Name.Length > 0 ? $"{p.Number} {p.Name}" : p.Number));
+            var t = new Team();
+            var err = await ApplyAsync(db, t, new TeamInput(input.Name, src.Colors, src.TagWithNames, roster));
+            if (err != null) return Results.BadRequest(err);
+            db.Teams.Add(t);
+            await db.SaveChangesAsync();
+            return Results.Ok(TeamOut(t, 0));
         });
 
         // removes the team, its roster and its waiting suggestions; tags already on photos stay
