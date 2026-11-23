@@ -637,3 +637,12 @@ table.data td:last-child { text-align: right; font-variant-numeric: tabular-nums
 .photo-preview img.pp-loading { filter: blur(2px); }
 .photo-preview .pp-cap { font-size: 13px; padding: 4px 2px 0; color: var(--fg); max-width: min(70vw, 1400px); }
 @media (hover: none) { .photo-preview { pointer-events: auto; } .photo-preview img { max-width: 94vw; max-height: 75vh; min-width: 0; } }
+
+/* player filter: a chip per tagged player above the grid */
+.player-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 16px; }
+.player-lead { font-size: 13px; margin-right: 2px; }
+.player-chip { --tag-c: var(--accent); padding: 8px 14px; min-height: 40px; border: 1px solid var(--tag-c); border-radius: 999px; background: color-mix(in srgb, var(--tag-c) 12%, transparent); color: var(--fg); font-size: 15px; font-weight: 600; cursor: pointer; }
+.player-chip:hover { background: color-mix(in srgb, var(--tag-c) 24%, transparent); }
+.player-chip.on { background: var(--tag-c); border-color: var(--tag-c); color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
+.player-dl { margin-left: auto; }
+@media (max-width: 600px) { .player-dl { margin-left: 0; width: 100%; } }
