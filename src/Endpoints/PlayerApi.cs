@@ -255,7 +255,7 @@ public static class PlayerApi
                 .Select(x => new { folder = x.Folder, title = x.Title, photos = photoFolders[x.Folder], kit = folderKits.GetValueOrDefault(x.Folder, "") }).ToList();
             return Results.Ok(new
             {
-                teamId = g.TeamId, teamKit = g.TeamKit, folders, autoTag = g.AutoTag, allowPlayerTags = g.AllowPlayerTags, allowFollow = g.AllowFollow, followMail = PlayerFollows.Available(settings),
+                teamId = g.TeamId, teamKit = g.TeamKit, folders, autoTag = g.AutoTag, allowPlayerTags = g.AllowPlayerTags, allowFollow = g.FollowPlayers, followDefault = settings.Follow.Enabled, followMail = PlayerFollows.Available(settings),
                 followers = team == null ? 0 : await db.PlayerFollows.Where(f => db.Players.Any(p => p.Id == f.PlayerId && p.TeamId == team.Id)).Select(f => f.Sub).Distinct().CountAsync(),
                 autoTagDefault = settings.Vision.AutoCheckNew, teamPlayers = team?.Players.Count ?? 0,
                 photos = total, @checked = checkedCount, approved,

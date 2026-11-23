@@ -55,6 +55,13 @@ public class TuningSettings
     };
 }
 
+/// <summary>Follow a player, site-wide: parents may follow a team's player (team and number) and get an email about new photos of them in every gallery of that team. A gallery can say otherwise.</summary>
+public class FollowSettings
+{
+    public bool Enabled { get; set; }
+    public FollowSettings Sanitized() => new() { Enabled = Enabled };
+}
+
 class AppSettings
 {
     public string SiteName { get; set; } = "";
@@ -71,6 +78,7 @@ class AppSettings
     public SsoSettings Sso { get; set; } = new();
     public TuningSettings Tuning { get; set; } = new();
     public VisionSettings Vision { get; set; } = new();
+    public FollowSettings Follow { get; set; } = new();
 }
 
 /// <summary>App-level settings kept in DATA_DIR/settings.json (editable from the admin Settings page).</summary>
@@ -304,6 +312,21 @@ public class SettingsService
         }
     }
 
+    public FollowSettings Follow
+    {
+        get { lock (gate) return (data.Follow ?? new()).Sanitized(); }
+    }
+
+    public FollowSettings SetFollow(FollowSettings s)
+    {
+        lock (gate)
+        {
+            data.Follow = s.Sanitized();
+            Save();
+            return data.Follow.Sanitized();
+        }
+    }
+
     public LicenseSettings License
     {
         get { lock (gate) return data.License.Clone(); }
@@ -359,6 +382,7 @@ public class SettingsService
                 if (Has("LinkPreviews")) data.LinkPreviews = incoming.LinkPreviews.Sanitized();
                 if (Has("Updates")) data.Updates = incoming.Updates.Sanitized();
                 if (Has("Privacy")) data.Privacy = incoming.Privacy.Sanitized();
+                if (Has("Follow")) data.Follow = (incoming.Follow ?? new()).Sanitized();
                 if (Has("Vision")) data.Vision = (incoming.Vision ?? new()).Sanitized(appCfg.CaptionUrl).WithStoredKeys((data.Vision ?? new()).Sanitized(appCfg.CaptionUrl));
                 if (Has("Sso"))
                 {

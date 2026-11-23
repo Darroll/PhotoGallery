@@ -2,42 +2,80 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PhotoGallery;
 
-/// <summary>Follow a player: signed-in visitors with a verified email follow or stop following from a gallery, or stop from the email link.</summary>
+/// <summary>
+/// Follow a player: signed-in visitors with a verified email follow or stop following from a gallery's chips, from the photo
+/// viewer, or from the "My players" page, and stop from the link in every email.
+/// </summary>
 public static class FollowApi
 {
     record FollowInput(string? Tag, bool Follow);
-    record AllowInput(bool Allow);
+    record PlayerFollowInput(int PlayerId, bool Follow);
+    record AllowInput(bool? Allow);
+
+    static bool Csrf(HttpContext ctx) => ctx.Request.Headers["X-Requested-With"] == "pg";
+
+    /// <summary>Who may follow: a signed-in account with a verified email. Returns the problem as a result, or null.</summary>
+    static IResult? Who(HttpContext ctx, out string sub, out string email)
+    {
+        sub = AuthApi.Sub(ctx) ?? ""; email = "";
+        if (sub.Length == 0) return Results.Json(new { signInRequired = true }, statusCode: 401);
+        var e = GalleryPeople.VerifiedEmail(ctx.User);
+        if (e == null) return Results.BadRequest("Your sign-in has no verified email address, so emails cannot be sent to you.");
+        email = e;
+        return null;
+    }
 
     public static void Map(WebApplication app)
     {
+        // from a gallery or the photo viewer: the player is named by the tag on the photo
         app.MapPost("/api/g/{slug}/follow", async (string slug, FollowInput input, HttpContext ctx, AppDb db, AccessService access, SettingsService settings) =>
         {
-            if (ctx.Request.Headers["X-Requested-With"] != "pg") return Results.BadRequest("missing header");
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
             if (g == null) return Results.NotFound();
             var a = await access.CheckAsync(ctx, g);
             if (!a.Allowed) return Results.NotFound();
-            if (!PlayerFollows.Offered(g, settings)) return Results.BadRequest("Following players is not available in this gallery.");
-            var sub = AuthApi.Sub(ctx);
-            if (sub == null) return Results.Json(new { signInRequired = true }, statusCode: 401);
-            var email = GalleryPeople.VerifiedEmail(ctx.User);
-            if (email == null) return Results.BadRequest("Your sign-in has no verified email address, so emails cannot be sent to you.");
-            var team = await db.Teams.AsNoTracking().Include(t => t.Players).FirstAsync(t => t.Id == g.TeamId);
-            var player = PlayerFollows.PlayerOf(team, input.Tag);
+            var team = g.TeamId == null ? null : await db.Teams.AsNoTracking().Include(t => t.Players).FirstOrDefaultAsync(t => t.Id == g.TeamId);
+            if (!PlayerFollows.Offered(g, team, settings)) return Results.BadRequest("Following players is not available in this gallery.");
+            if (Who(ctx, out var sub, out var email) is { } problem) return problem;
+            var player = PlayerFollows.PlayerOf(team!, input.Tag);
             if (player == null) return Results.BadRequest("That player is not on this team.");
+            if (await PlayerFollows.SetAsync(db, sub, email, player, input.Follow) is { } err) return Results.BadRequest(err);
+            return Results.Ok(new { following = await PlayerFollows.FollowingAsync(db, sub, team!) });
+        }).RequireRateLimiting("follow");
 
-            var f = await db.PlayerFollows.FirstOrDefaultAsync(x => x.Sub == sub && x.PlayerId == player.Id);
-            if (input.Follow && f == null)
+        // the "My players" page: every team this person can follow players of, and who they follow
+        app.MapGet("/api/me/players", async (HttpContext ctx, AppDb db, SettingsService settings) =>
+        {
+            var sub = AuthApi.Sub(ctx);
+            if (sub == null || !PlayerFollows.Available(settings)) return Results.Ok(new { signedIn = sub != null, available = PlayerFollows.Available(settings), teams = Array.Empty<object>() });
+            var email = GalleryPeople.VerifiedEmail(ctx.User);
+            var followed = (await db.PlayerFollows.AsNoTracking().Where(f => f.Sub == sub).Select(f => f.PlayerId).ToListAsync()).ToHashSet();
+            var teams = await PlayerFollows.TeamsForAsync(db, sub, email, settings.Follow.Enabled);
+            return Results.Ok(new
             {
-                if (await db.PlayerFollows.CountAsync(x => x.Sub == sub) >= PlayerFollows.MaxPerPerson)
-                    return Results.BadRequest($"You can follow up to {PlayerFollows.MaxPerPerson} players.");
-                db.PlayerFollows.Add(new PlayerFollow { Sub = sub, Email = email, PlayerId = player.Id, Token = Passwords.NewToken() });
-            }
-            else if (input.Follow && f != null) f.Email = email;   // mail goes to the address the account has now
-            else if (!input.Follow && f != null) db.PlayerFollows.Remove(f);
-            await db.SaveChangesAsync();
-            return Results.Ok(new { following = await PlayerFollows.FollowingAsync(db, sub, team) });
-        }).RequireRateLimiting("suggest");
+                signedIn = true, available = true, verified = email != null,
+                teams = teams.Select(t => new
+                {
+                    t.Id, t.Name,
+                    players = t.Players.OrderBy(p => int.TryParse(p.Number, out var n) ? n : int.MaxValue).ThenBy(p => p.Number.Length)
+                        .Select(p => new { p.Id, number = p.Number, label = PlayerFollows.ShortLabel(t, p), following = followed.Contains(p.Id) }),
+                }),
+            });
+        });
+
+        app.MapPost("/api/me/players", async (PlayerFollowInput input, HttpContext ctx, AppDb db, SettingsService settings) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            if (!PlayerFollows.Available(settings)) return Results.BadRequest("Following players is not available on this site.");
+            if (Who(ctx, out var sub, out var email) is { } problem) return problem;
+            var player = await db.Players.AsNoTracking().FirstOrDefaultAsync(p => p.Id == input.PlayerId);
+            // only players this page would list: stopping is always allowed
+            if (player == null || (input.Follow && !(await PlayerFollows.TeamsForAsync(db, sub, email, settings.Follow.Enabled)).Any(t => t.Id == player.TeamId)))
+                return Results.BadRequest("That player cannot be followed here.");
+            if (await PlayerFollows.SetAsync(db, sub, email, player, input.Follow) is { } err) return Results.BadRequest(err);
+            return Results.Ok(new { following = input.Follow });
+        }).RequireRateLimiting("follow");
 
         // the link in every email: works without signing in, and says the same whether or not the link was known
         app.MapGet("/follow/stop/{token}", async (string token, AppDb db) =>
@@ -47,14 +85,18 @@ public static class FollowApi
         });
 
         var secured = app.MapGroup("/api/admin").RequireAuthorization("Admin");
+        secured.MapGet("/settings/follow", (SettingsService settings) => Results.Ok(new { enabled = settings.Follow.Enabled, mail = PlayerFollows.Available(settings) }));
+        secured.MapPut("/settings/follow", (FollowSettings input, HttpContext ctx, SettingsService settings) =>
+            !Csrf(ctx) ? Results.BadRequest("missing header") : Results.Ok(settings.SetFollow(input)));
+        // a gallery's own choice: true or false, or null to follow the team's setting
         secured.MapPut("/galleries/{id:int}/follow", async (int id, AllowInput input, HttpContext ctx, AppDb db) =>
         {
-            if (ctx.Request.Headers["X-Requested-With"] != "pg") return Results.BadRequest("missing header");
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
             var g = await db.Galleries.FindAsync(id);
             if (g == null) return Results.NotFound();
-            g.AllowFollow = input.Allow;
+            g.FollowPlayers = input.Allow;
             await db.SaveChangesAsync();
-            return Results.Ok(new { allow = g.AllowFollow });
+            return Results.Ok(new { allow = g.FollowPlayers });
         });
     }
 }

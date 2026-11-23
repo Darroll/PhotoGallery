@@ -76,8 +76,8 @@ public class Gallery
     public bool? AutoTag { get; set; }
     /// <summary>Signed-in visitors (parents) may suggest which players are in a photo. Their suggestions wait for the admin's review. Off by default.</summary>
     public bool AllowPlayerTags { get; set; }
-    /// <summary>Signed-in visitors (parents) may follow a player here and get an email when new photos of that player are tagged. Off by default.</summary>
-    public bool AllowFollow { get; set; }
+    /// <summary>New photos of a player here are emailed to the player's followers: true or false here, or null to follow the site-wide setting (<see cref="FollowSettings.Enabled"/>).</summary>
+    public bool? FollowPlayers { get; set; }
     public List<Photo> Photos { get; set; } = new();
     public List<ShareLink> Links { get; set; } = new();
 }

@@ -174,4 +174,68 @@ public class FollowTests(UserFactory app) : IClassFixture<UserFactory>
         }
         finally { Serial.Release(); }
     }
+
+    [Fact]
+    public async Task The_site_wide_switch_covers_every_team_gallery_and_my_players_page_follows_from_anywhere()
+    {
+        await Serial.WaitAsync();
+        var admin = await app.AdminAsync();
+        try
+        {
+            await EmailOnAsync(admin);
+            var (gid, slug, photos) = await TeamGalleryAsync(admin, "Follow Site", 1);
+            var teamId = await app.WithDbAsync(db => db.Galleries.Where(g => g.Id == gid).Select(g => g.TeamId!.Value).FirstAsync());
+            const string mail = "parent-site@example.test";
+            var parent = app.AsUser("parent-site-1", mail);
+
+            // site switch off: nothing to follow on the page
+            Assert.DoesNotContain((await (await parent.GetAsync("/api/me/players")).ReadAsync()).GetProperty("teams").EnumerateArray(), t => t.GetProperty("id").GetInt32() == teamId);
+            Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync("/api/admin/settings/follow", new { enabled = true })).StatusCode);
+            Assert.True((await (await admin.GetAsync("/api/admin/settings/follow")).ReadAsync()).GetProperty("enabled").GetBoolean());
+            Assert.True((await (await parent.GetAsync("/api/me")).ReadAsync()).GetProperty("follow").GetBoolean());
+
+            // every gallery of the team offers it now, without its own switch
+            Assert.Equal(JsonValueKind.Object, (await (await parent.GetAsync($"/api/g/{slug}")).ReadAsync()).GetProperty("follow").ValueKind);
+
+            // a second gallery of the same team, turned off for itself
+            var r = await (await admin.PostAsJsonAsync("/api/admin/galleries", new { title = "Follow Site Off", folder = app.NewFolder(1), visibility = 0 })).ReadAsync();
+            var offId = r.GetProperty("gallery").GetProperty("id").GetInt32();
+            var offSlug = r.GetProperty("gallery").GetProperty("slug").GetString()!;
+            await admin.PutAsJsonAsync($"/api/admin/galleries/{offId}/team", new { teamId });
+            await admin.PutAsJsonAsync($"/api/admin/galleries/{offId}/follow", new { allow = false });
+            Assert.Equal(JsonValueKind.Null, (await (await parent.GetAsync($"/api/g/{offSlug}")).ReadAsync()).GetProperty("follow").ValueKind);
+            // and a third, on by default
+            r = await (await admin.PostAsJsonAsync("/api/admin/galleries", new { title = "Follow Site Next Game", folder = app.NewFolder(1), visibility = 0 })).ReadAsync();
+            var nextId = r.GetProperty("gallery").GetProperty("id").GetInt32();
+            await admin.PutAsJsonAsync($"/api/admin/galleries/{nextId}/team", new { teamId });
+
+            // follow from the My players page, by team and number
+            var page = await (await parent.GetAsync("/api/me/players")).ReadAsync();
+            var team = page.GetProperty("teams").EnumerateArray().Single(t => t.GetProperty("id").GetInt32() == teamId);
+            var ten = team.GetProperty("players").EnumerateArray().Single(p => p.GetProperty("number").GetString() == "10");
+            Assert.Equal("#10", ten.GetProperty("label").GetString());   // numbers only
+            Assert.Equal(HttpStatusCode.OK, (await parent.PostAsJsonAsync("/api/me/players", new { playerId = ten.GetProperty("id").GetInt32(), follow = true })).StatusCode);
+            Assert.Equal("10", (await (await parent.GetAsync($"/api/g/{slug}")).ReadAsync()).GetProperty("follow").GetProperty("following").EnumerateArray().Single().GetString());
+
+            await Tag(admin, photos[0], "10");
+            await Tag(admin, await app.WithDbAsync(db => db.Photos.Where(x => x.GalleryId == offId).Select(x => x.Id).FirstAsync()), "10");
+            await Tag(admin, await app.WithDbAsync(db => db.Photos.Where(x => x.GalleryId == nextId).Select(x => x.Id).FirstAsync()), "10");
+            await SendAsync(TimeSpan.FromMinutes(31));
+            var m = Assert.Single(await MailToAsync(mail));
+            Assert.Contains("1 new photo in Follow Site\n", m.Body);
+            Assert.Contains("1 new photo in Follow Site Next Game", m.Body);
+            Assert.DoesNotContain("Follow Site Off", m.Body);
+            Assert.Contains("http://localhost/players", m.Body);
+
+            // a player of a team the parent cannot see is refused
+            var hidden = await (await admin.PostAsJsonAsync("/api/admin/teams", new { name = "Follow Hidden FC", colors = "red", roster = "4" })).ReadAsync();
+            var four = hidden.GetProperty("players").EnumerateArray().Single().GetProperty("id").GetInt32();
+            Assert.Equal(HttpStatusCode.BadRequest, (await parent.PostAsJsonAsync("/api/me/players", new { playerId = four, follow = true })).StatusCode);
+        }
+        finally
+        {
+            await admin.PutAsJsonAsync("/api/admin/settings/follow", new { enabled = false });
+            Serial.Release();
+        }
+    }
 }

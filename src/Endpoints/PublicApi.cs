@@ -130,11 +130,11 @@ public static class PublicApi
             var tagColors = await Tags.ColorsAsync(db, gTags.Concat(tagNames.Values.SelectMany(v => v)));
             var players = await PlayerTags.ChipsAsync(db, tagNames.Values.SelectMany(v => v));
             object? follow = null;
-            if (PlayerFollows.Offered(g, settings))
+            var followTeam = g.TeamId == null ? null : await db.Teams.AsNoTracking().Include(t => t.Players).FirstOrDefaultAsync(t => t.Id == g.TeamId);
+            if (PlayerFollows.Offered(g, followTeam, settings))
             {
                 var followSub = AuthApi.Sub(ctx);
-                var followTeam = followSub == null ? null : await db.Teams.AsNoTracking().Include(t => t.Players).FirstOrDefaultAsync(t => t.Id == g.TeamId);
-                follow = new { following = followTeam == null ? new List<string>() : await PlayerFollows.FollowingAsync(db, followSub!, followTeam) };
+                follow = new { following = followSub == null ? new List<string>() : await PlayerFollows.FollowingAsync(db, followSub, followTeam!) };
             }
             var locked = g.WatermarkDownload && !admin;
             var previews = settings.LinkPreviews.Enabled;

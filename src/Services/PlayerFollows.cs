@@ -38,8 +38,51 @@ public static class PlayerFollows
     /// <summary>Emails can be sent: a mail relay and the site address (every email links back) are set up.</summary>
     public static bool Available(SettingsService settings) => settings.Email.Ready && settings.Email.SiteUrl.Length > 0;
 
-    /// <summary>The gallery offers "Follow" on its player chips.</summary>
-    public static bool Offered(Gallery g, SettingsService settings) => g.TeamId != null && g.AllowFollow && Available(settings);
+    /// <summary>New photos of the team's players in this gallery go to followers: the gallery's own choice, else the site-wide switch.</summary>
+    public static bool On(Gallery g, Team? team, bool siteWide) => team != null && g.TeamId == team.Id && (g.FollowPlayers ?? siteWide);
+
+    /// <summary>The gallery offers "Follow" on its player chips and in the photo viewer.</summary>
+    public static bool Offered(Gallery g, Team? team, SettingsService settings) => On(g, team, settings.Follow.Enabled) && Available(settings);
+
+    /// <summary>How the player is named on a chip or button: "#10", or "Emma 10" when the team puts names in tags.</summary>
+    public static string ShortLabel(Team t, Player p) => t.TagWithNames && p.Name.Length > 0 ? $"{p.Name} {p.Number}" : $"#{p.Number}";
+
+    /// <summary>
+    /// The teams a signed-in person can follow players of from the "My players" page: teams with a followable gallery that is
+    /// public or that they are invited to, plus any team they already follow someone on. Teams seen only in unlisted or
+    /// password galleries are left out here (they can still follow from those galleries), so the page reveals nothing new.
+    /// </summary>
+    public static async Task<List<Team>> TeamsForAsync(AppDb db, string sub, string? email, bool siteWide)
+    {
+        var teams = await db.Teams.AsNoTracking().Include(t => t.Players).ToListAsync();
+        var followed = (await db.PlayerFollows.AsNoTracking().Where(f => f.Sub == sub).Select(f => f.PlayerId).ToListAsync()).ToHashSet();
+        var galleries = await db.Galleries.AsNoTracking().Where(g => g.TeamId != null && (g.Visibility == Visibility.Public || g.Visibility == Visibility.Restricted)).ToListAsync();
+        var result = new List<Team>();
+        foreach (var t in teams.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            if (t.Players.Count == 0) continue;
+            var ok = t.Players.Any(p => followed.Contains(p.Id));
+            foreach (var g in galleries.Where(g => !ok && On(g, t, siteWide) && !GalleryRules.IsExpired(g)))
+                if (g.Visibility == Visibility.Public || (email != null && await GalleryPeople.AllowsEmailAsync(db, g, email))) ok = true;
+            if (ok) result.Add(t);
+        }
+        return result;
+    }
+
+    /// <summary>Follows or stops following a player for this person. Returns an error message, or null when done.</summary>
+    public static async Task<string?> SetAsync(AppDb db, string sub, string email, Player player, bool follow)
+    {
+        var f = await db.PlayerFollows.FirstOrDefaultAsync(x => x.Sub == sub && x.PlayerId == player.Id);
+        if (follow && f == null)
+        {
+            if (await db.PlayerFollows.CountAsync(x => x.Sub == sub) >= MaxPerPerson) return $"You can follow up to {MaxPerPerson} players.";
+            db.PlayerFollows.Add(new PlayerFollow { Sub = sub, Email = email, PlayerId = player.Id, Token = Passwords.NewToken() });
+        }
+        else if (follow && f != null) f.Email = email;   // mail goes to the address the account has now
+        else if (!follow && f != null) db.PlayerFollows.Remove(f);
+        await db.SaveChangesAsync();
+        return null;
+    }
 
     /// <summary>How the player is named in emails: "#10 (Hurricanes)", or "Emma 10" when the team puts names in tags.</summary>
     public static string Label(Team t, Player p) => t.TagWithNames && p.Name.Length > 0 ? $"{p.Name} {p.Number}" : $"#{p.Number} ({t.Name})";
@@ -75,7 +118,9 @@ public static class PlayerFollows
 
         var teams = await db.Teams.AsNoTracking().Include(t => t.Players).ToListAsync();
         var players = teams.SelectMany(t => t.Players.Select(p => (Team: t, Player: p))).ToDictionary(x => x.Player.Id);
-        var galleries = await db.Galleries.AsNoTracking().Where(g => g.AllowFollow && g.TeamId != null).ToListAsync();
+        var teamById = teams.ToDictionary(t => t.Id);
+        var galleries = (await db.Galleries.AsNoTracking().Where(g => g.TeamId != null).ToListAsync())
+            .Where(g => On(g, teamById.GetValueOrDefault(g.TeamId!.Value), settings.Follow.Enabled)).ToList();
         if (galleries.Count == 0) return;
         var galleryIds = galleries.Select(g => g.Id).ToList();
         var byId = galleries.ToDictionary(g => g.Id);
@@ -127,7 +172,7 @@ public static class PlayerFollows
                 ToAddr = email,
                 Subject = subject,
                 Body = $"New photos have been added on {site}:\n\n" + string.Join("\n\n", sections) +
-                       $"\n\n---\nYou get this because you follow players on {site}, at most once a day.\n" + string.Join("\n", stops)
+                       $"\n\n---\nYou get this because you follow players on {site}, at most once a day. See or change who you follow:\n{url}/players\n" + string.Join("\n", stops)
             });
             if (last == null) db.AlertStates.Add(new AlertState { Key = sentKey, At = now }); else last.At = now;
         }

@@ -425,9 +425,6 @@ namespace PhotoGallery.Migrations
                     b.Property<bool>("AllowFeedback")
                         .HasColumnType("INTEGER");
 
-                    b.Property<bool>("AllowFollow")
-                        .HasColumnType("INTEGER");
-
                     b.Property<bool>("AllowGuestUpload")
                         .HasColumnType("INTEGER");
 
@@ -487,6 +484,9 @@ namespace PhotoGallery.Migrations
                     b.Property<string>("FolderKits")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<bool?>("FollowPlayers")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("FootageLinks")
                         .IsRequired()

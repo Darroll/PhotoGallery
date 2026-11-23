@@ -2,6 +2,11 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.3.1 (not released yet)
+
+- **Follow a player is one site-wide switch.** Turn it on once at the top of Settings, **Teams**, and every team gallery offers it. A gallery's Players section can still turn it off (or on) for that gallery alone. A follow is for the player (team and number), so one follow covers every gallery of the team.
+- **Follow from more places.** In the photo viewer, the players under a photo have a ☆ to follow them. Signed-in visitors get a **★ My players** page (in the header) listing the teams they can follow, with a tap to follow or stop. Every email links to it.
+
 ## 2.3.0 (not released yet)
 
 - **Parents can follow a player.** A new switch in each gallery's Players section, off by default, lets signed-in visitors pick a player's chip and tap **Follow #10**. They then get an email, once a day at most, listing the new photos of each player they follow, with a link that opens the gallery on that player. Only approved tags count, after they have stood for 30 minutes, and only in the team's galleries that allow following and that the visitor can open. Players are named by number unless the team uses names in tags. Every email has a stop link, and the privacy tools export and delete follows. Needs sign-in (SSO) and email alerts with the site address.
