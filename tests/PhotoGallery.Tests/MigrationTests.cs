@@ -125,6 +125,31 @@ public class MigrationTests : IDisposable
     }
 
     [Fact]
+    public void Players_with_the_same_name_on_different_teams_become_one_girl_when_updating()
+    {
+        using (var db = new AppDb(Opts))
+        {
+            var migrator = Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>(db);
+            migrator.Migrate("20261123155049_GallerySeason");
+            InsertOld(db, "Teams", new() { ["Id"] = 1, ["Name"] = "OCSS" });
+            InsertOld(db, "Teams", new() { ["Id"] = 2, ["Name"] = "East Ridge" });
+            InsertOld(db, "Players", new() { ["Id"] = 1, ["TeamId"] = 1, ["Number"] = "42", ["Name"] = "Reagan" });
+            InsertOld(db, "Players", new() { ["Id"] = 2, ["TeamId"] = 2, ["Number"] = "11", ["Name"] = " reagan" });
+            InsertOld(db, "Players", new() { ["Id"] = 3, ["TeamId"] = 1, ["Number"] = "9", ["Name"] = "" });
+        }
+        using (var db = new AppDb(Opts))
+        {
+            Schema.Migrate(db);
+            var players = db.Players.OrderBy(p => p.Id).ToList();
+            Assert.NotNull(players[0].AthleteId);
+            Assert.Equal(players[0].AthleteId, players[1].AthleteId);
+            Assert.Null(players[2].AthleteId);
+            Assert.Equal("Reagan", db.Athletes.Single().Name);
+            Assert.All(db.Teams.ToList(), t => Assert.Equal("", t.Season));
+        }
+    }
+
+    [Fact]
     public void Upgrading_from_the_first_release_keeps_every_gallery_photo_and_user_and_makes_a_backup()
     {
         using (var db = new AppDb(Opts))
@@ -203,6 +228,7 @@ public class MigrationTests : IDisposable
         db.Database.ExecuteSqlRaw("DROP TABLE \"PlayerSuggestions\"");
         db.Database.ExecuteSqlRaw("DROP TABLE \"Players\"");
         db.Database.ExecuteSqlRaw("DROP TABLE \"Teams\"");
+        db.Database.ExecuteSqlRaw("DROP TABLE \"Athletes\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Photos\" DROP COLUMN \"PlayerCheckAttempts\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Photos\" DROP COLUMN \"PlayersCheckedAt\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"TeamId\"");

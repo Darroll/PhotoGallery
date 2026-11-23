@@ -4,11 +4,19 @@ using Microsoft.EntityFrameworkCore;
 
 namespace PhotoGallery;
 
-/// <summary>A team whose players are tagged automatically: its jersey colours and roster.</summary>
+/// <summary>
+/// One season of a team whose players are tagged automatically: its jersey colours and roster for that season. Seasons of
+/// the same team share its <see cref="Name"/> and differ in <see cref="Season"/> ("Fall 2026"); each has its own roster and
+/// jerseys (a pink year). A gallery picks one, and its season is the gallery's season on the home page.
+/// </summary>
 public class Team
 {
     public int Id { get; set; }
     public string Name { get; set; } = "";
+    /// <summary>"Fall 2026", or empty for a team set up before seasons (or one that does not use them).</summary>
+    public string Season { get; set; } = "";
+    /// <summary>"Hurricanes (Fall 2026)", or just the name without a season. For admin lists, the My players page and emails.</summary>
+    public string FullName => Season.Length == 0 ? Name : $"{Name} ({Season})";
     /// <summary>
     /// How our jerseys look, in plain words, one set per line, optionally named: "Home: white shirts with blue numbers".
     /// The model only reads numbers on these. Each gallery can pick one set (<see cref="Gallery.TeamKit"/>).
@@ -29,6 +37,19 @@ public class Player
     public string Number { get; set; } = "";
     /// <summary>Optional. Used in tags only when the team's TagWithNames is on.</summary>
     public string Name { get; set; } = "";
+    /// <summary>
+    /// The girl herself, the same on every roster she is on (#42 on OCSS, #11 on East Ridge): rosters link by the name typed.
+    /// Following her follows every roster place she has. Null for a player without a name.
+    /// </summary>
+    public int? AthleteId { get; set; }
+}
+
+/// <summary>A player as a person, across teams and seasons. Known by name only to the admin; parents see numbers unless the team uses names in tags.</summary>
+public class Athlete
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 /// <summary>A player a model thinks is in a photo. Waits for the admin unless it was approved automatically.</summary>
@@ -350,6 +371,41 @@ public static class PlayerTags
     }
 
     /// <summary>
+    /// Links each named player on these rosters to the girl of that name (made the first time the name is seen), so the same
+    /// girl on several teams and seasons is one person for follows. A player without a name is linked to nobody. People no
+    /// roster names any more are removed. Call after the players are saved.
+    /// </summary>
+    public static async Task LinkAthletesAsync(AppDb db, params Team[] teams)
+    {
+        var known = await db.Athletes.ToListAsync();
+        var byName = known.GroupBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var made = new List<(Player Player, Athlete Athlete)>();
+        foreach (var p in teams.SelectMany(t => t.Players))
+        {
+            var name = p.Name.Trim();
+            if (name.Length == 0) { p.AthleteId = null; continue; }
+            if (!byName.TryGetValue(name, out var a)) { a = new Athlete { Name = name }; byName[name] = a; db.Athletes.Add(a); }
+            if (a.Id == 0) made.Add((p, a)); else p.AthleteId = a.Id;
+        }
+        await db.SaveChangesAsync();
+        foreach (var (p, a) in made) p.AthleteId = a.Id;
+        await db.SaveChangesAsync();
+        var used = await db.Players.Where(p => p.AthleteId != null).Select(p => p.AthleteId!.Value).Distinct().ToListAsync();
+        db.Athletes.RemoveRange(await db.Athletes.Where(a => !used.Contains(a.Id)).ToListAsync());
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>These roster places plus every other roster place of the same girls (other teams and seasons).</summary>
+    public static async Task<HashSet<int>> SameGirlAsync(AppDb db, IEnumerable<int> playerIds)
+    {
+        var ids = playerIds.ToHashSet();
+        if (ids.Count == 0) return ids;
+        var athletes = await db.Players.AsNoTracking().Where(p => ids.Contains(p.Id) && p.AthleteId != null).Select(p => p.AthleteId!.Value).Distinct().ToListAsync();
+        if (athletes.Count > 0) ids.UnionWith(await db.Players.AsNoTracking().Where(p => p.AthleteId != null && athletes.Contains(p.AthleteId.Value)).Select(p => p.Id).ToListAsync());
+        return ids;
+    }
+
+    /// <summary>
     /// The player chips for a gallery's filter: which of these tag names are players' tags, in jersey order. A tag counts
     /// in either form ("Hurricanes 10" or "Emma 10"), so photos tagged before the team's name setting changed still filter.
     /// The label is "#10" when every chip is one team's team-and-number tag, otherwise the tag itself.
@@ -368,7 +424,8 @@ public static class PlayerTags
                 if (present.TryGetValue(plain, out var a)) found.TryAdd(a, (t, p, false));
                 if (named != null && present.TryGetValue(named, out var b)) found.TryAdd(b, (t, p, true));
             }
-        var shortLabels = found.Values.All(x => !x.Named) && found.Values.Select(x => x.Team.Id).Distinct().Count() == 1;
+        // seasons of one team share its name, so "Hurricanes 10" from any season is still that team's #10
+        var shortLabels = found.Values.All(x => !x.Named) && found.Values.Select(x => x.Team.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1;
         return found
             .OrderBy(x => x.Value.Team.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => int.TryParse(x.Value.Player.Number, out var n) ? n : int.MaxValue)

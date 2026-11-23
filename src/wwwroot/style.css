@@ -715,3 +715,7 @@ details.season > summary::-webkit-details-marker { display: none; }
 details.season > summary::before { content: "\25B6"; font-size: 11px; color: var(--muted); transition: transform .15s; }
 details.season[open] > summary::before { transform: rotate(90deg); }
 details.season .season-name { font-family: var(--font-heading); font-size: 20px; font-weight: 600; }
+
+/* Teams page: a team's seasons inside its card */
+.team-card > .season-card { margin: 10px 0 10px 12px; }
+.team-card .new-season { margin: 12px 0 4px 12px; }

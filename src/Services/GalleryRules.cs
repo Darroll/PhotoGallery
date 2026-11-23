@@ -39,8 +39,16 @@ public static class GalleryRules
         };
     }
 
-    /// <summary>The season heading a gallery is listed under: the one typed on the gallery, else the automatic one. Empty when seasons are off.</summary>
-    public static string SeasonOf(Gallery g, string mode) => mode == "off" ? "" : CleanSeason(g.Season) is { Length: > 0 } own ? own : AutoSeason(g, mode);
+    /// <summary>
+    /// The season heading a gallery is listed under: the one typed on the gallery, else the season of its team (the team
+    /// season it picked, "Fall 2026"), else the automatic one from the date. Empty when seasons are off.
+    /// </summary>
+    public static string SeasonOf(Gallery g, string mode, string? teamSeason = null) =>
+        mode == "off" ? "" : CleanSeason(g.Season) is { Length: > 0 } own ? own : CleanSeason(teamSeason) is { Length: > 0 } ts ? ts : AutoSeason(g, mode);
+
+    /// <summary>The season a gallery gets when its Season box is empty: its team's season, else the one from the date.</summary>
+    public static string DefaultSeason(Gallery g, string mode, string? teamSeason = null) =>
+        mode == "off" ? "" : CleanSeason(teamSeason) is { Length: > 0 } ts ? ts : AutoSeason(g, mode);
 
     public static string CleanSeason(string? s) => new string((s ?? "").Where(c => !char.IsControl(c)).Take(MaxSeason).ToArray()).Trim();
 
@@ -48,13 +56,14 @@ public static class GalleryRules
     /// Galleries grouped by season, newest season first (the season whose latest gallery is newest), keeping the given order inside
     /// each season. Galleries with the same season text (any letter case) share a group. With seasons off, one group with an empty name.
     /// </summary>
-    public static List<(string Season, List<Gallery> Galleries)> GroupBySeason(IEnumerable<Gallery> ordered, string mode)
+    public static List<(string Season, List<Gallery> Galleries)> GroupBySeason(IEnumerable<Gallery> ordered, string mode, Func<Gallery, string?>? teamSeason = null)
     {
         var list = ordered.ToList();
         if (mode == "off") return [("", list)];
-        return list.GroupBy(g => SeasonOf(g, mode), StringComparer.OrdinalIgnoreCase)
+        string Of(Gallery g) => SeasonOf(g, mode, teamSeason?.Invoke(g));
+        return list.GroupBy(Of, StringComparer.OrdinalIgnoreCase)
             .OrderByDescending(x => x.Max(SeasonDate))
-            .Select(x => (SeasonOf(x.First(), mode), x.ToList())).ToList();
+            .Select(x => (Of(x.First()), x.ToList())).ToList();
     }
 
     /// <summary>Orders galleries for the home page and the admin list. Galleries without an event date come last in date orders.</summary>

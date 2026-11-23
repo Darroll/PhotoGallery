@@ -8,7 +8,7 @@ namespace PhotoGallery;
 /// </summary>
 public static class PlayerApi
 {
-    record TeamInput(string? Name, string? Colors, bool? TagWithNames, string? Roster);
+    record TeamInput(string? Name, string? Colors, bool? TagWithNames, string? Roster, string? Season = null);
     /// <summary>A fix to one photo: the player really in it (a roster number, or none for "not a player"), replacing a suggestion or a number read wrongly.</summary>
     record PhotoPlayerInput(string? Number, int? Suggestion, string? Sighting);
     record AutoTagInput(bool? AutoTag);
@@ -18,16 +18,16 @@ public static class PlayerApi
     record TestInput(string? Kind, VisionSettings? Settings);
     record NewPlayerInput(string? Number, string? Name, List<int>? Skip = null);
     record NumberInput(string? Number);
-    record CopyTeamInput(string? Name);
+    record CopyTeamInput(string? Season, string? Name = null);
 
     static bool Csrf(HttpContext ctx) => ctx.Request.Headers["X-Requested-With"] == "pg";
     static string Cut(string? s, int max) { s = (s ?? "").Trim(); return s.Length > max ? s[..max] : s; }
 
     static object TeamOut(Team t, int galleries) => new
     {
-        t.Id, t.Name, t.Colors, t.TagWithNames, galleries,
+        t.Id, t.Name, t.Season, fullName = t.FullName, t.Colors, t.TagWithNames, galleries, t.CreatedAt,
         kits = PlayerTags.Kits(t.Colors).Select(k => { var (shirt, number) = PlayerTags.SplitJersey(k.Description); return new { name = k.Name, description = k.Description, shirt, number }; }),
-        players = t.Players.OrderBy(p => p.Number.Length).ThenBy(p => p.Number, StringComparer.Ordinal).Select(p => new { p.Id, p.Number, p.Name }),
+        players = t.Players.OrderBy(p => p.Number.Length).ThenBy(p => p.Number, StringComparer.Ordinal).Select(p => new { p.Id, p.Number, p.Name, p.AthleteId }),
         roster = string.Join("\n", t.Players.OrderBy(p => p.Number.Length).ThenBy(p => p.Number, StringComparer.Ordinal).Select(p => p.Name.Length > 0 ? $"{p.Number} {p.Name}" : p.Number)),
     };
 
@@ -73,7 +73,7 @@ public static class PlayerApi
         // --- teams ---
         secured.MapGet("/teams", async (AppDb db) =>
         {
-            var teams = await db.Teams.Include(t => t.Players).OrderBy(t => t.Name).ToListAsync();
+            var teams = await db.Teams.Include(t => t.Players).OrderBy(t => t.Name).ThenByDescending(t => t.CreatedAt).ToListAsync();
             var use = await db.Galleries.Where(g => g.TeamId != null).GroupBy(g => g.TeamId!.Value).Select(x => new { x.Key, n = x.Count() }).ToDictionaryAsync(x => x.Key, x => x.n);
             return Results.Ok(teams.Select(t => TeamOut(t, use.GetValueOrDefault(t.Id))));
         });
@@ -86,6 +86,7 @@ public static class PlayerApi
             if (err != null) return Results.BadRequest(err);
             db.Teams.Add(t);
             await db.SaveChangesAsync();
+            await PlayerTags.LinkAthletesAsync(db, t);
             await PlayerTags.AdoptSightingsAsync(db, t);
             return Results.Ok(TeamOut(t, 0));
         });
@@ -98,23 +99,26 @@ public static class PlayerApi
             var err = await ApplyAsync(db, t, input);
             if (err != null) return Results.BadRequest(err);
             await db.SaveChangesAsync();
+            await PlayerTags.LinkAthletesAsync(db, t);
             await PlayerTags.AdoptSightingsAsync(db, t);
             return Results.Ok(TeamOut(t, await db.Galleries.CountAsync(g => g.TeamId == id)));
         });
 
-        // A new team for a new season: the same jerseys, names-in-tags choice and roster under a new name, so only the players who
-        // left or joined need changing. Galleries, tags and follows stay with the old team, so last season's #10 stays her own player.
+        // A new season of a team: the same name, jerseys, names-in-tags choice and roster, so only the players who left or joined
+        // (and a new jersey) need changing. Galleries and tags stay with the old season; named players are the same girls, so follows carry on.
         secured.MapPost("/teams/{id:int}/copy", async (int id, CopyTeamInput input, HttpContext ctx, AppDb db) =>
         {
             if (!Csrf(ctx)) return Results.BadRequest("missing header");
             var src = await db.Teams.AsNoTracking().Include(x => x.Players).FirstOrDefaultAsync(x => x.Id == id);
             if (src == null) return Results.NotFound();
+            if (GalleryRules.CleanSeason(input.Season).Length == 0) return Results.BadRequest("Type the new season, such as Spring 2027.");
             var roster = string.Join("\n", src.Players.OrderBy(p => p.Number.Length).ThenBy(p => p.Number, StringComparer.Ordinal).Select(p => p.Name.Length > 0 ? $"{p.Number} {p.Name}" : p.Number));
             var t = new Team();
-            var err = await ApplyAsync(db, t, new TeamInput(input.Name, src.Colors, src.TagWithNames, roster));
+            var err = await ApplyAsync(db, t, new TeamInput(string.IsNullOrWhiteSpace(input.Name) ? src.Name : input.Name, src.Colors, src.TagWithNames, roster, input.Season));
             if (err != null) return Results.BadRequest(err);
             db.Teams.Add(t);
             await db.SaveChangesAsync();
+            await PlayerTags.LinkAthletesAsync(db, t);
             return Results.Ok(TeamOut(t, 0));
         });
 
@@ -127,6 +131,7 @@ public static class PlayerApi
             foreach (var g in await db.Galleries.Where(g => g.TeamId == id).ToListAsync()) g.TeamId = null;
             db.Teams.Remove(t);
             await db.SaveChangesAsync();
+            await PlayerTags.LinkAthletesAsync(db);   // forgets girls no roster names any more
             return Results.NoContent();
         });
 
@@ -149,6 +154,7 @@ public static class PlayerApi
                 foreach (var x in await db.NumberSightings.Where(x => x.TeamId == id && x.Number == number && ids.Contains(x.PhotoId)).ToListAsync()) x.Fixed = true;
             }
             await db.SaveChangesAsync();
+            await PlayerTags.LinkAthletesAsync(db, t);
             var added = await PlayerTags.AdoptSightingsAsync(db, t);
             return Results.Ok(new { number, name, suggestions = added });
         });
@@ -349,8 +355,11 @@ public static class PlayerApi
     {
         var name = Cut(input.Name, 30);
         if (name.Length == 0) return "Give the team a name.";
-        if (await db.Teams.AnyAsync(x => x.Id != t.Id && x.Name.ToLower() == name.ToLower())) return "Another team already has that name.";
+        var season = input.Season == null ? t.Season : GalleryRules.CleanSeason(input.Season);
+        if (await db.Teams.AnyAsync(x => x.Id != t.Id && x.Name.ToLower() == name.ToLower() && x.Season.ToLower() == season.ToLower()))
+            return season.Length == 0 ? "Another team already has that name. Give this one a season, such as Fall 2026." : $"{name} already has a {season} season.";
         t.Name = name;
+        t.Season = season;
         t.Colors = string.Join("\n", PlayerTags.Kits(Cut(input.Colors, 20000)).Take(100).Select(k => k.Name == k.Description ? k.Description : $"{k.Name}: {k.Description}"));
         t.TagWithNames = input.TagWithNames == true;
         if (input.Roster != null)

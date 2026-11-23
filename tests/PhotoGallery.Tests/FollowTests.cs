@@ -238,4 +238,38 @@ public class FollowTests(UserFactory app) : IClassFixture<UserFactory>
             Serial.Release();
         }
     }
+
+    [Fact]
+    public async Task Following_a_girl_covers_every_team_she_is_on()
+    {
+        await Serial.WaitAsync();
+        try
+        {
+            var admin = await app.AdminAsync();
+            await EmailOnAsync(admin);
+            var (gidA, slugA, photosA) = await TeamGalleryAsync(admin, "Follow OCSS", 2, roster: "42 Reagan Q\n9 Mia Q");
+            var (gidB, slugB, photosB) = await TeamGalleryAsync(admin, "Follow East", 2, roster: "11 Reagan Q");
+            foreach (var g in new[] { gidA, gidB }) await admin.PutAsJsonAsync($"/api/admin/galleries/{g}/follow", new { allow = true });
+            const string mail = "parent-reagan@example.test";
+            var parent = app.AsUser("parent-reagan", mail);
+
+            Assert.Equal(HttpStatusCode.OK, (await parent.PostAsJsonAsync($"/api/g/{slugA}/follow", FollowBody("Follow OCSS FC 42"))).StatusCode);
+            // she shows as followed on the other team too, as that team's number
+            Assert.Equal("11", (await (await parent.GetAsync($"/api/g/{slugB}")).ReadAsync()).GetProperty("follow").GetProperty("following").EnumerateArray().Single().GetString());
+
+            await Tag(admin, photosA[0], "42");
+            await Tag(admin, photosB[0], "11");
+            await Tag(admin, photosB[1], "11");
+            await SendAsync(TimeSpan.FromHours(1));
+            var m = Assert.Single(await MailToAsync(mail));
+            Assert.Contains("1 new photo in Follow OCSS", m.Body);
+            Assert.Contains("2 new photos in Follow East", m.Body);
+            Assert.Contains("?player=" + Uri.EscapeDataString("Follow East FC 11"), m.Body);
+
+            // stopping on one team stops her everywhere
+            Assert.Equal(HttpStatusCode.OK, (await parent.PostAsJsonAsync($"/api/g/{slugB}/follow", FollowBody("Follow East FC 11", false))).StatusCode);
+            Assert.Empty((await (await parent.GetAsync($"/api/g/{slugA}")).ReadAsync()).GetProperty("follow").GetProperty("following").EnumerateArray());
+        }
+        finally { Serial.Release(); }
+    }
 }

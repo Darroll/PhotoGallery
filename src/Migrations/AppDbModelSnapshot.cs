@@ -15,7 +15,7 @@ partial class AppDbModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261123155049_GallerySeason";
+    public override string LastMigrationId => "20261123174035_LinkSameNamedPlayers";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -69,6 +69,28 @@ partial class AppDbModelSnapshot : ModelSnapshot
                 b.HasKey("Sub");
 
                 b.ToTable("Users");
+            });
+
+        modelBuilder.Entity("PhotoGallery.Athlete", b =>
+            {
+                b.Property<int>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("INTEGER");
+
+                b.Property<DateTime>("CreatedAt")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Name")
+                    .IsRequired()
+                    .HasColumnType("TEXT")
+                    .UseCollation("NOCASE");
+
+                b.HasKey("Id");
+
+                b.HasIndex("Name")
+                    .IsUnique();
+
+                b.ToTable("Athletes");
             });
 
         modelBuilder.Entity("PhotoGallery.CaptionEdit", b =>
@@ -833,6 +855,9 @@ partial class AppDbModelSnapshot : ModelSnapshot
                     .ValueGeneratedOnAdd()
                     .HasColumnType("INTEGER");
 
+                b.Property<int?>("AthleteId")
+                    .HasColumnType("INTEGER");
+
                 b.Property<string>("Name")
                     .IsRequired()
                     .HasColumnType("TEXT");
@@ -845,6 +870,8 @@ partial class AppDbModelSnapshot : ModelSnapshot
                     .HasColumnType("INTEGER");
 
                 b.HasKey("Id");
+
+                b.HasIndex("AthleteId");
 
                 b.HasIndex("TeamId", "Number")
                     .IsUnique();
@@ -1060,6 +1087,10 @@ partial class AppDbModelSnapshot : ModelSnapshot
                     .IsRequired()
                     .HasColumnType("TEXT");
 
+                b.Property<string>("Season")
+                    .IsRequired()
+                    .HasColumnType("TEXT");
+
                 b.Property<bool>("TagWithNames")
                     .HasColumnType("INTEGER");
 
@@ -1149,6 +1180,11 @@ partial class AppDbModelSnapshot : ModelSnapshot
 
         modelBuilder.Entity("PhotoGallery.Player", b =>
             {
+                b.HasOne("PhotoGallery.Athlete", null)
+                    .WithMany()
+                    .HasForeignKey("AthleteId")
+                    .OnDelete(DeleteBehavior.SetNull);
+
                 b.HasOne("PhotoGallery.Team", "Team")
                     .WithMany("Players")
                     .HasForeignKey("TeamId")

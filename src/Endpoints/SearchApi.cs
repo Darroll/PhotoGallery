@@ -39,11 +39,12 @@ public static class SearchApi
         {
             var used = (await db.Galleries.AsNoTracking().Where(g => g.Visibility == Visibility.Public && g.TeamId != null).ToListAsync())
                 .Where(g => !GalleryRules.IsExpired(g)).Select(g => g.TeamId!.Value).Distinct().ToList();
-            var rows = await db.Teams.AsNoTracking().Where(t => used.Contains(t.Id)).Select(t => new { t.Id, t.Name }).ToListAsync();
-            return Results.Ok(rows.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase));
+            // one entry per team name: the filter covers all of a team's seasons
+            var names = await db.Teams.AsNoTracking().Where(t => used.Contains(t.Id)).Select(t => t.Name).ToListAsync();
+            return Results.Ok(names.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).Select(n => new { name = n }));
         });
 
-        app.MapGet("/api/search", async (string? q, string? where, string? tag, string? from, string? to, string? scope, int? team, AppDb db) =>
+        app.MapGet("/api/search", async (string? q, string? where, string? tag, string? from, string? to, string? scope, string? team, AppDb db) =>
         {
             var term = Clean(q, 80);
             var place = Clean(where, 80);
@@ -56,7 +57,14 @@ public static class SearchApi
             DateTime? end = DateTime.TryParse(to, out var toDate) ? toDate.Date.AddDays(1) : null;
 
             var galleries = (await db.Galleries.AsNoTracking().Where(g => g.Visibility == Visibility.Public).ToListAsync())
-                .Where(g => !GalleryRules.IsExpired(g) && (team == null || g.TeamId == team)).ToList();
+                .Where(g => !GalleryRules.IsExpired(g)).ToList();
+            // team: a team's name, covering all its seasons
+            if (!string.IsNullOrWhiteSpace(team))
+            {
+                var wanted = team.Trim().ToLower();
+                var teamIds = await db.Teams.AsNoTracking().Where(t => t.Name.ToLower() == wanted).Select(t => t.Id).ToListAsync();
+                galleries = galleries.Where(g => g.TeamId != null && teamIds.Contains(g.TeamId.Value)).ToList();
+            }
             var byId = galleries.ToDictionary(g => g.Id);
             var ids = byId.Keys.ToList();
 

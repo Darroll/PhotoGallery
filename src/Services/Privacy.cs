@@ -134,7 +134,7 @@ public static class Privacy
             ["subscription"] = await db.Subscribers.AsNoTracking().Where(s => s.Email.ToLower() == email).Select(s => new { s.Email, s.CreatedAt, s.ConfirmedAt, s.Unsubscribed }).ToListAsync(),
             ["playerFollows"] = await (from f in db.PlayerFollows.AsNoTracking() where f.Email.ToLower() == email || p.Subs.Contains(f.Sub)
                                        join pl in db.Players on f.PlayerId equals pl.Id join t in db.Teams on pl.TeamId equals t.Id
-                                       select new { team = t.Name, number = pl.Number, f.Email, f.CreatedAt }).ToListAsync(),
+                                       select new { team = t.Name, season = t.Season, number = pl.Number, f.Email, f.CreatedAt }).ToListAsync(),
             ["commentBlock"] = await db.CommentBlocks.AsNoTracking().Where(b => b.Email.ToLower() == email || p.Subs.Contains(b.Sub)).Select(b => new { b.Name, b.Reason, b.At }).ToListAsync(),
             ["groupMemberships"] = await db.GroupMembers.AsNoTracking().Where(m => m.Email.ToLower() == email)
                 .Join(db.PeopleGroups, m => m.GroupId, g => g.Id, (m, g) => g.Name).ToListAsync(),

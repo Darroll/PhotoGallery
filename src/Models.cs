@@ -222,6 +222,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<PlayerSuggestion> PlayerSuggestions => Set<PlayerSuggestion>();
     public DbSet<NumberSighting> NumberSightings => Set<NumberSighting>();
     public DbSet<PlayerFollow> PlayerFollows => Set<PlayerFollow>();
+    public DbSet<Athlete> Athletes => Set<Athlete>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -257,6 +258,9 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<Photo>().HasOne(p => p.Gallery).WithMany(g => g.Photos).HasForeignKey(p => p.GalleryId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Player>().HasOne(p => p.Team).WithMany(t => t.Players).HasForeignKey(p => p.TeamId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<Player>().HasIndex(p => new { p.TeamId, p.Number }).IsUnique();
+        b.Entity<Player>().HasOne<Athlete>().WithMany().HasForeignKey(p => p.AthleteId).OnDelete(DeleteBehavior.SetNull);
+        b.Entity<Athlete>().Property(a => a.Name).UseCollation("NOCASE");
+        b.Entity<Athlete>().HasIndex(a => a.Name).IsUnique();
         b.Entity<PlayerSuggestion>().HasOne<Photo>().WithMany().HasForeignKey(s => s.PhotoId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<PlayerSuggestion>().HasOne<Player>().WithMany().HasForeignKey(s => s.PlayerId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<PlayerSuggestion>().HasIndex(s => new { s.PhotoId, s.PlayerId }).IsUnique();
