@@ -4,7 +4,7 @@ namespace PhotoGallery;
 
 public record ScanResult(int Added, int Removed, int Total, int SkippedRaw, int Paired, int RawOnly, int Moved = 0, int Retimed = 0, double Seconds = 0);
 
-public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs, ILogger<Scanner> log)
+public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs, ILogger<Scanner> log, PlayerTagJobs players, SettingsService settings)
 {
     static readonly SemaphoreSlim ScanGate = new(1, 1);
     static readonly char[] Separators = ['-', '_', ' ', '(', '.'];
@@ -17,13 +17,21 @@ public class Scanner(AppConfig cfg, ImageService images, ThumbnailService thumbs
     public async Task<ScanResult> ScanAsync(AppDb db, Gallery g)
     {
         await ScanGate.WaitAsync();
+        ScanResult r;
         try
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();   // the scan itself, not the wait for another scan to finish
-            var r = await ScanInnerAsync(db, g);
-            return r with { Seconds = Math.Round(clock.Elapsed.TotalSeconds, 1) };
+            r = await ScanInnerAsync(db, g);
+            r = r with { Seconds = Math.Round(clock.Elapsed.TotalSeconds, 1) };
         }
         finally { ScanGate.Release(); }
+        // new photos in a gallery that checks them automatically: queue a player check (it runs in the background)
+        if (r.Added > 0)
+        {
+            try { await players.AutoStartAsync(db, g, settings.Vision); }
+            catch (Exception ex) { log.LogWarning(ex, "Could not queue the automatic player check of {Slug}", g.Slug); }
+        }
+        return r;
     }
 
     async Task<ScanResult> ScanInnerAsync(AppDb db, Gallery g)

@@ -15,7 +15,7 @@ namespace PhotoGallery.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "9.0.23");
+            modelBuilder.HasAnnotation("ProductVersion", "11.0.0");
 
             modelBuilder.Entity("PhotoGallery.AlertState", b =>
                 {
@@ -449,6 +449,9 @@ namespace PhotoGallery.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool?>("AutoTag")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("CoverMode")
                         .HasColumnType("INTEGER");
 
@@ -472,6 +475,10 @@ namespace PhotoGallery.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Folder")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FolderKits")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
@@ -511,6 +518,13 @@ namespace PhotoGallery.Migrations
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("INTEGER");
+
+                    b.Property<int?>("TeamId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TeamKit")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -602,6 +616,48 @@ namespace PhotoGallery.Migrations
                     b.ToTable("LicenseAcceptances");
                 });
 
+            modelBuilder.Entity("PhotoGallery.NumberSighting", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Confidence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Dismissed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Fixed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PhotoId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TeamId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PhotoId");
+
+                    b.HasIndex("TeamId", "Number", "PhotoId")
+                        .IsUnique();
+
+                    b.ToTable("NumberSightings");
+                });
+
             modelBuilder.Entity("PhotoGallery.PeopleGroup", b =>
                 {
                     b.Property<int>("Id")
@@ -669,6 +725,12 @@ namespace PhotoGallery.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PlayerCheckAttempts")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("PlayersCheckedAt")
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("RawLocked")
@@ -745,6 +807,83 @@ namespace PhotoGallery.Migrations
                     b.HasKey("PhotoId", "TagId");
 
                     b.ToTable("PhotoTags");
+                });
+
+            modelBuilder.Entity("PhotoGallery.Player", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TeamId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TeamId", "Number")
+                        .IsUnique();
+
+                    b.ToTable("Players");
+                });
+
+            modelBuilder.Entity("PhotoGallery.PlayerSuggestion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Confidence")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Note")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PhotoId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PlayerId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ReadAs")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Unsure")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PlayerId");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("PhotoId", "PlayerId")
+                        .IsUnique();
+
+                    b.ToTable("PlayerSuggestions");
                 });
 
             modelBuilder.Entity("PhotoGallery.ShareLink", b =>
@@ -846,6 +985,31 @@ namespace PhotoGallery.Migrations
                     b.ToTable("Tags");
                 });
 
+            modelBuilder.Entity("PhotoGallery.Team", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Colors")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("TagWithNames")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Teams");
+                });
+
             modelBuilder.Entity("PhotoGallery.Visit", b =>
                 {
                     b.Property<long>("Id")
@@ -899,6 +1063,21 @@ namespace PhotoGallery.Migrations
                     b.ToTable("Visits");
                 });
 
+            modelBuilder.Entity("PhotoGallery.NumberSighting", b =>
+                {
+                    b.HasOne("PhotoGallery.Photo", null)
+                        .WithMany()
+                        .HasForeignKey("PhotoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PhotoGallery.Team", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("PhotoGallery.Photo", b =>
                 {
                     b.HasOne("PhotoGallery.Gallery", "Gallery")
@@ -908,6 +1087,32 @@ namespace PhotoGallery.Migrations
                         .IsRequired();
 
                     b.Navigation("Gallery");
+                });
+
+            modelBuilder.Entity("PhotoGallery.Player", b =>
+                {
+                    b.HasOne("PhotoGallery.Team", "Team")
+                        .WithMany("Players")
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Team");
+                });
+
+            modelBuilder.Entity("PhotoGallery.PlayerSuggestion", b =>
+                {
+                    b.HasOne("PhotoGallery.Photo", null)
+                        .WithMany()
+                        .HasForeignKey("PhotoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PhotoGallery.Player", null)
+                        .WithMany()
+                        .HasForeignKey("PlayerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("PhotoGallery.ShareLink", b =>
@@ -926,6 +1131,11 @@ namespace PhotoGallery.Migrations
                     b.Navigation("Links");
 
                     b.Navigation("Photos");
+                });
+
+            modelBuilder.Entity("PhotoGallery.Team", b =>
+                {
+                    b.Navigation("Players");
                 });
 #pragma warning restore 612, 618
         }

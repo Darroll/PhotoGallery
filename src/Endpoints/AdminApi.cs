@@ -563,12 +563,13 @@ public static class AdminApi
         });
 
         // --- guest upload moderation ---
-        secured.MapPost("/photos/{id:int}/approve", async (int id, AppDb db) =>
+        secured.MapPost("/photos/{id:int}/approve", async (int id, AppDb db, PlayerTagJobs players, SettingsService settings) =>
         {
             var p = await db.Photos.FindAsync(id);
             if (p == null) return Results.NotFound();
             p.Approved = true;
             await db.SaveChangesAsync();
+            if (await db.Galleries.FindAsync(p.GalleryId) is { } pg) await players.AutoStartAsync(db, pg, settings.Vision);
             return Results.NoContent();
         });
 

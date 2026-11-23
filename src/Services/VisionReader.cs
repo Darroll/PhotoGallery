@@ -1,0 +1,204 @@
+using System.Diagnostics;
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using Anthropic;
+using Anthropic.Models.Messages;
+
+namespace PhotoGallery;
+
+/// <summary>A jersey number a model read on a photo, with how sure it was (0-100).</summary>
+/// <summary>A number read on a player. "?" stands for a digit that could not be seen; <paramref name="Partial"/> says part of the number was hidden.</summary>
+public record SeenNumber(string Number, int Confidence, bool Partial = false);
+
+/// <summary>What one provider answered: the numbers, which provider and model, and how long it took.</summary>
+public record VisionAnswer(List<SeenNumber> Numbers, string Provider, string Model, long Ms);
+
+/// <summary>Sends a photo and a question to one AI provider. An interface so tests can stand in for real models.</summary>
+public interface IVisionReader
+{
+    /// <summary>Asks one provider. Throws when the provider cannot be reached or answers with something unreadable.</summary>
+    Task<VisionAnswer> AskAsync(VisionProvider provider, byte[] jpeg, string prompt, CancellationToken ct);
+}
+
+public class VisionReader : IVisionReader
+{
+    static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };   // each request has its own limit, set per provider
+
+    public async Task<VisionAnswer> AskAsync(VisionProvider p, byte[] jpeg, string prompt, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        if (p.TimeoutSeconds > 0) limit.CancelAfter(TimeSpan.FromSeconds(p.TimeoutSeconds));
+        string text;
+        try
+        {
+            text = p.Kind switch
+            {
+                "ollama" => await OllamaAsync(p, jpeg, prompt, limit.Token),
+                "anthropic" => await AnthropicAsync(p, jpeg, prompt, limit.Token),
+                "openai" => await OpenAiAsync(p, jpeg, prompt, limit.Token),
+                _ => throw new InvalidOperationException("Unknown provider " + p.Kind),
+            };
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new VisionException($"No answer within {Seconds(p.TimeoutSeconds)} (Timeout per photo, in Settings, Automatic tagging)");
+        }
+        return new VisionAnswer(PlayerPrompt.Parse(text), p.Kind, p.Model, sw.ElapsedMilliseconds);
+    }
+
+    /// <summary>The longest answer asked of Ollama. A list of numbers takes well under 200 tokens.</summary>
+    const int MaxAnswerTokens = 1024;
+
+    static async Task<string> OllamaAsync(VisionProvider p, byte[] jpeg, string prompt, CancellationToken ct)
+    {
+        var body = new
+        {
+            model = p.Model,
+            prompt,
+            images = new[] { Convert.ToBase64String(jpeg) },
+            stream = false,
+            format = "json",
+            think = false,                                       // qwen3-vl thinks by default and can ramble for minutes; reading a number needs none
+            keep_alive = "30m",                                  // stay loaded between photos instead of reloading after Ollama's default 5 idle minutes
+            options = new { temperature = 0, num_predict = MaxAnswerTokens }, // a list of numbers is short; stops a model that starts repeating itself
+        };
+        using var resp = await Http.PostAsJsonAsync($"{p.Url}/api/generate", body, ct);
+        var raw = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode) throw new VisionException($"Ollama answered {(int)resp.StatusCode}: {Short(raw)}");
+        using var doc = JsonDocument.Parse(raw);
+        var root = doc.RootElement;
+        var text = root.TryGetProperty("response", out var r) ? r.GetString() ?? "" : "";
+        if (text.Contains('{')) return text;
+        // say why there is no JSON, so the admin can tell a model that ran out of room from one that answered in words
+        var thinking = root.TryGetProperty("thinking", out var th) ? th.GetString() ?? "" : "";
+        var cut = root.TryGetProperty("done_reason", out var dr) && dr.GetString() == "length";
+        if (cut && text.Trim().Length == 0 && thinking.Trim().Length > 0)
+            throw new VisionException($"The model spent its whole answer thinking and never wrote the numbers. Use a model that answers straight away, such as qwen3-vl:8b-instruct, in Settings, Automatic tagging.");
+        var why = cut ? $"it stopped at the {MaxAnswerTokens}-token limit" : "it answered without JSON";
+        var seen = text.Trim().Length > 0 ? $" It wrote: \"{Short(text)}\"" : thinking.Trim().Length > 0 ? $" It was still thinking: \"{Short(thinking)}\"" : " Its answer was empty.";
+        throw new VisionException($"The answer had no JSON in it: {why}.{seen}");
+    }
+
+    static async Task<string> AnthropicAsync(VisionProvider p, byte[] jpeg, string prompt, CancellationToken ct)
+    {
+        // the request's own token enforces the limit; the client's timeout is set past it so it never cuts in first
+        var client = new AnthropicClient { ApiKey = p.ApiKey, Timeout = p.TimeoutSeconds > 0 ? TimeSpan.FromSeconds(p.TimeoutSeconds + 30) : TimeSpan.FromDays(1) };
+        var message = await client.Messages.Create(new MessageCreateParams
+        {
+            Model = p.Model,
+            MaxTokens = 16000,
+            OutputConfig = new OutputConfig { Effort = Effort.Low },   // reading a number is a simple task
+            Messages =
+            [
+                new UserMessageParam
+                {
+                    Content = new List<ContentBlockParam>
+                    {
+                        new ImageBlockParam { Source = new Base64ImageSource { Data = Convert.ToBase64String(jpeg), MediaType = MediaType.ImageJpeg } },
+                        new TextBlockParam { Text = prompt },
+                    },
+                },
+            ],
+        }, ct);
+        if (message.StopReason == StopReason.Refusal) throw new VisionException("Claude declined to look at this photo");
+        return string.Concat(message.Content.Select(b => b.Value).OfType<TextBlock>().Select(t => t.Text));
+    }
+
+    static async Task<string> OpenAiAsync(VisionProvider p, byte[] jpeg, string prompt, CancellationToken ct)
+    {
+        var body = new
+        {
+            model = p.Model,
+            response_format = new { type = "json_object" },
+            messages = new object[]
+            {
+                new
+                {
+                    role = "user",
+                    content = new object[]
+                    {
+                        new { type = "text", text = prompt },
+                        new { type = "image_url", image_url = new { url = "data:image/jpeg;base64," + Convert.ToBase64String(jpeg) } },
+                    },
+                },
+            },
+        };
+        using var req = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/chat/completions") { Content = JsonContent.Create(body) };
+        req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", p.ApiKey);
+        using var resp = await Http.SendAsync(req, ct);
+        var raw = await resp.Content.ReadAsStringAsync(ct);
+        if (!resp.IsSuccessStatusCode) throw new VisionException($"OpenAI answered {(int)resp.StatusCode}: {Short(raw)}");
+        using var doc = JsonDocument.Parse(raw);
+        return doc.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+    }
+
+    static string Seconds(int s) => s % 60 == 0 && s >= 60 ? $"{s / 60} minute{(s == 60 ? "" : "s")}" : $"{s} seconds";
+
+    static string Short(string s) => Regex.Replace(s, @"\s+", " ") is var t && t.Length > 200 ? t[..200] : Regex.Replace(s, @"\s+", " ");
+}
+
+/// <summary>A provider answered, but not in a usable way (an error status, a refusal, or no JSON).</summary>
+public class VisionException(string message) : Exception(message);
+
+/// <summary>The question asked about each photo, and reading the answer.</summary>
+public static class PlayerPrompt
+{
+    /// <summary>
+    /// Asks only about players in our team's colours, because the other team can wear the same numbers, and lists the roster
+    /// so the model knows which numbers are possible. Asks for a confidence so unsure readings can wait for review.
+    /// </summary>
+    public static string Build(string teamColors, IEnumerable<string> rosterNumbers)
+    {
+        var colors = string.IsNullOrWhiteSpace(teamColors) ? "our team's jerseys" : teamColors.Trim();
+        var numbers = string.Join(", ", rosterNumbers.Distinct().OrderBy(n => n.Length).ThenBy(n => n, StringComparer.Ordinal));
+        return "This is a photo from a youth sports game. Our team wears: " + colors + ". " +
+               (numbers.Length > 0 ? "Our players' jersey numbers are: " + numbers + ". " : "") +
+               "List the jersey numbers you can read on players wearing our team's jersey. " +
+               "Write each number exactly as printed, as a string: 0 and 00 are different numbers, and so are 7 and 07. " +
+               "If part of a number is hidden (by an arm, another player, a fold or the edge of the photo), write \"?\" for each digit you cannot see (\"1?\" when the second digit is covered) and set \"partial\": true. " +
+               "Never drop or guess a hidden digit: a 19 with the 9 covered is \"1?\", not \"1\" or \"10\". " +
+               "Ignore players in any other colors (the other team may wear the same numbers), referees, coaches, spectators, and numbers too blurred to read. " +
+               "Do not guess a number from a player's look or position. " +
+               "Reply only with JSON: {\"numbers\": [{\"number\": \"10\", \"confidence\": 0-100, \"partial\": false}]}. Use an empty list when no number is readable.";
+    }
+
+    /// <summary>Reads the model's reply. Tolerates text around the JSON. Numbers are 1 to 3 digits, kept exactly as written, with "?" for a hidden digit; anything else is dropped.</summary>
+    public static List<SeenNumber> Parse(string reply)
+    {
+        var start = reply.IndexOf('{');
+        var end = reply.LastIndexOf('}');
+        if (start < 0 || end <= start) throw new VisionException("The answer had no JSON in it");
+        JsonDocument doc;
+        try { doc = JsonDocument.Parse(reply[start..(end + 1)]); }
+        catch (JsonException) { throw new VisionException("The answer was not valid JSON"); }
+        using (doc)
+        {
+            var list = new List<SeenNumber>();
+            if (!doc.RootElement.TryGetProperty("numbers", out var arr) || arr.ValueKind != JsonValueKind.Array) return list;
+            foreach (var item in arr.EnumerateArray())
+            {
+                string? n = null; double conf = 50; var partial = false;
+                if (item.ValueKind == JsonValueKind.Object)
+                {
+                    if (item.TryGetProperty("number", out var nv)) n = nv.ValueKind == JsonValueKind.Number ? nv.GetRawText() : nv.GetString();
+                    if (item.TryGetProperty("confidence", out var cv))
+                        conf = cv.ValueKind == JsonValueKind.Number ? cv.GetDouble() : double.TryParse(cv.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 50;
+                    if (item.TryGetProperty("partial", out var pv)) partial = pv.ValueKind == JsonValueKind.True || (pv.ValueKind == JsonValueKind.String && pv.GetString() is "true" or "yes");
+                }
+                else if (item.ValueKind is JsonValueKind.String or JsonValueKind.Number) n = item.ValueKind == JsonValueKind.Number ? item.GetRawText() : item.GetString();
+                n = (n ?? "").Trim().TrimStart('#');
+                n = n.Replace('_', '?').Replace('x', '?').Replace('X', '?');   // other ways of writing a hidden digit
+                if (!Regex.IsMatch(n, "^[0-9?]{1,3}$") || !n.Any(char.IsDigit)) continue;
+                if (n.Contains('?')) partial = true;
+                if (conf is > 0 and <= 1) conf *= 100;   // some models answer 0.9 for 90%
+                var c = (int)Math.Round(Math.Clamp(conf, 0, 100));
+                var existing = list.FindIndex(x => x.Number == n && x.Partial == partial);
+                if (existing >= 0) { if (list[existing].Confidence < c) list[existing] = new SeenNumber(n, c, partial); }
+                else list.Add(new SeenNumber(n, c, partial));
+            }
+            return list;
+        }
+    }
+}

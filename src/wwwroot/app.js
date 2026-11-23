@@ -1520,6 +1520,8 @@ const adminNav = [
   { href: '/admin/settings/visitor-stats', key: 'settings/visitor-stats', label: 'Visitor tracking' },
   { href: '/admin/settings/email', key: 'settings/email', label: 'Email alerts' },
   { href: '/admin/settings/sso', key: 'settings/sso', label: 'Sign-in (SSO)' },
+  { href: '/admin/settings/ai', key: 'settings/ai', label: 'Automatic tagging' },
+  { href: '/admin/settings/teams', key: 'settings/teams', label: 'Teams' },
   { href: '/admin/settings/library', key: 'settings/library', label: 'Library and schedule' },
   { href: '/admin/settings/cache', key: 'settings/cache', label: 'Thumbnail cache' },
   { heading: 'Help' },
@@ -1860,7 +1862,7 @@ function newGalleryPanel(folders) {
 
 async function viewSettings(app, section) {
   document.title = 'Site settings - ' + site.title;
-  const titles = { general: 'Site and appearance', watermark: 'Watermark', review: 'Caption suggestions', tags: 'Tags', groups: 'Groups', license: 'License', privacy: 'Privacy', 'visitor-stats': 'Visitor tracking', email: 'Email alerts', sso: 'Sign-in (SSO)', cache: 'Thumbnail cache', library: 'Library and schedule' };
+  const titles = { general: 'Site and appearance', watermark: 'Watermark', review: 'Caption suggestions', tags: 'Tags', groups: 'Groups', license: 'License', privacy: 'Privacy', 'visitor-stats': 'Visitor tracking', email: 'Email alerts', sso: 'Sign-in (SSO)', cache: 'Thumbnail cache', library: 'Library and schedule', ai: 'Automatic tagging', teams: 'Teams' };
   if (!titles[section]) section = 'general';
   const main = await adminPage(app, 'settings/' + section, titles[section]);
   if (!main) return;
@@ -1875,6 +1877,8 @@ async function viewSettings(app, section) {
   if (section === 'email') return main.append(emailPanel());
   if (section === 'sso') return main.append(await ssoPanel());
   if (section === 'library') return main.append(await libraryPanel());
+  if (section === 'ai') return main.append(await visionPanel());
+  if (section === 'teams') return main.append(await teamsPanel());
   main.append(cachePanel());
 }
 
@@ -2614,6 +2618,178 @@ function photoLink(p, viewer = false) {
   return h('span', {}, main, gal ? h('span', { class: 'muted' }, ' (', gal, ')') : null);
 }
 
+// ---------- automatic tagging ----------
+const aiErr = (res) => typeof res.data === 'string' && res.data ? res.data : 'That did not work. Try again.';
+
+// The AI providers that read jersey numbers, in the order they are tried. Only providers that are switched on and fully
+// set up are tried, so with one set up there is no fallback. Keys are never shown again after saving.
+async function visionPanel() {
+  const r = await api('/api/admin/settings/vision');
+  if (!r.ok) return h('p', { class: 'err', text: 'Could not load these settings.' });
+  let rows = r.data.providers.map(p => ({ ...p, apiKey: '' }));
+  const list = h('div', { class: 'vision-list' });
+  const auto = h('input', { type: 'number', min: 0, max: 100, value: r.data.autoApproveAt, 'aria-label': 'Approve automatically at this confidence' });
+  const autoNew = h('input', { type: 'checkbox', checked: !!r.data.autoCheckNew });
+  const msg = h('span', { class: 'muted', role: 'status' });
+  const hints = {
+    ollama: 'Runs on your own computer, so photos stay on your network. Install a vision model first, for example: ollama pull qwen3-vl:8b-instruct (needs about 8 GB of graphics memory; qwen3-vl:4b-instruct for less). Use an instruct model: the thinking versions (plain qwen3-vl:8b) spend their answer reasoning and leave no room for the numbers.',
+    anthropic: 'Needs an API key from console.anthropic.com, billed per photo. A Claude Pro or Max subscription cannot be used here: Anthropic only allows API keys in other apps.',
+    openai: 'Needs an API key from platform.openai.com, billed per photo. A ChatGPT subscription cannot be used here yet. Type a model that can see images.',
+  };
+  const collect = () => ({ autoApproveAt: Number(auto.value) || 0, autoCheckNew: autoNew.checked, providers: rows.map(p => ({ kind: p.kind, enabled: p.enabled, url: p.url, model: p.model, apiKey: p.apiKey, sendPhotosAgreed: p.sendPhotosAgreed, timeoutSeconds: p.timeoutSeconds })) });
+  const draw = () => {
+    list.replaceChildren(...rows.map((p, i) => {
+      const on = h('input', { type: 'checkbox', checked: p.enabled, onchange: (e) => { p.enabled = e.target.checked; } });
+      const model = h('input', { type: 'text', value: p.model, maxlength: 100, placeholder: p.kind === 'openai' ? 'a vision model name' : '', 'aria-label': p.label + ' model', oninput: (e) => { p.model = e.target.value; } });
+      const url = p.cloud ? null : h('input', { type: 'url', value: p.url, maxlength: 200, placeholder: 'http://192.168.1.20:11434', 'aria-label': 'Ollama address', oninput: (e) => { p.url = e.target.value; } });
+      const key = p.cloud ? h('input', { type: 'password', autocomplete: 'off', maxlength: 300, placeholder: p.keySet ? 'Saved. Paste a new key to replace it.' : 'Paste the API key', 'aria-label': p.label + ' API key', oninput: (e) => { p.apiKey = e.target.value; } }) : null;
+      const agree = p.cloud ? h('label', { class: 'sheet-row' }, h('input', { type: 'checkbox', checked: p.sendPhotosAgreed, onchange: (e) => { p.sendPhotosAgreed = e.target.checked; } }),
+        ' I understand that photos, often of children, are sent to this company to be read.') : null;
+      const limit = h('input', { type: 'number', min: 0, max: 86400, step: 1, value: p.timeoutSeconds, 'aria-label': p.label + ' timeout per photo in seconds', oninput: (e) => { p.timeoutSeconds = Math.max(0, Math.round(Number(e.target.value) || 0)); } });
+      const result = h('div', { class: 'muted', role: 'status' });
+      const test = h('button', { text: 'Test', onclick: async () => {
+        test.disabled = true; result.className = 'muted'; result.textContent = 'Asking… a local model can take a minute the first time.';
+        const t = await api('/api/admin/settings/vision/test', { method: 'POST', body: { kind: p.kind, settings: collect() } });
+        test.disabled = false;
+        if (!t.ok) { result.className = 'err'; result.textContent = aiErr(t); return; }
+        if (t.data.ok) { result.className = 'ok'; result.textContent = `It answered in ${(t.data.ms / 1000).toFixed(1)} s` + (t.data.photo ? ` and read ${t.data.numbers.length ? t.data.numbers.join(', ') : 'no numbers'} on ${t.data.photo}.` : '.'); }
+        else { result.className = 'err'; result.textContent = 'It did not work: ' + t.data.error; }
+      } });
+      const move = (d) => { const j = i + d; if (j < 0 || j >= rows.length) return; [rows[i], rows[j]] = [rows[j], rows[i]]; draw(); };
+      return h('div', { class: 'group-card vision-card' },
+        h('div', { class: 'row' }, h('b', { text: `${i + 1}. ${p.label}` }), h('span', { class: 'grow' }),
+          h('button', { text: '↑', title: 'Try earlier', 'aria-label': 'Move ' + p.label + ' up', disabled: i === 0, onclick: () => move(-1) }),
+          h('button', { text: '↓', title: 'Try later', 'aria-label': 'Move ' + p.label + ' down', disabled: i === rows.length - 1, onclick: () => move(1) })),
+        h('div', { class: 'form1' },
+          field('Use it', h('label', {}, on, ' Switched on')),
+          url ? field('Address', url) : null,
+          key ? field('API key', key) : null,
+          field('Model', model),
+          field('Timeout per photo', h('label', {}, limit, ' seconds'), '0 means no limit: a stalled server then waits until you press Stop. When the time runs out the photo counts as a failed try, and the next provider is asked if one is set up.'),
+          agree ? field('Photos', agree) : null),
+        h('p', { class: 'muted', text: hints[p.kind] }),
+        h('div', { class: 'row' }, test), result);
+    }));
+  };
+  draw();
+  const save = h('button', { class: 'primary', text: 'Save', onclick: async () => {
+    const s = await api('/api/admin/settings/vision', { method: 'PUT', body: collect() });
+    if (!s.ok) { msg.textContent = aiErr(s); return; }
+    rows = s.data.providers.map(p => ({ ...p, apiKey: '' })); draw();
+    const ready = rows.filter(p => p.ready).map(p => p.label);
+    msg.textContent = ready.length === 0 ? 'Saved. No provider is ready yet, so nothing will be checked.' : ready.length === 1 ? `Saved. Only ${ready[0]} will be used; there is no fallback.` : `Saved. Tried in this order: ${ready.join(', then ')}.`;
+  } });
+  return h('div', {}, taggingActivity(), h('div', { class: 'panel' }, h('h3', { text: 'Automatic tagging' }),
+    h('p', { class: 'muted', text: 'An AI model looks at each photo and reads the jersey numbers of your team\'s players, so parents can find their child. Providers are tried from the top. Only providers that are switched on and fully set up are used, so if you set up just one, nothing else is ever tried. Photos are checked when you press a button in a gallery\'s Players section, or by themselves when new photos arrive if you switch that on below.' }),
+    list,
+    h('div', { class: 'form1' }, field('Approve automatically', h('label', {}, auto, ' % sure or more'), '0 (recommended) means every suggestion waits for you to check it. Tags are only added after you approve them.'),
+      field('New photos', h('label', {}, autoNew, ' Check new photos automatically'), 'When a scan or upload adds photos to a gallery that has a team, they are checked in the background. Each gallery can change this in its Players section; galleries left on "Use the main setting" follow this box. Suggestions still wait for your review unless you approve automatically above.')),
+    h('div', { class: 'row' }, save, msg)));
+}
+
+// Every gallery's player check: running, waiting, or ended in the last day. Refreshes every 2 seconds while one runs.
+function taggingActivity() {
+  const box = h('div', { 'aria-live': 'polite' });
+  const panel = h('div', { class: 'panel' }, h('h3', { text: 'Activity' }), box);
+  let timer = null, started = false;
+  const load = async () => {
+    clearTimeout(timer);
+    if (started && !panel.isConnected) return;
+    started = true;
+    const r = await api('/api/admin/players/jobs');
+    if (!r.ok) { box.replaceChildren(h('p', { class: 'err', text: 'Could not load the activity.' })); return; }
+    if (!r.data.length) box.replaceChildren(h('p', { class: 'muted', text: 'No checks in the last day. Start one from a gallery\'s settings, in its Players section.' }));
+    else box.replaceChildren(...r.data.map(({ job, pending }) => h('div', { class: 'job-gallery' },
+      h('h4', {}, h('a', { href: `/admin/galleries/${job.galleryId}#players`, text: job.gallery || `Gallery ${job.galleryId}` }),
+        h('span', { class: 'muted', text: job.running ? (job.waiting ? ' · waiting' : ' · running') : ' · finished' }),
+        pending ? h('span', {}, ' · ', h('a', { href: `/admin/galleries/${job.galleryId}#players`, text: `${pending} waiting for review` })) : null),
+      playerJobView(job, async () => { await api(`/api/admin/galleries/${job.galleryId}/players/stop`, { method: 'POST' }); load(); }, { recentCount: 5 }))));
+    if (r.data.some(x => x.job.running)) timer = setTimeout(load, 2000);
+    else timer = setTimeout(load, 15000);
+  };
+  load();
+  return panel;
+}
+
+// Teams with their jersey colours and roster. The model only reads numbers on players in these colours, and only
+// numbers on the roster become suggestions, because the other team can wear the same numbers.
+// Jersey colours: common names offered as suggestions (any colour can be typed), and the plain words the AI model is given.
+const JERSEY_COLOURS = ['white', 'black', 'red', 'maroon', 'orange', 'yellow', 'gold', 'green', 'dark green', 'light blue', 'blue', 'royal blue', 'navy', 'purple', 'pink', 'grey', 'silver', 'teal'];
+const jerseyText = (shirt, number) => {
+  shirt = (shirt || '').trim(); number = (number || '').trim();
+  return shirt && number ? `${shirt} shirts with ${number} numbers` : shirt ? `${shirt} shirts` : number ? `${number} numbers` : '';
+};
+function colourInput(value, label, placeholder) {
+  const sw = h('span', { class: 'swatch', 'aria-hidden': 'true' });
+  const input = h('input', { type: 'text', maxlength: 60, value: value || '', placeholder, list: 'jersey-colours', 'aria-label': label, class: 'kit-colour', oninput: () => paint() });
+  const paint = () => { const v = input.value.trim().replace(/\s+/g, ''); sw.style.background = v && CSS.supports('color', v) ? v : 'transparent'; };
+  paint();
+  const wrap = h('span', { class: 'colour-input' }, sw, input);
+  Object.defineProperty(wrap, 'value', { get: () => input.value });
+  return wrap;
+}
+
+async function teamsPanel() {
+  const box = h('div');
+  const render = async () => {
+    const r = await api('/api/admin/teams');
+    if (!r.ok) { box.replaceChildren(h('p', { class: 'err', text: 'Could not load the teams.' })); return; }
+    const editor = (t) => {
+      const msg = h('span', { class: 'muted', role: 'status' });
+      const name = h('input', { type: 'text', maxlength: 30, value: t ? t.name : '', placeholder: 'Team name, such as Hurricanes U12', 'aria-label': 'Team name' });
+      // jerseys: one row each with a name (Home, Away), the shirt colour and the number colour; saved as "Home: white shirts with black numbers"
+      const kitList = h('div', { class: 'kit-list' });
+      const kitRow = (k) => {
+        const kname = h('input', { type: 'text', maxlength: 30, value: k ? k.name : '', placeholder: 'Home', 'aria-label': 'Jersey name', class: 'kit-name' });
+        const shirt = colourInput(k ? k.shirt : '', 'Shirt colour', 'white');
+        const num = colourInput(k ? k.number : '', 'Number colour', 'black');
+        const row = h('div', { class: 'kit-row' },
+          h('label', { class: 'kit-cell' }, h('span', { class: 'muted', text: 'Name' }), kname),
+          h('label', { class: 'kit-cell' }, h('span', { class: 'muted', text: 'Shirt' }), shirt),
+          h('label', { class: 'kit-cell' }, h('span', { class: 'muted', text: 'Numbers' }), num),
+          h('button', { text: '×', class: 'kit-x', title: 'Remove this jersey', 'aria-label': 'Remove this jersey', onclick: () => { row.remove(); if (!kitList.children.length) kitList.append(kitRow(null)); } }));
+        row.read = () => {
+          const n = kname.value.trim().replace(/:/g, ' '), d = jerseyText(shirt.value, num.value);
+          return d ? (n ? `${n}: ${d}` : d) : '';
+        };
+        return row;
+      };
+      const kits0 = t && t.kits.length ? t.kits.map(k => ({ name: k.name === k.description ? '' : k.name, shirt: k.shirt, number: k.number })) : [null];
+      kitList.append(...kits0.map(kitRow));
+      const colors = h('div', {}, h('datalist', { id: 'jersey-colours' }, JERSEY_COLOURS.map(c => h('option', { value: c }))),
+        kitList, h('button', { text: '+ Add jersey', onclick: () => { const r = kitRow(null); kitList.append(r); r.querySelector('input').focus(); } }));
+      colors.read = () => [...kitList.children].map(r => r.read()).filter(Boolean).join('\n');
+      const names = h('input', { type: 'checkbox', checked: t ? t.tagWithNames : false });
+      const roster = h('textarea', { rows: 8, placeholder: '10 Emma\n7 Ava\n3', 'aria-label': 'Roster' });
+      roster.value = t ? t.roster : '';
+      const save = h('button', { class: 'primary', text: t ? 'Save' : 'Add team', onclick: async () => {
+        const body = { name: name.value, colors: colors.read(), tagWithNames: names.checked, roster: roster.value };
+        const res = await api(t ? `/api/admin/teams/${t.id}` : '/api/admin/teams', { method: t ? 'PUT' : 'POST', body });
+        if (res.ok) { toast(t ? 'Team saved' : 'Team added'); render(); } else msg.textContent = aiErr(res);
+      } });
+      const del = t ? h('button', { class: 'danger', text: 'Delete team', onclick: async () => {
+        if (!confirm(`Delete ${t.name} and its roster? Tags already on photos stay. Suggestions still waiting are removed.`)) return;
+        const res = await api(`/api/admin/teams/${t.id}`, { method: 'DELETE' });
+        if (res.ok) render(); else msg.textContent = aiErr(res);
+      } }) : null;
+      const body = h('div', { class: 'form1' },
+        field('Name', name, 'Used in tags, such as "Hurricanes U12 10".'),
+        field('Jerseys', colors, 'Each jersey the team wears: a name (Home, Away), the shirt colour and the number colour. Each gallery picks the jersey worn that day. Other teams may use the same colours.'),
+        field('Roster', roster, 'One player per line: the number, then a name if you like. Only these numbers are tagged.'),
+        field('Names in tags', h('label', {}, names, ' Tag photos with the player\'s name ("Emma 10")'), 'Off keeps children\'s names off the site: tags use the team and number.'));
+      const actions = h('div', { class: 'row' }, save, del, msg);
+      if (!t) return h('div', { class: 'group-card' }, h('b', { text: 'Add a team' }), body, actions);
+      const count = `${t.players.length} player${t.players.length === 1 ? '' : 's'}, ${t.galleries} galler${t.galleries === 1 ? 'y' : 'ies'}`;
+      return h('details', { class: 'group-card' }, h('summary', {}, h('b', { text: t.name }), h('span', { class: 'muted', text: ' ' + count })), body, actions);
+    };
+    box.replaceChildren(...r.data.map(editor), editor(null));
+  };
+  await render();
+  return h('div', { class: 'panel' }, h('h3', { text: 'Teams' }),
+    h('p', { class: 'muted' }, 'Choose a team in a gallery\'s Players section, then let the AI model find your players. Set up the model in ', h('a', { href: '/admin/settings/ai', text: 'Automatic tagging' }), '.'),
+    box);
+}
+
 // Schedule settings. A value fixed by a variable in the container shows locked, with the variable's name.
 async function libraryPanel() {
   const r = await api('/api/admin/settings/library');
@@ -2938,6 +3114,9 @@ async function viewGallerySettings(app, id) {
       field('Comments', h('label', {}, allowComments, ' Let signed-in visitors comment on photos'),
         'Only people who sign in through your sign-in provider with a verified email can comment, under a display name they choose (never their email). You can always reply, marked as the photographer, and switch comments off for a single photo while viewing it. Needs sign-in set up in Settings, Sign-in (SSO).')));
 
+  const playersSection = section('Players', 'Tag your team\'s players automatically', location.hash === '#players', playersManager(g));
+  if (location.hash === '#players') setTimeout(() => playersSection.scrollIntoView({ block: 'start' }), 300);
+
   // --- RAW files (collapsed) ---
   const rawMode = track(h('select', {}, [[0, 'Same folder, same file name'], [1, 'Same file name, any folder'], [2, 'Name starts with the RAW name (IMG_1234-Edit.png)']].map(([v, t]) => h('option', { value: v, text: t, selected: v === g.rawMatchMode }))));
   const allowRaw = track(h('input', { type: 'checkbox', checked: g.allowRaw }));
@@ -2978,8 +3157,279 @@ async function viewGallerySettings(app, id) {
       h('a', { class: 'btn', href: '/admin/stats?gallery=' + g.id, text: 'Statistics' }),
       h('a', { class: 'btn', href: '/g/' + encodeURIComponent(g.slug), text: 'View gallery' })),
     h('p', { class: 'muted counts', text: countsLine(g) }),
-    general, access, downloads, wmUp, favSection, commentSection, raw,
+    general, access, downloads, wmUp, favSection, commentSection, playersSection, raw,
     h('div', { class: 'savebar' }, saveBtn, status));
+}
+
+// A large preview of a photo while the pointer is over its thumbnail (or a long press on a phone), so a face or a
+// number can be checked without opening the photo. The thumbnail shows at once, the 2048 px version replaces it when loaded.
+const photoPreview = (() => {
+  let box = null, img = null, cap = null, showTimer = 0, current = 0, pointer = { x: 0, y: 0 };
+  const cache = new Map();   // photo id -> Image being loaded, so moving back and forth is instant
+  const load = (id) => { if (!cache.has(id)) { const im = new Image(); im.decoding = 'async'; im.src = `/img/${id}/view`; cache.set(id, im); if (cache.size > 60) cache.delete(cache.keys().next().value); } return cache.get(id); };
+  const ensure = () => {
+    if (box) return;
+    img = h('img', { alt: '' });
+    cap = h('div', { class: 'pp-cap' });
+    box = h('div', { class: 'photo-preview', hidden: true, 'aria-hidden': 'true' }, img, cap);
+    box.addEventListener('click', hide);
+    document.body.append(box);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') hide(); });
+    window.addEventListener('scroll', () => { if (!box.hidden && !touchOpen) hide(); }, { passive: true });
+  };
+  let touchOpen = false;
+  const place = () => {
+    if (!box || box.hidden) return;
+    const vw = window.innerWidth, vh = window.innerHeight, gap = 24;
+    const w = box.offsetWidth, hh = box.offsetHeight;
+    if (touchOpen) { box.style.left = `${Math.max(8, (vw - w) / 2)}px`; box.style.top = `${Math.max(8, (vh - hh) / 2)}px`; return; }
+    // beside the pointer, on the side with more room, kept on screen
+    let x = pointer.x > vw / 2 ? pointer.x - gap - w : pointer.x + gap;
+    x = Math.min(Math.max(8, x), vw - w - 8);
+    const y = Math.min(Math.max(8, pointer.y - hh / 2), vh - hh - 8);
+    box.style.left = `${x}px`; box.style.top = `${y}px`;
+  };
+  function show(id, label, touch) {
+    ensure();
+    current = id; touchOpen = !!touch;
+    const big = load(id);
+    img.onload = place;
+    img.src = big.complete && big.naturalWidth ? big.src : `/img/${id}/thumb`;
+    img.classList.toggle('pp-loading', !(big.complete && big.naturalWidth));
+    if (!big.complete) big.addEventListener('load', () => { if (current === id) { img.src = big.src; img.classList.remove('pp-loading'); } }, { once: true });
+    cap.textContent = label || '';
+    box.hidden = false;
+    place();
+  }
+  function hide() { clearTimeout(showTimer); current = 0; touchOpen = false; if (box) box.hidden = true; }
+  // wires a thumbnail: hover (after a short pause), keyboard focus, or a long press on a touch screen
+  function attach(el, id, label) {
+    el.addEventListener('pointerenter', e => {
+      if (e.pointerType === 'touch') return;
+      pointer = { x: e.clientX, y: e.clientY };
+      load(id);   // start the download while the pointer settles
+      clearTimeout(showTimer); showTimer = setTimeout(() => show(id, label), 120);
+    });
+    el.addEventListener('pointermove', e => { if (e.pointerType === 'touch') return; pointer = { x: e.clientX, y: e.clientY }; if (current === id) place(); });
+    el.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') hide(); });
+    el.addEventListener('focus', () => { const r = el.getBoundingClientRect(); pointer = { x: r.right, y: r.top + r.height / 2 }; show(id, label); });
+    el.addEventListener('blur', hide);
+    let press = 0, pressed = false;
+    el.addEventListener('touchstart', () => { pressed = false; load(id); press = setTimeout(() => { pressed = true; show(id, label, true); }, 400); }, { passive: true });
+    el.addEventListener('touchmove', () => clearTimeout(press), { passive: true });
+    el.addEventListener('touchend', e => { clearTimeout(press); if (pressed) e.preventDefault(); });   // a long press only previews
+    el.addEventListener('contextmenu', e => { if (pressed) e.preventDefault(); });
+    return el;
+  }
+  return { attach, hide };
+})();
+
+// Gallery settings: which team plays in this gallery, checking photos for its players, and the suggestions to review.
+// What a gallery's player check is doing right now: the photo being read (with its thumbnail), which AI is reading it,
+// progress, and the latest results. Used in the gallery's Players section and in the activity list.
+const secsSince = (iso) => iso ? Math.max(0, Math.round((Date.now() - new Date(/Z$|[+-]\d\d:\d\d$/.test(iso) ? iso : iso + 'Z').getTime()) / 1000)) : 0;
+function playerJobView(job, onStop, { recentCount = 8 } = {}) {
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const out = h('div', { class: 'job-view' });
+  if (job.automatic && (job.running || job.finishedAt)) out.append(h('p', { class: 'muted', text: 'Started automatically for new photos.' }));
+  if (job.running && job.waiting) {
+    out.append(h('p', { class: 'muted' }, 'Waiting for another gallery\'s check to finish (one gallery is checked at a time). ',
+      onStop ? h('button', { text: 'Cancel', onclick: onStop }) : null));
+  } else if (job.running) {
+    const secs = secsSince(job.currentSince);
+    out.append(
+      h('p', {}, h('progress', { class: 'phone-progress', max: Math.max(job.total, 1), value: job.done }),
+        ` Checked ${job.done} of ${job.total}, ${plural(job.found, 'new suggestion')}` + (job.failed ? `, ${job.failed} failed` : '') + '. ',
+        onStop ? h('button', { text: job.stopRequested ? 'Stopping…' : 'Stop', disabled: job.stopRequested, title: 'Stop after cancelling the photo being read. Photos not checked yet stay unchecked.', onclick: onStop }) : null),
+      job.currentPhotoId ? h('div', { class: 'player-row now' },
+        photoPreview.attach(h('a', { href: `/img/${job.currentPhotoId}/view`, target: '_blank', rel: 'noopener' }, h('img', { src: `/img/${job.currentPhotoId}/thumb`, alt: job.currentPhoto, width: 96, height: 72 })), job.currentPhotoId, job.currentPhoto),
+        h('div', {}, h('div', {}, h('strong', { text: 'Now reading: ' }), job.currentPhoto),
+          h('div', { class: 'muted', text: (job.currentProvider ? `Asking ${job.currentProvider}` : 'Preparing the photo') + (secs >= 2 ? `, ${secs} s so far` : '') }))) : null);
+  } else if (job.finishedAt) {
+    out.append(h('p', { class: job.failed || job.stopRequested ? 'err' : 'muted', text: `Last check, finished ${fmtDate(job.finishedAt)}: ${plural(job.done, 'photo')}, ${plural(job.found, 'new suggestion')}` + (job.failed ? `, ${job.failed} failed` : '') + '.' + (job.lastError ? ' ' + job.lastError : '') }));
+  }
+  const recent = (job.recent || []).slice(0, recentCount);
+  if (recent.length) out.append(h('details', { class: 'job-recent', open: job.running },
+    h('summary', { text: `Latest photos (${recent.length}${(job.recent || []).length > recent.length ? ' of ' + job.recent.length : ''})` }),
+    h('ul', {}, recent.map(e => h('li', { class: e.ok ? '' : 'err' },
+      h('a', { href: `/img/${e.photoId}/view`, target: '_blank', rel: 'noopener', text: e.photo }), ': ', e.result,
+      h('span', { class: 'muted', text: ` (${e.provider || 'no provider'}, ${(e.ms / 1000).toFixed(1)} s)` }))))));
+  return out;
+}
+
+function playersManager(g) {
+  const box = h('div', { 'aria-live': 'polite' });
+  let timer = null;
+  const load = async () => {
+    clearTimeout(timer);
+    if (box.dataset.started && !box.isConnected) return;
+    box.dataset.started = '1';
+    const [st, teams] = await Promise.all([api(`/api/admin/galleries/${g.id}/players`), api('/api/admin/teams')]);
+    if (!st.ok || !teams.ok) { box.replaceChildren(h('p', { class: 'err', text: 'Could not load the players.' })); return; }
+    const d = st.data;
+    const msg = h('span', { class: 'muted', role: 'status' });
+    const teamSel = h('select', { 'aria-label': 'Team in this gallery', onchange: async () => {
+      const res = await api(`/api/admin/galleries/${g.id}/team`, { method: 'PUT', body: { teamId: teamSel.value ? Number(teamSel.value) : null } });
+      if (res.ok) load(); else msg.textContent = aiErr(res);
+    } }, h('option', { value: '', text: 'No team (not tagged)' }), ...teams.data.map(t => h('option', { value: t.id, text: t.name, selected: t.id === d.teamId })));
+    const team = teams.data.find(t => t.id === d.teamId);
+    const kits = team ? team.kits : [];
+    // what the team wears: one of its jersey sets, colours typed here alone, or (empty) the default
+    const kitText = k => k.name === k.description ? k.name : `${k.name}: ${k.description}`;
+    const kitPicker = (current, label, defaultText, save) => {
+      const cur = (current || '').trim();
+      const named = kits.find(k => k.name.toLowerCase() === cur.toLowerCase());
+      const m = /^(.*?) shirts(?: with (.*) numbers)?$/.exec(cur && !named ? cur : '') || [];
+      const cShirt = colourInput(m[1] || (cur && !named && !m.length ? cur : ''), `Shirt colour, ${label}`, 'white');
+      const cNum = colourInput(m[2] || '', `Number colour, ${label}`, 'black');
+      const customRow = h('div', { class: 'kit-row', hidden: !(cur && !named) },
+        h('label', { class: 'kit-cell' }, h('span', { class: 'muted', text: 'Shirt' }), cShirt),
+        h('label', { class: 'kit-cell' }, h('span', { class: 'muted', text: 'Numbers' }), cNum),
+        h('button', { text: 'Save', onclick: () => { const t = jerseyText(cShirt.value, cNum.value); if (t) save(t); } }));
+      const sel = h('select', { 'aria-label': `Jersey worn, ${label}`, onchange: () => {
+        if (sel.value === '\u0000other') { customRow.hidden = false; customRow.querySelector('input').focus(); return; }
+        customRow.hidden = true; save(sel.value);
+      } }, h('option', { value: '', text: defaultText, selected: !cur }),
+        ...kits.filter(k => defaultText !== kitText(k)).map(k => h('option', { value: k.name, text: kitText(k), selected: named === k })),
+        h('option', { value: '\u0000other', text: 'Other colours…', selected: !!cur && !named }));
+      return h('div', {}, sel, customRow);
+    };
+    const saveKit = async (body, note) => {
+      const res = await api(`/api/admin/galleries/${g.id}/team`, { method: 'PUT', body: { teamId: d.teamId, ...body } });
+      note.textContent = res.ok ? 'Saved.' : aiErr(res);
+      return res.ok;
+    };
+    const galleryKitName = () => { const c = (d.teamKit || '').trim(); const k = kits.find(k => k.name.toLowerCase() === c.toLowerCase()); return c ? (k ? k.name : c) : (kits.length === 1 ? kits[0].name : 'any jersey'); };
+    const kitSel = d.teamId ? kitPicker(d.teamKit, 'this gallery', kits.length > 1 ? 'Any of the team\'s jerseys (not sure)' : kits.length ? kitText(kits[0]) : 'Not set',
+      async kit => { if (await saveKit({ kit }, msg)) { d.teamKit = kit; folderDefaults.forEach(o => { o.textContent = `Same as the gallery (${galleryKitName()})`; }); } }) : null;
+    // a tournament: each sub folder (game) can have its own jersey
+    const folderDefaults = [];
+    const folderRows = d.teamId && (d.folders || []).length > 1 ? h('div', { class: 'kit-list' }, d.folders.map(f => {
+      const note = h('span', { class: 'muted', role: 'status' });
+      const picker = kitPicker(f.kit, f.title, `Same as the gallery (${galleryKitName()})`, kit => saveKit({ folder: f.folder, kit }, note));
+      folderDefaults.push(picker.querySelector('option'));
+      return h('div', { class: 'folder-kit' }, h('span', { class: 'folder-kit-name', text: f.title, title: `${f.folder}, ${f.photos} photo${f.photos === 1 ? '' : 's'}` }), picker, note);
+    })) : null;
+    // fixing one photo by hand: tap the right roster number (or type one), or say it is not a player
+    const roster = team ? team.players : [];
+    const fixPicker = (photoId, replace, label) => {
+      const note = h('span', { class: 'muted', role: 'status' });
+      const typed = h('input', { type: 'text', inputmode: 'numeric', maxlength: 3, placeholder: '#', 'aria-label': 'Jersey number', class: 'fix-num' });
+      const send = async (number) => {
+        const res = await api(`/api/admin/galleries/${g.id}/photos/${photoId}/player`, { method: 'POST', body: { number, ...replace } });
+        if (res.ok) { if (res.data.tag) toast(`Tagged ${res.data.tag}`); load(); } else note.textContent = aiErr(res);
+      };
+      typed.addEventListener('keydown', e => { if (e.key === 'Enter' && typed.value.trim()) send(typed.value.trim()); });
+      return h('div', { class: 'fix-picker', hidden: true },
+        h('span', { class: 'muted', text: label }),
+        ...roster.map(p => h('button', { class: 'num-chip', text: `#${p.number}`, title: p.name || `#${p.number}`, onclick: () => send(p.number) })),
+        typed, h('button', { text: 'OK', onclick: () => { if (typed.value.trim()) send(typed.value.trim()); } }),
+        replace ? h('button', { text: 'Not a player', title: 'Nobody on the team: remove this reading from this photo only', onclick: () => send('') }) : null,
+        note);
+    };
+    const toggle = (picker) => { const open = picker.hidden; box.querySelectorAll('.fix-picker').forEach(x => { x.hidden = true; }); picker.hidden = !open; if (open) picker.querySelector('.num-chip, input')?.focus(); };
+    // numbers read on players in our colours that are not on the roster: add the player, or say it is not ours
+    const unknownRows = (d.unknown || []).map(u => {
+      const pname = h('input', { type: 'text', maxlength: 30, placeholder: 'Name (optional)', 'aria-label': `Name for #${u.number}` });
+      const note = h('span', { class: 'muted', role: 'status' });
+      // each photo: untick it to leave it out, or tap it to say who it really is
+      const thumbs = u.photoIds.map(pid => {
+        const tick = h('input', { type: 'checkbox', checked: true, 'aria-label': `Photo ${pid} shows #${u.number}` });
+        const picker = fixPicker(pid, { sighting: u.number }, `Not #${u.number}? This photo is:`);
+        const img = photoPreview.attach(h('button', { class: 'thumb-btn', title: 'Click to tag this photo as someone else', onclick: () => { photoPreview.hide(); toggle(picker); } },
+          h('img', { src: `/img/${pid}/thumb`, alt: `Photo with #${u.number}`, loading: 'lazy', width: 96, height: 72 })), pid, `Read as #${u.number}`);
+        return { pid, tick, picker, el: h('div', { class: 'unknown-thumb' }, img, h('label', { class: 'muted' }, tick, ' this one')) };
+      });
+      const add = h('button', { class: 'primary', text: `Add #${u.number} to ${team ? team.name : 'the team'}`, title: 'Adds the player and tags the ticked photos for review', onclick: async () => {
+        add.disabled = true;
+        const skip = thumbs.filter(t => !t.tick.checked).map(t => t.pid);
+        const res = await api(`/api/admin/teams/${d.teamId}/players`, { method: 'POST', body: { number: u.number, name: pname.value, skip } });
+        if (res.ok) { toast(`#${res.data.number} added, ${res.data.suggestions} photo${res.data.suggestions === 1 ? '' : 's'} to review`); load(); } else { add.disabled = false; note.textContent = aiErr(res); }
+      } });
+      const no = h('button', { text: 'Not ours', title: 'The other team, or a misreading. This number is not offered again for this team.', onclick: async () => {
+        const res = await api(`/api/admin/teams/${d.teamId}/numbers/dismiss`, { method: 'POST', body: { number: u.number } });
+        if (res.ok) load(); else note.textContent = aiErr(res);
+      } });
+      return h('div', { class: 'player-row' },
+        h('div', {}, h('div', {}, h('strong', { text: `#${u.number}` }), h('span', { class: 'muted', text: ` read on ${u.photos} photo${u.photos === 1 ? '' : 's'}, up to ${u.confidence}% sure` + (u.photos > thumbs.length ? ` (the ${thumbs.length} surest shown)` : '') })),
+          h('div', { class: 'unknown-thumbs' }, thumbs.map(t => t.el)),
+          ...thumbs.map(t => t.picker),
+          h('div', { class: 'row' }, pname, add, no, note)));
+    });
+    const autoSel = h('select', { 'aria-label': 'Check new photos automatically', onchange: async () => {
+      const v = autoSel.value === '' ? null : autoSel.value === 'on';
+      const res = await api(`/api/admin/galleries/${g.id}/autotag`, { method: 'PUT', body: { autoTag: v } });
+      msg.textContent = res.ok ? (res.data.on ? 'Saved. New photos are checked automatically.' : 'Saved. New photos wait for you to press Check.') : aiErr(res);
+    } }, h('option', { value: '', text: `Use the main setting (${d.autoTagDefault ? 'check automatically' : 'wait for me'})`, selected: d.autoTag == null }),
+      h('option', { value: 'on', text: 'Check automatically', selected: d.autoTag === true }),
+      h('option', { value: 'off', text: 'Wait for me to press Check', selected: d.autoTag === false }));
+    const start = async (body) => {
+      const res = await api(`/api/admin/galleries/${g.id}/players/check`, { method: 'POST', body });
+      if (res.ok) load(); else msg.textContent = aiErr(res);
+    };
+    const job = d.job, running = job.running;
+    const ready = d.providers.length > 0 && d.teamId && d.teamPlayers > 0;
+    const left = d.photos - d.checked;
+    const stop = async () => {
+      const res = await api(`/api/admin/galleries/${g.id}/players/stop`, { method: 'POST' });
+      if (res.ok) load(); else msg.textContent = aiErr(res);
+    };
+    const progress = playerJobView(job, stop, { recentCount: 30 });
+    const setupHint = !d.providers.length ? h('p', { class: 'muted' }, 'Set up an AI model first in ', h('a', { href: '/admin/settings/ai', text: 'Automatic tagging' }), '.')
+      : !teams.data.length ? h('p', { class: 'muted' }, 'Add your team and its roster in ', h('a', { href: '/admin/settings/teams', text: 'Teams' }), '.')
+      : d.teamId && !d.teamPlayers ? h('p', { class: 'muted' }, 'This team has no players yet. Add the roster in ', h('a', { href: '/admin/settings/teams', text: 'Teams' }), '.') : null;
+
+    // suggestions, grouped by photo, each a chip to approve or reject
+    const byPhoto = new Map();
+    for (const s of d.pending) { if (!byPhoto.has(s.photoId)) byPhoto.set(s.photoId, []); byPhoto.get(s.photoId).push(s); }
+    const decided = new Map();   // suggestion id -> true (approve) / false (reject)
+    const review = async (ids, approve) => {
+      const res = await api('/api/admin/players/review', { method: 'POST', body: approve ? { approve: ids } : { reject: ids } });
+      if (res.ok) load(); else msg.textContent = aiErr(res);
+    };
+    const rows = [...byPhoto.entries()].map(([pid, list]) => {
+      // tap the photo to add a player the model missed; ✎ on a chip to say who it really is
+      const addPicker = fixPicker(pid, null, 'Add a player:');
+      const fixers = list.map(s => fixPicker(pid, { suggestion: s.id }, `Not ${s.tag}? It is:`));
+      return h('div', { class: 'player-row' },
+        photoPreview.attach(h('button', { class: 'thumb-btn', title: 'Click to add a player the model missed', onclick: () => { photoPreview.hide(); toggle(addPicker); } }, h('img', { src: `/img/${pid}/thumb`, alt: list[0].photo, loading: 'lazy', width: 96, height: 72 })), pid, `${list[0].photo}: ${list.map(s => (s.unsure ? 'maybe ' : '') + s.tag + ' ' + s.confidence + '%').join(', ')}`),
+        h('div', {}, h('div', { class: 'muted' }, list[0].photo, ' ', h('a', { href: `/img/${pid}/view`, target: '_blank', rel: 'noopener', text: 'open' })),
+          list.filter(s => s.unsure).map(s => s.note).filter((n, i, a) => a.indexOf(n) === i).map(n => h('div', { class: 'muted unsure-note', text: `Not sure: ${n}.` + (list.filter(s => s.unsure).length > 1 ? ' Approve the right player; the others it could be are rejected.' : '') })),
+          h('div', { class: 'chips' }, list.map((s, i) => h('span', { class: 'tag-chip' + (s.unsure ? ' unsure' : ''), title: `${s.confidence}% sure, read by ${s.source}` + (s.note ? ` (${s.note})` : '') }, `${s.unsure ? 'maybe ' : ''}${s.tag} · ${s.confidence}%`,
+            h('button', { class: 'chip-ok', 'aria-label': `Approve ${s.tag} on ${s.photo}`, title: 'Approve', text: '✓', onclick: () => review([s.id], true) }),
+            h('button', { class: 'chip-fix', 'aria-label': `Change ${s.tag} on ${s.photo}`, title: 'Wrong number: pick the right player', text: '✎', onclick: () => toggle(fixers[i]) }),
+            h('button', { class: 'chip-x', 'aria-label': `Reject ${s.tag} on ${s.photo}`, title: 'Reject', text: '×', onclick: () => review([s.id], false) })))),
+          addPicker, ...fixers));
+    });
+    const allIds = d.pending.map(s => s.id);
+    box.replaceChildren(
+      h('div', { class: 'form1' }, field('Team', teamSel, 'Only this team\'s players are looked for, in its jersey colours.'),
+        kitSel ? field('Jerseys', h('div', {}, h('datalist', { id: 'jersey-colours' }, JERSEY_COLOURS.map(c => h('option', { value: c }))), kitSel), 'The jersey the team wears in this gallery, from its list on the Teams page. Only players in that jersey are read, so the other team can wear the same numbers.') : null,
+        folderRows ? field('Jersey per folder', folderRows, 'For a tournament: the jersey worn in each game. A folder left on "Same as the gallery" uses the jersey above.') : null,
+        field('New photos', autoSel, 'Check photos for players by themselves when a scan or upload adds them. Needs a team with players.')),
+      setupHint,
+      h('p', { class: 'muted', text: `${d.checked} of ${d.photos} photos checked, ${d.approved} tag${d.approved === 1 ? '' : 's'} approved.` + (d.providers.length ? ` Uses ${d.providers.join(', then ')}.` : '') }),
+      h('div', { class: 'row' },
+        h('button', { text: 'Try on 10 photos', disabled: !ready || running || left === 0, title: 'Check the first 10 photos not checked yet, to see how well it reads your jerseys', onclick: () => start({ limit: 10 }) }),
+        h('button', { class: 'primary', text: left > 0 ? `Check ${left} photo${left === 1 ? '' : 's'}` : 'All photos checked', disabled: !ready || running || left === 0, onclick: () => start({}) }),
+        d.checked > 0 ? h('button', { text: 'Check all again', disabled: !ready || running, title: 'Look at every photo again, for example after adding players. Rejected suggestions do not come back.', onclick: () => { if (confirm(`Check all ${d.photos} photos again?` + (d.providers.some(p => !/Ollama/.test(p)) ? ' Cloud providers bill each photo.' : ''))) start({ recheck: true }); } }) : null,
+        msg),
+      progress,
+      unknownRows.length ? h('div', {},
+        h('h4', { text: `Numbers not on the roster (${unknownRows.length})` }),
+        h('p', { class: 'muted', text: 'Read on players in your colours. Add a new player and the photos already read become suggestions below, without checking again.' }),
+        h('div', { class: 'player-list' }, unknownRows)) : null,
+      d.pending.length ? h('div', {},
+        h('h4', { text: `Waiting for you (${d.pending.length})` }),
+        h('p', { class: 'muted', text: 'Nothing is tagged until you approve it. Check a few photos before approving them all.' }),
+        h('div', { class: 'row' },
+          h('button', { class: 'primary', text: `Approve all ${d.pending.length}`, onclick: () => { if (confirm(`Tag ${byPhoto.size} photo${byPhoto.size === 1 ? '' : 's'} with all ${d.pending.length} suggestions?`)) review(allIds, true); } }),
+          h('button', { text: 'Reject all', onclick: () => { if (confirm('Reject every suggestion waiting here?')) review(allIds, false); } })),
+        h('div', { class: 'player-list' }, rows)) : null);
+    if (running) timer = setTimeout(load, 2000);
+  };
+  load();
+  return box;
 }
 
 function thumbControl(g) {
