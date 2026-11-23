@@ -2,6 +2,10 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.2.1 (not released yet)
+
+- **Fixing misread numbers is quicker.** In a gallery's Players section, right-click a photo (in the review list or under *Numbers not on the roster*) for a menu with your roster numbers: click the right one, or type another and press Enter, or choose **Not a player**; suggestions also have **Approve** and **Reject** there. The photo is marked as fixed in place, so the list stays put while you fix a handful. A number read wrongly on several photos (2 for 12) can be moved in one go: tick those photos and use **Change ticked photos to** with the right number. Up to 60 photos are shown for each number not on the roster. Shift and right-click still opens the browser's own menu. The database does not change.
+
 ## 2.2.0 (not released yet)
 
 - **Saving to a phone takes fewer taps.** On a phone that can save to its photo app (iPhone and Android browsers), the photo viewer's **Download** button is now **Save**: one tap puts that photo in the photo app, with **Sizes and formats…** there for the full choices. When choosing photos, a **long press** on a photo starts choosing (no need to find **Select** first), and the bar at the bottom has **Save to phone** straight away. A player's button reads **Save all N photos of #10** and goes straight to saving. When the photos are ready quickly, the phone's share sheet opens without the extra "Save the photo" tap. After the chosen photos are saved, the choice is cleared. Where the license must be agreed first, the download sheet opens as before. The database does not change.

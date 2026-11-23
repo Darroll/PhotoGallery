@@ -3428,6 +3428,51 @@ function playersManager(g) {
         replace ? h('button', { text: 'Not a player', title: 'Nobody on the team: remove this reading from this photo only', onclick: () => send('') }) : null,
         note);
     };
+    // right-click menu on a photo: the roster as buttons (or type a number and press Enter), Not a player, and for a
+    // suggestion Approve and Reject. The photo is marked as done in place, so a handful in a long list go quickly.
+    // Shift + right-click keeps the browser's own menu.
+    let menu = null;
+    const closeMenu = () => { if (menu) { menu.remove(); menu = null; document.removeEventListener('pointerdown', outside, true); } };
+    const outside = (e) => { if (menu && !menu.contains(e.target)) closeMenu(); };
+    const fixMenu = (e, photoId, { title, read, replace, approve, reject, done }) => {
+      if (e.shiftKey) return;
+      e.preventDefault();
+      photoPreview.hide();
+      closeMenu();
+      const note = h('div', { class: 'muted', role: 'status' });
+      const typed = h('input', { type: 'text', inputmode: 'numeric', maxlength: 3, placeholder: 'Other number, Enter', 'aria-label': 'Jersey number' });
+      const send = async (number) => {
+        const res = await api(`/api/admin/galleries/${g.id}/photos/${photoId}/player`, { method: 'POST', body: { number, ...replace } });
+        if (!res.ok) { note.textContent = aiErr(res); return; }
+        closeMenu();
+        done(res.data.tag ? `→ ${res.data.tag}` : 'Not a player');
+      };
+      typed.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' && typed.value.trim()) send(typed.value.trim().replace(/^#/, ''));
+        if (ev.key === 'Escape') closeMenu();
+      });
+      // the roster in number order, without the number that was read (that is the one being corrected)
+      const nums = roster.filter(p => p.number !== read).sort((a, b) => Number(a.number) - Number(b.number) || a.number.length - b.number.length);
+      menu = h('div', { class: 'fix-menu', role: 'menu' },
+        h('div', { class: 'fix-menu-title', text: title }),
+        h('div', { class: 'fix-menu-nums' }, nums.map(p => h('button', { class: 'num-chip', role: 'menuitem', text: `#${p.number}`, title: p.name || `#${p.number}`, onclick: () => send(p.number) }))),
+        typed,
+        h('div', { class: 'row' },
+          approve ? h('button', { class: 'primary', role: 'menuitem', text: 'Approve', onclick: async () => { closeMenu(); await approve(); } }) : null,
+          reject ? h('button', { role: 'menuitem', text: 'Reject', onclick: async () => { closeMenu(); await reject(); } }) : null,
+          replace ? h('button', { role: 'menuitem', text: 'Not a player', title: 'Nobody on the team: remove this reading from this photo only', onclick: () => send('') }) : null,
+          h('a', { class: 'btn', role: 'menuitem', href: `/img/${photoId}/view`, target: '_blank', rel: 'noopener', text: 'Open large', onclick: closeMenu })),
+        note);
+      menu.addEventListener('keydown', ev => { if (ev.key === 'Escape') closeMenu(); });
+      document.body.append(menu);
+      const r = menu.getBoundingClientRect();
+      menu.style.left = `${Math.max(8, Math.min(e.clientX, window.innerWidth - r.width - 8))}px`;
+      menu.style.top = `${Math.max(8, Math.min(e.clientY, window.innerHeight - r.height - 8))}px`;
+      typed.focus();
+      setTimeout(() => document.addEventListener('pointerdown', outside, true));
+    };
+    window.addEventListener('scroll', closeMenu, { passive: true });
+    const markDone = (el, text) => { el.classList.add('fixed'); el.querySelector('.fixed-label')?.remove(); el.append(h('span', { class: 'fixed-label', text })); };
     const toggle = (picker) => { const open = picker.hidden; box.querySelectorAll('.fix-picker').forEach(x => { x.hidden = true; }); picker.hidden = !open; if (open) picker.querySelector('.num-chip, input')?.focus(); };
     // numbers read on players in our colours that are not on the roster: add the player, or say it is not ours
     const unknownRows = (d.unknown || []).map(u => {
@@ -3437,9 +3482,12 @@ function playersManager(g) {
       const thumbs = u.photoIds.map(pid => {
         const tick = h('input', { type: 'checkbox', checked: true, 'aria-label': `Photo ${pid} shows #${u.number}` });
         const picker = fixPicker(pid, { sighting: u.number }, `Not #${u.number}? This photo is:`);
-        const img = photoPreview.attach(h('button', { class: 'thumb-btn', title: 'Click to tag this photo as someone else', onclick: () => { photoPreview.hide(); toggle(picker); } },
+        const img = photoPreview.attach(h('button', { class: 'thumb-btn', title: 'Click or right-click to tag this photo as someone else', onclick: () => { photoPreview.hide(); toggle(picker); } },
           h('img', { src: `/img/${pid}/thumb`, alt: `Photo with #${u.number}`, loading: 'lazy', width: 96, height: 72 })), pid, `Read as #${u.number}`);
-        return { pid, tick, picker, el: h('div', { class: 'unknown-thumb' }, img, h('label', { class: 'muted' }, tick, ' this one')) };
+        const el = h('div', { class: 'unknown-thumb' }, img, h('label', { class: 'muted' }, tick, ' this one'));
+        img.addEventListener('contextmenu', e => fixMenu(e, pid, { title: `Read as #${u.number}. It is really:`, read: u.number, replace: { sighting: u.number },
+          done: (text) => { tick.checked = false; tick.disabled = true; markDone(el, text); } }));
+        return { pid, tick, picker, el };
       });
       const add = h('button', { class: 'primary', text: `Add #${u.number} to ${team ? team.name : 'the team'}`, title: 'Adds the player and tags the ticked photos for review', onclick: async () => {
         add.disabled = true;
@@ -3447,6 +3495,20 @@ function playersManager(g) {
         const res = await api(`/api/admin/teams/${d.teamId}/players`, { method: 'POST', body: { number: u.number, name: pname.value, skip } });
         if (res.ok) { toast(`#${res.data.number} added, ${res.data.suggestions} photo${res.data.suggestions === 1 ? '' : 's'} to review`); load(); } else { add.disabled = false; note.textContent = aiErr(res); }
       } });
+      // a misread number (2 for 12): move the ticked photos to the right player in one go
+      const moveTo = h('input', { type: 'text', inputmode: 'numeric', maxlength: 3, placeholder: '#', class: 'fix-num', 'aria-label': `Really which number instead of #${u.number}` });
+      const move = h('button', { text: 'Change ticked photos to', title: `The model misread these: tag the ticked photos as this roster number instead of #${u.number}`, onclick: async () => {
+        const to = moveTo.value.trim().replace(/^#/, '');
+        const picked = thumbs.filter(t => t.tick.checked && !t.tick.disabled);
+        if (!to || !picked.length) { note.textContent = !to ? 'Type the right number first.' : 'Tick the photos to change.'; return; }
+        move.disabled = true;
+        for (const t of picked) {
+          const res = await api(`/api/admin/galleries/${g.id}/photos/${t.pid}/player`, { method: 'POST', body: { number: to, sighting: u.number } });
+          if (!res.ok) { note.textContent = aiErr(res); move.disabled = false; return; }
+        }
+        toast(`${picked.length} photo${picked.length === 1 ? '' : 's'} tagged as #${to}`); load();
+      } });
+      moveTo.addEventListener('keydown', e => { if (e.key === 'Enter') move.click(); });
       const no = h('button', { text: 'Not ours', title: 'The other team, or a misreading. This number is not offered again for this team.', onclick: async () => {
         const res = await api(`/api/admin/teams/${d.teamId}/numbers/dismiss`, { method: 'POST', body: { number: u.number } });
         if (res.ok) load(); else note.textContent = aiErr(res);
@@ -3455,7 +3517,9 @@ function playersManager(g) {
         h('div', {}, h('div', {}, h('strong', { text: `#${u.number}` }), h('span', { class: 'muted', text: ` read on ${u.photos} photo${u.photos === 1 ? '' : 's'}, up to ${u.confidence}% sure` + (u.photos > thumbs.length ? ` (the ${thumbs.length} surest shown)` : '') })),
           h('div', { class: 'unknown-thumbs' }, thumbs.map(t => t.el)),
           ...thumbs.map(t => t.picker),
-          h('div', { class: 'row' }, pname, add, no, note)));
+          h('div', { class: 'row' }, pname, add, no),
+          h('div', { class: 'row' }, h('span', { class: 'muted', text: 'Misread?' }), move, moveTo, h('span', { class: 'muted', text: 'Or right-click a photo to fix just that one.' })),
+          note));
     });
     const autoSel = h('select', { 'aria-label': 'Check new photos automatically', onchange: async () => {
       const v = autoSel.value === '' ? null : autoSel.value === 'on';
@@ -3492,8 +3556,13 @@ function playersManager(g) {
       // tap the photo to add a player the model missed; ✎ on a chip to say who it really is
       const addPicker = fixPicker(pid, null, 'Add a player:');
       const fixers = list.map(s => fixPicker(pid, { suggestion: s.id }, `Not ${s.tag}? It is:`));
-      return h('div', { class: 'player-row' },
-        photoPreview.attach(h('button', { class: 'thumb-btn', title: 'Click to add a player the model missed', onclick: () => { photoPreview.hide(); toggle(addPicker); } }, h('img', { src: `/img/${pid}/thumb`, alt: list[0].photo, loading: 'lazy', width: 96, height: 72 })), pid, `${list[0].photo}: ${list.map(s => (s.unsure ? 'maybe ' : '') + s.tag + ' ' + s.confidence + '%').join(', ')}`),
+      const one = list.length === 1 ? list[0] : null;
+      const thumb = photoPreview.attach(h('button', { class: 'thumb-btn', title: 'Click to add a player the model missed; right-click to fix', onclick: () => { photoPreview.hide(); toggle(addPicker); } }, h('img', { src: `/img/${pid}/thumb`, alt: list[0].photo, loading: 'lazy', width: 96, height: 72 })), pid, `${list[0].photo}: ${list.map(s => (s.unsure ? 'maybe ' : '') + s.tag + ' ' + s.confidence + '%').join(', ')}`);
+      const quick = async (ids, ok) => { const res = await api('/api/admin/players/review', { method: 'POST', body: ok ? { approve: ids } : { reject: ids } }); if (res.ok) markDone(row, ok ? 'Approved' : 'Rejected'); else msg.textContent = aiErr(res); };
+      const menuFor = (sg) => ({ title: `${sg.unsure ? 'Maybe ' : ''}${sg.tag}. It is really:`, read: sg.number, replace: { suggestion: sg.id }, approve: () => quick([sg.id], true), reject: () => quick([sg.id], false), done: (t) => markDone(row, t) });
+      // with one suggestion the menu fixes it; with several it adds a player (right-click a chip to fix that one)
+      thumb.addEventListener('contextmenu', e => fixMenu(e, pid, one ? menuFor(one) : { title: 'Add a player to this photo:', replace: null, done: (t) => markDone(row, t) }));
+      const row = h('div', { class: 'player-row' }, thumb,
         h('div', {}, h('div', { class: 'muted' }, list[0].photo, ' ', h('a', { href: `/img/${pid}/view`, target: '_blank', rel: 'noopener', text: 'open' })),
           list.filter(s => s.unsure).map(s => s.note).filter((n, i, a) => a.indexOf(n) === i).map(n => h('div', { class: 'muted unsure-note', text: `Not sure: ${n}.` + (list.filter(s => s.unsure).length > 1 ? ' Approve the right player; the others it could be are rejected.' : '') })),
           h('div', { class: 'chips' }, list.map((s, i) => h('span', { class: 'tag-chip' + (s.unsure ? ' unsure' : ''), title: `${s.confidence}% sure, read by ${s.source}` + (s.note ? ` (${s.note})` : '') }, `${s.unsure ? 'maybe ' : ''}${s.tag} · ${s.confidence}%`,
@@ -3501,6 +3570,8 @@ function playersManager(g) {
             h('button', { class: 'chip-fix', 'aria-label': `Change ${s.tag} on ${s.photo}`, title: 'Wrong number: pick the right player', text: '✎', onclick: () => toggle(fixers[i]) }),
             h('button', { class: 'chip-x', 'aria-label': `Reject ${s.tag} on ${s.photo}`, title: 'Reject', text: '×', onclick: () => review([s.id], false) })))),
           addPicker, ...fixers));
+      row.querySelectorAll('.tag-chip').forEach((chip, i) => chip.addEventListener('contextmenu', e => fixMenu(e, pid, menuFor(list[i]))));
+      return row;
     });
     const allIds = d.pending.map(s => s.id);
     box.replaceChildren(

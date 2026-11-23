@@ -238,7 +238,7 @@ public static class PlayerApi
                                    where p.GalleryId == id && x.TeamId == g.TeamId && !x.Dismissed && !x.Fixed
                                    select new { x.Number, x.PhotoId, x.Confidence }).ToListAsync();
             var unknown = sightings.GroupBy(x => x.Number)
-                .Select(x => new { number = x.Key, photos = x.Select(y => y.PhotoId).Distinct().Count(), confidence = x.Max(y => y.Confidence), photoIds = x.OrderByDescending(y => y.Confidence).Select(y => y.PhotoId).Distinct().Take(24) })
+                .Select(x => new { number = x.Key, photos = x.Select(y => y.PhotoId).Distinct().Count(), confidence = x.Max(y => y.Confidence), photoIds = x.OrderByDescending(y => y.Confidence).Select(y => y.PhotoId).Distinct().Take(60) })
                 .OrderBy(x => int.TryParse(x.number, out var n) ? n : int.MaxValue).ThenBy(x => x.number.Length).ThenBy(x => x.number, StringComparer.Ordinal).ToList();   // in number order, like a roster
             var approved = await (from s in db.PlayerSuggestions join p in db.Photos on s.PhotoId equals p.Id where p.GalleryId == id && s.Status == "approved" select s.Id).CountAsync();
             // sub folders (the games of a tournament), each with its own jersey: the gallery's sections first, then any other folder holding photos
