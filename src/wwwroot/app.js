@@ -555,7 +555,7 @@ async function viewGallery(app, slug) {
   const playerBar = players.length ? h('div', { class: 'player-bar', role: 'group', 'aria-label': 'Show photos of one player' }) : null;
   const renderPlayers = () => {
     if (!playerBar) return;
-    const n = player ? approved.filter(p => p.approved && hasTag(p, player.tag)).length : 0;
+    const n = player ? approved.filter(p => p.approved && hasTag(p, player.tag) && !(curated.checked && p.rawOnly)).length : 0;
     playerBar.replaceChildren(
       h('span', { class: 'player-lead muted', text: 'Players' }),
       h('button', { class: 'player-chip' + (player ? '' : ' on'), 'aria-pressed': player ? 'false' : 'true', text: 'Everyone', onclick: () => pickPlayer(null) }),
@@ -653,6 +653,7 @@ async function viewGallery(app, slug) {
 
   function fill() {
     const showRaw = !curated.checked;
+    G.curatedOnly = curated.checked && rawOnlyCount > 0;   // downloads of a section, a player or the whole gallery leave out the unedited RAW frames too
     let photos = showRaw ? approved : approved.filter(p => !p.rawOnly);
     if (favOnly) photos = approved.filter(p => favs.has(p.id));
     photos = ofPlayer(photos);
@@ -863,9 +864,12 @@ async function startPhoneSave(body, box) {
   const status = h('p', { 'aria-live': 'polite' });
   const bar = h('progress', { max: photos.length, value: 0, class: 'phone-progress' });
   const saveBtn = h('button', { class: 'primary', disabled: true });
-  const zipBtn = G.allowZip && (body.section != null || (body.ids && body.ids.length > 1)) ? h('button', { text: 'Download as a ZIP instead', onclick: () => {
+  const zipBtn = G.allowZip && (body.section != null || body.player || (body.ids && body.ids.length > 1)) ? h('button', { text: 'Download as a ZIP instead', onclick: () => {
     const q = new URLSearchParams({ size: G.allowOriginal ? 'original' : String(Math.max(...G.sizes)), fmt: G.formats[0] || 'png' });
-    if (body.section != null) q.set('section', body.section); else q.set('ids', body.ids.join(','));
+    if (body.section != null) q.set('section', body.section);
+    else if (body.player) q.set('player', body.player);
+    else q.set('ids', body.ids.join(','));
+    if (body.curated) q.set('curated', 'true');
     location.href = `/api/g/${encodeURIComponent(G.slug)}/zip?${q}`; closeSheet();
   } }) : null;
   const fileFor = async (p) => {
@@ -921,7 +925,7 @@ function openDownloadSheet(opts = {}) {
   const scopes = [];
   if (photo) scopes.push(['photo', `This photo – ${photo.name}`]);
   if (opts.section && G.allowZip) scopes.push(['section', `${opts.section.title}${zipWord}`]);
-  const pl = G.player, plCount = pl ? G.photos.filter(p => p.approved && hasTag(p, pl.tag)).length : 0;
+  const pl = G.player, plCount = pl ? G.photos.filter(p => p.approved && hasTag(p, pl.tag) && !(G.curatedOnly && p.rawOnly)).length : 0;
   if (pl && plCount && G.allowZip) scopes.push(['player', `All photos of ${pl.label} (${plCount})`]);
   if (G.allowZip && sel.size) scopes.push(['selected', `Selected photos (${sel.size})`]);
   if (G.allowZip && favs.size) scopes.push(['favorites', `My favorites (${favs.size})`]);
@@ -971,6 +975,7 @@ function openDownloadSheet(opts = {}) {
     const q = new URLSearchParams({ size: size.value, fmt: fmt.value });
     if (scope === 'photo') { location.href = `/dl/${photo.id}?${q}`; closeSheet(); return; }
     if (rawBox.checked && G.allowRaw) q.set('raw', 'true');
+    if (G.curatedOnly && (scope === 'section' || scope === 'player' || scope === 'all')) q.set('curated', 'true');
     if (scope === 'section') q.set('section', opts.section.folder);
     else if (scope === 'player') q.set('player', pl.tag);
     else if (scope !== 'all') {
@@ -986,8 +991,8 @@ function openDownloadSheet(opts = {}) {
   // Save to phone: the same photos, straight into the phone's photo app (sizes and formats do not apply)
   const phoneBody = () => {
     if (scope === 'photo') return { ids: [photo.id] };
-    if (scope === 'section') return { section: opts.section.folder };
-    if (scope === 'player') return { player: pl.tag };
+    if (scope === 'section') return { section: opts.section.folder, curated: !!G.curatedOnly };
+    if (scope === 'player') return { player: pl.tag, curated: !!G.curatedOnly };
     const ids = scope === 'selected' ? [...sel] : scope === 'favorites' ? [...favs] : G.photos.filter(p => p.approved && !p.rawOnly).map(p => p.id);
     return { ids };
   };

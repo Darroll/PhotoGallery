@@ -10,7 +10,7 @@ public static class PublicApi
     record FavInput(bool On);
     record NameInput(string? Name);
     record LicenseAcceptInput(string? Version);
-    record PhoneSaveInput(List<int>? Ids, string? Section, string? Player);
+    record PhoneSaveInput(List<int>? Ids, string? Section, string? Player, bool? Curated);
 
     /// <summary>The photos in the list that carry this tag (a player's, from the player filter). Names compare in any case.</summary>
     static async Task<List<Photo>> WithTagAsync(AppDb db, List<Photo> photos, string tagName)
@@ -378,6 +378,7 @@ public static class PublicApi
             else if (input.Section == null && string.IsNullOrWhiteSpace(input.Player)) return Results.BadRequest("Choose the photos to save");
             if (input.Section != null) photos = photos.Where(p => string.Equals(GalleryRules.SectionOf(g, p.RelPath), input.Section, StringComparison.OrdinalIgnoreCase)).ToList();
             if (!string.IsNullOrWhiteSpace(input.Player)) photos = await WithTagAsync(db, photos, input.Player);
+            if (input.Curated == true) photos = photos.Where(p => !p.RawOnly).ToList();   // Curated only: leave out unedited RAW frames
             if (photos.Count == 0) return Results.NotFound();
             if (photos.Count > PhoneSaves.MaxPhotos) return Results.BadRequest($"Choose {PhoneSaves.MaxPhotos} photos or fewer at a time");
             // more than one photo at once is a bulk download, so it follows the gallery's ZIP switch
@@ -420,7 +421,7 @@ public static class PublicApi
             return Results.File(v.Value.path, "image/jpeg", $"{baseName}.jpg");
         }).RequireRateLimiting("download");
 
-        app.MapGet("/api/g/{slug}/zip", async (string slug, string? size, string? fmt, bool? raw, string? ids, string? section, string? player, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity, SettingsService settings) =>
+        app.MapGet("/api/g/{slug}/zip", async (string slug, string? size, string? fmt, bool? raw, string? ids, string? section, string? player, bool? curated, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity, SettingsService settings) =>
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
             if (g == null) return Results.NotFound();
@@ -454,6 +455,8 @@ public static class PublicApi
             if (section != null) photos = photos.Where(p => string.Equals(GalleryRules.SectionOf(g, p.RelPath), section, StringComparison.OrdinalIgnoreCase)).ToList();
             // one player's photos (the player filter's "Download all"): those carrying the player's tag
             if (!string.IsNullOrWhiteSpace(player)) photos = await WithTagAsync(db, photos, player);
+            // Curated only (as the visitor sees the gallery): leave out unedited RAW frames. An edited photo's own RAW still comes with raw=true.
+            if (curated == true) photos = photos.Where(p => !p.RawOnly).ToList();
             photos = GalleryRules.Sort(photos, g, x => x.TakenAt, x => x.Name, x => x.AddedAt);
             if (photos.Count == 0) return Results.NotFound();
             if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);

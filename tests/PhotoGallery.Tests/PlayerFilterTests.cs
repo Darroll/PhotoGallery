@@ -9,10 +9,15 @@ namespace PhotoGallery.Tests;
 public class PlayerFilterTests(AppFactory app) : IClassFixture<AppFactory>
 {
     /// <summary>A gallery of four photos (a to d) for a new team with players 10, 7, 0 and 00; tags the given photos by hand.</summary>
-    async Task<(string slug, int gid, string team, Dictionary<string, int> ids, HttpClient admin)> GalleryAsync(bool names, params (string photo, string number)[] tags)
+    async Task<(string slug, int gid, string team, Dictionary<string, int> ids, HttpClient admin)> GalleryAsync(bool names, params (string photo, string number)[] tags) =>
+        await GalleryAsync(names, null, tags);
+
+    async Task<(string slug, int gid, string team, Dictionary<string, int> ids, HttpClient admin)> GalleryAsync(bool names, Action<string>? prepare, params (string photo, string number)[] tags)
     {
         var admin = await app.AdminAsync();
-        var slug = await AppFactory.GalleryAsync(admin, "Filter " + Guid.NewGuid().ToString("N")[..6], app.NewFolder(4));
+        var folder = app.NewFolder(4);
+        prepare?.Invoke(Path.Combine(app.Library, folder));
+        var slug = await AppFactory.GalleryAsync(admin, "Filter " + Guid.NewGuid().ToString("N")[..6], folder, allowRaw: prepare != null);
         var g = await (await admin.GetAsync($"/api/g/{slug}")).ReadAsync();
         var gid = g.GetProperty("id").GetInt32();
         var ids = g.GetProperty("photos").EnumerateArray().ToDictionary(p => p.GetProperty("name").GetString()!, p => p.GetProperty("id").GetInt32());
@@ -100,5 +105,29 @@ public class PlayerFilterTests(AppFactory app) : IClassFixture<AppFactory>
         await guest.AcceptLicenseAsync();
         Assert.Empty(await ChipsAsync(guest, slug));
         Assert.Equal(HttpStatusCode.NotFound, (await guest.GetAsync($"/api/g/{slug}/zip?size=original&player={Uri.EscapeDataString(team + " 10")}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Curated_only_leaves_out_unedited_raw_frames_but_keeps_each_edited_photos_raw()
+    {
+        // a.jpg has its RAW (a.cr2); c.jpg is made an unedited RAW frame (only a RAW exists for it)
+        var (slug, _, team, ids, _) = await GalleryAsync(false, dir => File.WriteAllBytes(Path.Combine(dir, "a.cr2"), "raw bytes"u8.ToArray()), ("a.jpg", "10"), ("c.jpg", "10"));
+        await app.WithDbAsync(async db => { var c = (await db.Photos.FindAsync(ids["c.jpg"]))!; c.RawRelPath = c.RelPath; await db.SaveChangesAsync(); return 0; });
+        var guest = app.NewClient();
+        await guest.AcceptLicenseAsync();
+        var who = Uri.EscapeDataString(team + " 10");
+
+        async Task<string[]> NamesAsync(string query)
+        {
+            var r = await guest.GetAsync($"/api/g/{slug}/zip?size=original&raw=true&player={who}{query}");
+            Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+            using var archive = new ZipArchive(new MemoryStream(await r.Content.ReadAsByteArrayAsync()), ZipArchiveMode.Read);
+            return archive.Entries.Select(e => e.FullName).Order().ToArray();
+        }
+        Assert.Equal(new[] { "a.jpg", "RAW/a.cr2" }, await NamesAsync("&curated=true"));
+        Assert.Equal(new[] { "a.jpg", "RAW/a.cr2", "RAW/c.jpg" }, await NamesAsync(""));
+
+        var phone = await guest.PostAsJsonAsync($"/api/g/{slug}/phone", new { player = team + " 10", curated = true });
+        Assert.Equal(new[] { ids["a.jpg"] }, (await phone.ReadAsync()).GetProperty("photos").EnumerateArray().Select(p => p.GetProperty("id").GetInt32()).ToArray());
     }
 }
