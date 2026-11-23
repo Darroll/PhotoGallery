@@ -152,6 +152,72 @@ function tagEditSheet(title, names, save) {
 }
 const fmtDate = (s) => s ? new Date(/Z$|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z').toLocaleString() : '';
 
+// ---------- remembered open/closed sections ----------
+// Every <details> section (settings sections, group and team cards, logs, the photo details groups) remembers whether it was
+// last left open or closed, in this browser, and comes back that way after a refresh, a save that redraws the page, or Back.
+// A section is known by the page it is on (ids folded together, so all gallery settings pages share one memory) and by its
+// heading. Give an element data-remember="key" to name it yourself, or data-remember="off" to leave it alone.
+const openKey = 'pg-open';
+let openState = null;
+function openStore() {
+  if (openState) return openState;
+  try { openState = JSON.parse(localStorage.getItem(openKey) || '{}') || {}; } catch { openState = {}; }
+  if (typeof openState !== 'object' || Array.isArray(openState)) openState = {};
+  return openState;
+}
+function openPage(el) {
+  if (el && el.closest && el.closest('.lb-details')) return 'viewer';           // the photo details panel, the same for every photo
+  const parts = location.pathname.split('/').filter(Boolean);
+  if (parts[0] === 'g') return 'gallery';
+  return '/' + parts.map(x => /^\d+$/.test(x) ? '*' : x).join('/');
+}
+function openName(d) {
+  const named = d.getAttribute('data-remember');
+  if (named) return named === 'off' ? null : named;
+  const sum = Array.from(d.children).find(c => c.tagName === 'SUMMARY');
+  if (!sum) return null;
+  // the heading part of the summary: a section title or bold name, without the counts that change ("Acceptance log (12)")
+  const head = sum.querySelector('.section-title, b, strong') || sum;
+  const name = head.textContent.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  return name ? name.slice(0, 80) : null;
+}
+const openId = (d) => { const n = openName(d); return n ? openPage(d) + '|' + n : null; };
+function rememberedOpen(key, fallback) { const v = openStore()[openPage() + '|' + key]; return typeof v === 'boolean' ? v : fallback; }
+function rememberOpen(key, open) {
+  const st = openStore();
+  if (st[key] === open) return;
+  st[key] = open;
+  const keys = Object.keys(st);
+  if (keys.length > 400) for (const k of keys.slice(0, keys.length - 400)) delete st[k];   // oldest first; keeps the store small
+  try { localStorage.setItem(openKey, JSON.stringify(st)); } catch { }
+}
+// put new sections back the way they were left, before the page is painted
+function restoreOpen(root) {
+  const list = root.tagName === 'DETAILS' ? [root] : root.querySelectorAll ? root.querySelectorAll('details') : [];
+  for (const d of list) {
+    if (d._pgOpen) continue;
+    d._pgOpen = true;
+    const id = openId(d), v = id ? openStore()[id] : undefined;
+    if (typeof v === 'boolean' && d.open !== v) d.open = v;
+  }
+}
+new MutationObserver((muts) => { for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1) restoreOpen(n); })
+  .observe(document.documentElement, { childList: true, subtree: true });
+// Only a person opening or closing a section is remembered, not a page drawing one open by default. A click on the
+// summary (Enter and Space on it count as a click) marks the section; its 'toggle' event, which does not bubble, follows.
+document.addEventListener('click', (e) => {
+  const sum = e.target.closest && e.target.closest('summary');
+  const d = sum && sum.parentElement;
+  if (d && d.tagName === 'DETAILS' && Array.from(d.children).find(c => c.tagName === 'SUMMARY') === sum) d._pgUser = performance.now();
+}, true);
+document.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (!d || d.tagName !== 'DETAILS' || !(performance.now() - (d._pgUser || -1e9) < 1000)) return;
+  d._pgUser = 0;
+  const id = openId(d);
+  if (id) rememberOpen(id, d.open);
+}, true);
+
 // ---------- routing ----------
 let dirtyGuard = null; // set by pages with unsaved changes: returns true when it is OK to leave
 let galleryView = null; // slug of the gallery grid currently rendered, so photo URLs can open/close the viewer without re-rendering
@@ -331,8 +397,8 @@ function searchForm(v) {
     toggle.setAttribute('aria-expanded', String(open));
     toggle.textContent = (open ? 'Filters \u25B4' : 'Filters \u25BE') + (active ? ` (${active})` : '');
   };
-  toggle.onclick = () => setOpen(filters.hidden);
-  setOpen(active > 0);
+  toggle.onclick = () => { setOpen(filters.hidden); rememberOpen(openPage() + '|filters', !filters.hidden); };
+  setOpen(active > 0 || rememberedOpen('filters', false));
   return h('form', { class: 'search-form', onsubmit: (e) => { e.preventDefault(); submit(); } },
     h('div', { class: 'search-main' }, q, h('button', { class: 'primary', type: 'submit', text: 'Search' }), toggle), filters);
 }
