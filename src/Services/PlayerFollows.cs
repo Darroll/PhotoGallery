@@ -55,10 +55,10 @@ public static class PlayerFollows
     public static async Task<List<Team>> TeamsForAsync(AppDb db, string sub, string? email, bool siteWide)
     {
         var teams = await db.Teams.AsNoTracking().Include(t => t.Players).ToListAsync();
-        var followed = (await db.PlayerFollows.AsNoTracking().Where(f => f.Sub == sub).Select(f => f.PlayerId).ToListAsync()).ToHashSet();
+        var followed = await PlayerTags.SameGirlAsync(db, await db.PlayerFollows.AsNoTracking().Where(f => f.Sub == sub).Select(f => f.PlayerId).ToListAsync());
         var galleries = await db.Galleries.AsNoTracking().Where(g => g.TeamId != null && (g.Visibility == Visibility.Public || g.Visibility == Visibility.Restricted)).ToListAsync();
         var result = new List<Team>();
-        foreach (var t in teams.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var t in teams.OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ThenByDescending(t => t.CreatedAt))
         {
             if (t.Players.Count == 0) continue;
             var ok = t.Players.Any(p => followed.Contains(p.Id));
@@ -70,22 +70,27 @@ public static class PlayerFollows
     }
 
     /// <summary>Follows or stops following a player for this person. Returns an error message, or null when done.</summary>
+    /// <summary>
+    /// Following a player follows the girl: one follow covers every roster she is on (other teams and seasons, linked by name).
+    /// Stopping removes the follows of all her roster places.
+    /// </summary>
     public static async Task<string?> SetAsync(AppDb db, string sub, string email, Player player, bool follow)
     {
-        var f = await db.PlayerFollows.FirstOrDefaultAsync(x => x.Sub == sub && x.PlayerId == player.Id);
-        if (follow && f == null)
+        var same = await PlayerTags.SameGirlAsync(db, new[] { player.Id });
+        var mine = await db.PlayerFollows.Where(x => x.Sub == sub && same.Contains(x.PlayerId)).ToListAsync();
+        if (follow && mine.Count == 0)
         {
             if (await db.PlayerFollows.CountAsync(x => x.Sub == sub) >= MaxPerPerson) return $"You can follow up to {MaxPerPerson} players.";
             db.PlayerFollows.Add(new PlayerFollow { Sub = sub, Email = email, PlayerId = player.Id, Token = Passwords.NewToken() });
         }
-        else if (follow && f != null) f.Email = email;   // mail goes to the address the account has now
-        else if (!follow && f != null) db.PlayerFollows.Remove(f);
+        else if (follow) foreach (var f in mine) f.Email = email;   // mail goes to the address the account has now
+        else db.PlayerFollows.RemoveRange(mine);
         await db.SaveChangesAsync();
         return null;
     }
 
     /// <summary>How the player is named in emails: "#10 (Hurricanes)", or "Emma 10" when the team puts names in tags.</summary>
-    public static string Label(Team t, Player p) => t.TagWithNames && p.Name.Length > 0 ? $"{p.Name} {p.Number}" : $"#{p.Number} ({t.Name})";
+    public static string Label(Team t, Player p) => t.TagWithNames && p.Name.Length > 0 ? $"{p.Name} {p.Number}" : $"#{p.Number} ({t.FullName})";
 
     /// <summary>The team's player carrying this tag (either form, "Team 10" or "Emma 10"), or null.</summary>
     public static Player? PlayerOf(Team team, string? tag)
@@ -97,8 +102,7 @@ public static class PlayerFollows
     /// <summary>The jersey numbers of the players this person follows on the gallery's team (a gallery has one team).</summary>
     public static async Task<List<string>> FollowingAsync(AppDb db, string sub, Team team)
     {
-        var ids = team.Players.Select(p => p.Id).ToList();
-        var mine = await db.PlayerFollows.AsNoTracking().Where(f => f.Sub == sub && ids.Contains(f.PlayerId)).Select(f => f.PlayerId).ToListAsync();
+        var mine = await PlayerTags.SameGirlAsync(db, await db.PlayerFollows.AsNoTracking().Where(f => f.Sub == sub).Select(f => f.PlayerId).ToListAsync());
         return team.Players.Where(p => mine.Contains(p.Id)).Select(p => p.Number).ToList();
     }
 
@@ -118,6 +122,7 @@ public static class PlayerFollows
 
         var teams = await db.Teams.AsNoTracking().Include(t => t.Players).ToListAsync();
         var players = teams.SelectMany(t => t.Players.Select(p => (Team: t, Player: p))).ToDictionary(x => x.Player.Id);
+        var byAthlete = players.Values.Where(x => x.Player.AthleteId != null).GroupBy(x => x.Player.AthleteId!.Value).ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.Team.CreatedAt).ToList());
         var teamById = teams.ToDictionary(t => t.Id);
         var galleries = (await db.Galleries.AsNoTracking().Where(g => g.TeamId != null).ToListAsync())
             .Where(g => On(g, teamById.GetValueOrDefault(g.TeamId!.Value), settings.Follow.Enabled)).ToList();
@@ -136,30 +141,48 @@ public static class PlayerFollows
             var sections = new List<string>();
             var labels = new List<string>();
             var stops = new List<string>();
+            var seenGirls = new HashSet<string>();
             foreach (var f in person.OrderBy(f => f.CreatedAt))
             {
                 if (!players.TryGetValue(f.PlayerId, out var tp)) continue;
-                var names = PlayerTags.TagNames(tp.Team, tp.Player).Select(n => n.ToLower()).ToList();
-                var tagIds = await db.Tags.Where(t => names.Contains(t.Name.ToLower())).Select(t => t.Id).ToListAsync();
-                var since = f.NotifiedUpTo;
-                var rows = tagIds.Count == 0 ? new() : await (
-                    from pt in db.PhotoTags
-                    join p in db.Photos on pt.PhotoId equals p.Id
-                    where tagIds.Contains(pt.TagId) && pt.TaggedAt > since && pt.TaggedAt <= cutoff && p.Approved && galleryIds.Contains(p.GalleryId)
-                    select new { p.Id, p.GalleryId }).Distinct().ToListAsync();
+                // the girl on every roster she is on: other teams and seasons count too
+                var places = tp.Player.AthleteId is { } aid ? byAthlete[aid] : new List<(Team Team, Player Player)> { tp };
+                var girlKey = tp.Player.AthleteId is { } a2 ? "a" + a2 : "p" + tp.Player.Id;
+                // her name only when the team she was followed on puts names in tags; otherwise her numbers (on the rosters with
+                // new photos), which say nothing about her
+                string LabelFor(List<(Team Team, Player Player)> on) => on.Count <= 1 ? Label(on.Count == 1 ? on[0].Team : tp.Team, on.Count == 1 ? on[0].Player : tp.Player)
+                    : tp.Team.TagWithNames && tp.Player.Name.Length > 0 ? tp.Player.Name
+                    : string.Join(", ", on.Select(x => $"#{x.Player.Number} ({x.Team.FullName})").Distinct());
                 var label = Label(tp.Team, tp.Player);
-                var lines = new List<string>();
-                foreach (var grp in rows.GroupBy(r => r.GalleryId))
+                if (seenGirls.Add(girlKey))
                 {
-                    var g = byId[grp.Key];
-                    if (g.TeamId != tp.Team.Id || GalleryRules.IsExpired(g)) continue;
-                    if (g.Visibility == Visibility.Restricted && !await GalleryPeople.AllowsEmailAsync(db, g, f.Email)) continue;
-                    var hidden = GalleryRules.HiddenCoverId(g);
-                    var n = grp.Select(r => r.Id).Distinct().Count(id => id != hidden);
-                    if (n == 0) continue;
-                    lines.Add($"  {n} new photo{(n == 1 ? "" : "s")} in {g.Title}\n  {url}/g/{g.Slug}?player={Uri.EscapeDataString(PlayerTags.TagName(tp.Team, tp.Player))}");
+                    var since = person.Where(x => players.TryGetValue(x.PlayerId, out var o) && places.Any(pl => pl.Player.Id == o.Player.Id)).Min(x => x.NotifiedUpTo);
+                    var lines = new List<string>();
+                    var withPhotos = new List<(Team Team, Player Player)>();
+                    foreach (var place in places)
+                    {
+                        var before = lines.Count;
+                        var names = PlayerTags.TagNames(place.Team, place.Player).Select(n => n.ToLower()).ToList();
+                        var tagIds = await db.Tags.Where(t => names.Contains(t.Name.ToLower())).Select(t => t.Id).ToListAsync();
+                        var rows = tagIds.Count == 0 ? new() : await (
+                            from pt in db.PhotoTags
+                            join p in db.Photos on pt.PhotoId equals p.Id
+                            where tagIds.Contains(pt.TagId) && pt.TaggedAt > since && pt.TaggedAt <= cutoff && p.Approved && galleryIds.Contains(p.GalleryId)
+                            select new { p.Id, p.GalleryId }).Distinct().ToListAsync();
+                        foreach (var grp in rows.GroupBy(r => r.GalleryId))
+                        {
+                            var g = byId[grp.Key];
+                            if (g.TeamId != place.Team.Id || GalleryRules.IsExpired(g)) continue;   // a tag only means her in her own team's galleries
+                            if (g.Visibility == Visibility.Restricted && !await GalleryPeople.AllowsEmailAsync(db, g, f.Email)) continue;
+                            var hidden = GalleryRules.HiddenCoverId(g);
+                            var n = grp.Select(r => r.Id).Distinct().Count(id => id != hidden);
+                            if (n == 0) continue;
+                            lines.Add($"  {n} new photo{(n == 1 ? "" : "s")} in {g.Title}\n  {url}/g/{g.Slug}?player={Uri.EscapeDataString(PlayerTags.TagName(place.Team, place.Player))}");
+                        }
+                        if (lines.Count > before) withPhotos.Add(place);
+                    }
+                    if (lines.Count > 0) { var shown = LabelFor(withPhotos); sections.Add($"{shown}:\n" + string.Join("\n", lines)); labels.Add(shown); }
                 }
-                if (lines.Count > 0) { sections.Add($"{label}:\n" + string.Join("\n", lines)); labels.Add(label); }
                 stops.Add($"To stop following {label}, open:\n{url}/follow/stop/{f.Token}");
             }
 

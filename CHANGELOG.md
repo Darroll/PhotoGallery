@@ -2,6 +2,12 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.6.0 (not released yet)
+
+- **Teams have seasons.** Each season of a team (Fall 2026, Spring 2027) has its own roster and its own jerseys, for a year with special pink jerseys. Settings, **Teams** shows one card per team with its seasons inside, newest first. **Start season** on a team's card begins the next season with the last season's roster and jerseys, so only the players who left or joined change. A gallery picks the team season in its Players section: the AI looks for that season's numbers in that season's jerseys, and the home page lists the gallery under that season (the gallery's own Season box still wins, and galleries without a team still go by the event date). The home page's team chips, the search team filter and the admin list's team filter cover every season of a team.
+- **A girl is one player across teams and seasons.** Type her name the same way on every roster she is on (Reagan as #42 on OCSS and #11 on East Ridge, or a new season), and she is one player: a parent who follows her on any team gets her new photos from all of them in one email, and stopping on any team stops all of them. In each gallery her chip shows that roster's number. Names still stay off the site unless the team puts names in tags; two different girls with the same name need names that differ ("Emma S." and "Emma K."). Players without a name stay separate.
+- Updating adds a season to each team (empty for the teams you have now; type one in to start using seasons) and links players with the same name on different rosters. A copy of the database is saved first. Photo tags do not change.
+
 ## 2.5.0 (not released yet)
 
 - **Galleries are grouped by season on the home page.** This season's galleries come first and open; earlier seasons are folded under their heading ("Spring 2026, 4 galleries") and open with a tap, so parents find this season's games straight away. A gallery's season comes from its event date (or the day it was made): Fall is August to December and Spring January to July. Settings, **Site and appearance** can switch to August-to-July seasons ("2026-27 season"), calendar years, or off (one list as before). To name a season yourself, such as "Indoor 2027", type it in the gallery's new **Season** box; galleries with the same season are listed together. A preset carries the Season box too. Inside each season the galleries keep the home page order.

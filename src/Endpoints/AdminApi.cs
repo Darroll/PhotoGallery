@@ -47,16 +47,19 @@ public static class AdminApi
         catch { return null; }
     }
 
-    static object Dto(Gallery g, int count, int pending, int rawOnly = 0, string seasons = "fall-spring") => new
+    static object Dto(Gallery g, int count, int pending, int rawOnly = 0, string seasons = "fall-spring", string? teamSeason = null) => new
     {
         g.Id, g.Slug, g.Title, g.Description, g.Folder, g.Visibility,
         hasPassword = !string.IsNullOrEmpty(g.PasswordHash),
         g.AllowDownload, g.AllowRaw, g.AllowZip, g.AllowGuestUpload, g.AllowLikes, g.ShowLikeCounts, g.AllowComments, g.AllowFeedback, g.WatermarkView, g.WatermarkDownload,
         rawMatchMode = g.RawMatchMode, hideRawOnly = g.HideRawOnly, sortMode = g.SortMode, sortDesc = g.SortDesc,
-        eventDate = g.EventDate, eventEndDate = g.EventEndDate, coverMode = g.CoverMode, g.Location, season = g.Season, autoSeason = GalleryRules.AutoSeason(g, seasons), seasonShown = GalleryRules.SeasonOf(g, seasons), teamId = g.TeamId, g.AllowedSizes, g.AllowedFormats, expiresAt = g.ExpiresAt,
+        eventDate = g.EventDate, eventEndDate = g.EventEndDate, coverMode = g.CoverMode, g.Location, season = g.Season, autoSeason = GalleryRules.DefaultSeason(g, seasons, teamSeason), seasonShown = GalleryRules.SeasonOf(g, seasons, teamSeason), teamId = g.TeamId, g.AllowedSizes, g.AllowedFormats, expiresAt = g.ExpiresAt,
         footageLinks = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }), cover = g.CoverPhotoId, count, pending, rawOnly,
         sections = GalleryRules.Sections(g).Select(s => new { s.Folder, s.Title, links = (s.Links ?? new()).Select(l => new { l.Label, l.Url, category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }) })
     };
+
+    static async Task<string?> TeamSeasonAsync(AppDb db, Gallery g) =>
+        g.TeamId == null ? null : await db.Teams.AsNoTracking().Where(t => t.Id == g.TeamId).Select(t => t.Season).FirstOrDefaultAsync();
 
     public static void Map(WebApplication app)
     {
@@ -167,8 +170,9 @@ public static class AdminApi
                 rawOnly = g.Photos.Count(p => p.Approved && p.RawRelPath != null && p.RawRelPath == p.RelPath)
             }).ToListAsync();
             var byId = rows.ToDictionary(r => r.g.Id);
+            var teamSeasons = await db.Teams.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Season);
             return Results.Ok(GalleryRules.OrderGalleries(rows.Select(r => r.g), settings.Home.Order)
-                .Select(g => Dto(g, byId[g.Id].count, byId[g.Id].pending, byId[g.Id].rawOnly, settings.Home.Seasons)));
+                .Select(g => Dto(g, byId[g.Id].count, byId[g.Id].pending, byId[g.Id].rawOnly, settings.Home.Seasons, g.TeamId is { } t ? teamSeasons.GetValueOrDefault(t) : null)));
         });
 
         // manual gallery order: swap a gallery with its neighbour
@@ -323,7 +327,7 @@ public static class AdminApi
             var scan = await scanner.ScanAsync(db, g);
             await Subscribers.NewGalleryAsync(db, settings, g);
             if (g.TeamId != null) await players.AutoStartAsync(db, g, settings.Vision);
-            return Results.Ok(new { gallery = Dto(g, scan.Total, 0, scan.RawOnly, settings.Home.Seasons), scan });
+            return Results.Ok(new { gallery = Dto(g, scan.Total, 0, scan.RawOnly, settings.Home.Seasons, await TeamSeasonAsync(db, g)), scan });
         });
 
         secured.MapPut("/galleries/{id:int}", async (int id, GalleryInput input, AppDb db, AppConfig cfg, Scanner scanner, ThumbnailService thumbs, SettingsService settings) =>
@@ -423,7 +427,7 @@ public static class AdminApi
                 await db.SaveChangesAsync();
                 await scanner.ScanAsync(db, g);
             }
-            return Results.Ok(Dto(g, await db.Photos.CountAsync(p => p.GalleryId == id && p.Approved), await db.Photos.CountAsync(p => p.GalleryId == id && !p.Approved), await db.Photos.CountAsync(p => p.GalleryId == id && p.Approved && p.RawRelPath != null && p.RawRelPath == p.RelPath), settings.Home.Seasons));
+            return Results.Ok(Dto(g, await db.Photos.CountAsync(p => p.GalleryId == id && p.Approved), await db.Photos.CountAsync(p => p.GalleryId == id && !p.Approved), await db.Photos.CountAsync(p => p.GalleryId == id && p.Approved && p.RawRelPath != null && p.RawRelPath == p.RelPath), settings.Home.Seasons, await TeamSeasonAsync(db, g)));
         });
 
         // Removes the gallery and cached derivatives. Original files in the library are never touched.

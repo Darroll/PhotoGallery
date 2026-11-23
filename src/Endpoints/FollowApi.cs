@@ -50,14 +50,14 @@ public static class FollowApi
             var sub = AuthApi.Sub(ctx);
             if (sub == null || !PlayerFollows.Available(settings)) return Results.Ok(new { signedIn = sub != null, available = PlayerFollows.Available(settings), teams = Array.Empty<object>() });
             var email = GalleryPeople.VerifiedEmail(ctx.User);
-            var followed = (await db.PlayerFollows.AsNoTracking().Where(f => f.Sub == sub).Select(f => f.PlayerId).ToListAsync()).ToHashSet();
+            var followed = await PlayerTags.SameGirlAsync(db, await db.PlayerFollows.AsNoTracking().Where(f => f.Sub == sub).Select(f => f.PlayerId).ToListAsync());
             var teams = await PlayerFollows.TeamsForAsync(db, sub, email, settings.Follow.Enabled);
             return Results.Ok(new
             {
                 signedIn = true, available = true, verified = email != null,
                 teams = teams.Select(t => new
                 {
-                    t.Id, t.Name,
+                    t.Id, name = t.FullName,
                     players = t.Players.OrderBy(p => int.TryParse(p.Number, out var n) ? n : int.MaxValue).ThenBy(p => p.Number.Length)
                         .Select(p => new { p.Id, number = p.Number, label = PlayerFollows.ShortLabel(t, p), following = followed.Contains(p.Id) }),
                 }),
@@ -80,7 +80,13 @@ public static class FollowApi
         // the link in every email: works without signing in, and says the same whether or not the link was known
         app.MapGet("/follow/stop/{token}", async (string token, AppDb db) =>
         {
-            await db.PlayerFollows.Where(f => f.Token == token).ExecuteDeleteAsync();
+            // stops following the girl, on every roster she is on
+            var f = await db.PlayerFollows.AsNoTracking().FirstOrDefaultAsync(x => x.Token == token);
+            if (f != null)
+            {
+                var same = await PlayerTags.SameGirlAsync(db, new[] { f.PlayerId });
+                await db.PlayerFollows.Where(x => x.Sub == f.Sub && same.Contains(x.PlayerId)).ExecuteDeleteAsync();
+            }
             return Results.Redirect("/?unfollowed=1");
         });
 

@@ -72,17 +72,20 @@ public static class PublicApi
             var counts = rows.ToDictionary(r => r.g.Id, r => r.count);
             var galleryTags = await Tags.NamesByGalleryAsync(db, rows.Select(r => r.g.Id).ToList());
             var teamIds = rows.Select(r => r.g.TeamId).OfType<int>().Distinct().ToList();
-            var teams = await db.Teams.AsNoTracking().Where(t => teamIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.Name);
-            // grouped by season (newest season first), each season in the home page order; the page shows a heading where the season changes
+            var teams = await db.Teams.AsNoTracking().Where(t => teamIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id);
+            // grouped by season (newest season first), each season in the home page order; the page shows a heading where the season changes.
+            // A gallery of a team season ("Fall 2026") is listed under that season.
             var home = settings.Home;
-            var list = GalleryRules.GroupBySeason(GalleryRules.OrderGalleries(rows.Select(r => r.g), home.Order), home.Seasons)
+            string? TeamSeason(Gallery g) => g.TeamId is { } id && teams.TryGetValue(id, out var t) ? t.Season : null;
+            var list = GalleryRules.GroupBySeason(GalleryRules.OrderGalleries(rows.Select(r => r.g), home.Order), home.Seasons, TeamSeason)
                 .SelectMany(s => s.Galleries.Select(g => new
                 {
                     g.Id, g.Slug, g.Title, g.Description, g.Location, eventDate = g.EventDate, eventEndDate = g.EventEndDate, cover = g.CoverPhotoId, count = counts[g.Id],
                     g.Visibility, expired = g.ExpiresAt != null && g.ExpiresAt <= now,
                     tags = galleryTags.TryGetValue(g.Id, out var gt) ? gt : new List<string>(),
                     season = s.Season,
-                    team = g.TeamId is { } tid && teams.TryGetValue(tid, out var tn) ? new { id = tid, name = tn } : null
+                    // the team chips on the home page go by name, so they cover every season of a team
+                    team = g.TeamId is { } tid && teams.TryGetValue(tid, out var tn) ? new { id = tid, name = tn.Name, season = tn.Season } : null
                 }));
             return Results.Ok(list);
         });

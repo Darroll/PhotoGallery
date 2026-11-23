@@ -418,7 +418,7 @@ function searchForm(v) {
   const team = h('select', { 'aria-label': 'Team', hidden: true }, h('option', { value: '', text: 'All teams' }));
   api('/api/teams').then(r => {
     if (!r.ok || !r.data.length) return;
-    team.append(...r.data.map(t => h('option', { value: String(t.id), text: t.name, selected: String(t.id) === String(v.team || '') })));
+    team.append(...r.data.map(t => h('option', { value: t.name, text: t.name, selected: t.name.toLowerCase() === String(v.team || '').toLowerCase() })));
     team.hidden = false;
   });
   const submit = () => {
@@ -484,20 +484,23 @@ async function viewHome(app) {
     g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
     h('div', { class: 'meta' }, h('b', { text: g.title }), eventLines(g), h('span', { class: 'muted', text: plural(g.count, 'photo') }), adminStatus(g, me && me.admin, true), tagChips(g)));
 
-  // Team filter: the teams set on the galleries (Admin -> Players and teams). Offered only when picking one would leave some galleries out.
-  // The choice lives in the address (?team=3, so it can be shared) and is remembered on this device.
-  const teams = [...new Map(all.filter(g => g.team).map(g => [g.team.id, g.team])).values()].sort((a, b) => a.name.localeCompare(b.name));
-  const filterable = teams.some(t => all.some(g => !g.team || g.team.id !== t.id));
+  // Team filter: the teams set on the galleries (Settings, Teams), by name, so one chip covers all of a team's seasons.
+  // Offered only when picking one would leave some galleries out. The choice lives in the address (?team=Hurricanes, so it
+  // can be shared) and is remembered on this device.
+  const key = (n) => (n || '').toLowerCase();
+  const teams = [...new Map(all.filter(g => g.team).map(g => [key(g.team.name), { id: key(g.team.name), name: g.team.name }])).values()].sort((a, b) => a.name.localeCompare(b.name));
+  const ofTeam = (g, t) => g.team && key(g.team.name) === t.id;
+  const filterable = teams.some(t => all.some(g => !ofTeam(g, t)));
   const teamKey = 'pg-home-team';
-  const wanted = new URLSearchParams(location.search).get('team') ?? (() => { try { return localStorage.getItem(teamKey); } catch { return null; } })();
-  let team = filterable ? teams.find(t => String(t.id) === wanted) || null : null;
+  const wanted = key(new URLSearchParams(location.search).get('team') ?? (() => { try { return localStorage.getItem(teamKey); } catch { return null; } })());
+  let team = filterable ? teams.find(t => t.id === wanted) || null : null;
   const teamBar = filterable ? h('div', { class: 'player-bar team-bar', role: 'group', 'aria-label': 'Show the galleries of one team' }) : null;
   const list = h('div', { class: 'home-list' });
   const pickTeam = (t) => {
     team = t && (!team || team.id !== t.id) ? t : null;   // tapping the chosen team again shows every team
-    try { if (team) localStorage.setItem(teamKey, String(team.id)); else localStorage.removeItem(teamKey); } catch { }
+    try { if (team) localStorage.setItem(teamKey, team.name); else localStorage.removeItem(teamKey); } catch { }
     const u = new URL(location.href);
-    if (team) u.searchParams.set('team', team.id); else u.searchParams.delete('team');
+    if (team) u.searchParams.set('team', team.name); else u.searchParams.delete('team');
     history.replaceState(history.state, '', u.pathname + u.search + u.hash);
     render();
   };
@@ -505,7 +508,7 @@ async function viewHome(app) {
     if (teamBar) teamBar.replaceChildren(h('span', { class: 'player-lead muted', text: 'Teams' }),
       h('button', { class: 'player-chip' + (team ? '' : ' on'), 'aria-pressed': team ? 'false' : 'true', text: 'All teams', onclick: () => pickTeam(null) }),
       ...teams.map(t => h('button', { class: 'player-chip' + (team && team.id === t.id ? ' on' : ''), 'aria-pressed': team && team.id === t.id ? 'true' : 'false', text: t.name, onclick: () => pickTeam(t) })));
-    const shown = team ? all.filter(g => g.team && g.team.id === team.id) : all;
+    const shown = team ? all.filter(g => ofTeam(g, team)) : all;
     // the server sends the galleries grouped by season, newest season first; a heading starts where the season changes
     const groups = [];
     for (const g of shown) {
@@ -2133,19 +2136,19 @@ async function viewAdmin(app) {
   main.append(heading);
   if (!list.length) return main.append(h('p', { class: 'muted', text: 'No galleries yet. Create one from a folder above.' }));
   const manual = (homeOrder.data && homeOrder.data.order) === 'manual';
-  const teamNames = new Map((teamRes.ok ? teamRes.data : []).map(t => [t.id, t.name]));
-  list.forEach(g => { g.teamName = g.teamId != null ? teamNames.get(g.teamId) || '' : ''; });
-  // filters by team and season, shown when there is something to choose between; they are remembered while the page is open
-  const usedTeams = [...new Set(list.map(g => g.teamId).filter(x => x != null && teamNames.has(x)))].sort((a, b) => teamNames.get(a).localeCompare(teamNames.get(b)));
+  const teamById = new Map((teamRes.ok ? teamRes.data : []).map(t => [t.id, t]));
+  list.forEach(g => { const t = g.teamId != null ? teamById.get(g.teamId) : null; g.teamName = t ? t.fullName : ''; g.teamKey = t ? t.name.toLowerCase() : ''; });
+  // filters by team (all its seasons) and season, shown when there is something to choose between
+  const usedTeams = [...new Map(list.filter(g => g.teamKey).map(g => [g.teamKey, teamById.get(g.teamId).name])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
   const usedSeasons = [...new Set(list.map(g => g.seasonShown).filter(Boolean))];
   const teamSel = usedTeams.length ? h('select', { 'aria-label': 'Team' }, h('option', { value: '', text: 'All teams' }),
-    usedTeams.map(id => h('option', { value: String(id), text: teamNames.get(id) })), h('option', { value: 'none', text: 'No team' })) : null;
+    usedTeams.map(([k, n]) => h('option', { value: k, text: n })), h('option', { value: 'none', text: 'No team' })) : null;
   const seasonSel = usedSeasons.length > 1 ? h('select', { 'aria-label': 'Season' }, h('option', { value: '', text: 'All seasons' }),
     usedSeasons.map(x => h('option', { value: x, text: x }))) : null;
   const rows = h('div', { class: 'gal-list' });
   const fill = () => {
     const t = teamSel ? teamSel.value : '', se = seasonSel ? seasonSel.value : '';
-    const shown = list.filter(g => (!t || (t === 'none' ? g.teamId == null : String(g.teamId) === t)) && (!se || g.seasonShown === se));
+    const shown = list.filter(g => (!t || (t === 'none' ? !g.teamKey : g.teamKey === t)) && (!se || g.seasonShown === se));
     heading.textContent = shown.length === list.length ? `Galleries (${list.length})` : `Galleries (${shown.length} of ${list.length})`;
     // moving up and down only makes sense in the full list
     const canMove = manual && shown.length === list.length;
@@ -3209,6 +3212,7 @@ async function teamsPanel() {
     const editor = (t) => {
       const msg = h('span', { class: 'muted', role: 'status' });
       const name = h('input', { type: 'text', maxlength: 30, value: t ? t.name : '', placeholder: 'Team name, such as Hurricanes U12', 'aria-label': 'Team name' });
+      const season = h('input', { type: 'text', maxlength: 40, value: t ? t.season || '' : '', placeholder: 'Fall 2026', 'aria-label': 'Season' });
       // jerseys: one row each with a name (Home, Away), the shirt colour and the number colour; saved as "Home: white shirts with black numbers"
       const kitList = h('div', { class: 'kit-list' });
       const kitRow = (k) => {
@@ -3235,26 +3239,55 @@ async function teamsPanel() {
       const roster = h('textarea', { rows: 8, placeholder: '10 Emma\n7 Ava\n3', 'aria-label': 'Roster' });
       roster.value = t ? t.roster : '';
       const save = h('button', { class: 'primary', text: t ? 'Save' : 'Add team', onclick: async () => {
-        const body = { name: name.value, colors: colors.read(), tagWithNames: names.checked, roster: roster.value };
+        const body = { name: name.value, season: season.value, colors: colors.read(), tagWithNames: names.checked, roster: roster.value };
         const res = await api(t ? `/api/admin/teams/${t.id}` : '/api/admin/teams', { method: t ? 'PUT' : 'POST', body });
         if (res.ok) { toast(t ? 'Team saved' : 'Team added'); render(); } else msg.textContent = aiErr(res);
       } });
-      const del = t ? h('button', { class: 'danger', text: 'Delete team', onclick: async () => {
-        if (!confirm(`Delete ${t.name} and its roster? Tags already on photos stay. Suggestions still waiting are removed.`)) return;
+      const del = t ? h('button', { class: 'danger', text: t.season ? 'Delete this season' : 'Delete team', onclick: async () => {
+        if (!confirm(`Delete ${t.fullName || t.name} and its roster? Tags already on photos stay. Suggestions still waiting are removed.`)) return;
         const res = await api(`/api/admin/teams/${t.id}`, { method: 'DELETE' });
         if (res.ok) render(); else msg.textContent = aiErr(res);
       } }) : null;
       const body = h('div', { class: 'form1' },
-        field('Name', name, 'Used in tags, such as "Hurricanes U12 10".'),
+        field('Name', name, 'Used in tags, such as "Hurricanes U12 10". Every season of a team has the same name.'),
+        field('Season', season, 'Such as Fall 2026. Each season has its own roster and jerseys. A gallery of this season is listed under it on the home page.'),
         field('Jerseys', colors, 'Each jersey the team wears: a name (Home, Away), the shirt colour and the number colour. Each gallery picks the jersey worn that day. Other teams may use the same colours.'),
-        field('Roster', roster, 'One player per line: the number, then a name if you like. Only these numbers are tagged.'),
+        field('Roster', roster, 'One player per line: the number, then a name if you like. Only these numbers are tagged. Type a girl\'s name the same way on every roster she is on (#42 on one team, #11 on another, or a new season) so she is one player: a parent who follows her gets her photos from all of them. Two different girls with the same name need names that differ, such as Emma S. and Emma K. Names stay off the site unless names in tags is on.'),
         field('Names in tags', h('label', {}, names, ' Tag photos with the player\'s name ("Emma 10")'), 'Off keeps children\'s names off the site: tags use the team and number.'));
       const actions = h('div', { class: 'row' }, save, del, msg);
       if (!t) return h('div', { class: 'group-card' }, h('b', { text: 'Add a team' }), body, actions);
       const count = `${t.players.length} player${t.players.length === 1 ? '' : 's'}, ${t.galleries} galler${t.galleries === 1 ? 'y' : 'ies'}`;
-      return h('details', { class: 'group-card' }, h('summary', {}, h('b', { text: t.name }), h('span', { class: 'muted', text: ' ' + count })), body, actions);
+      return h('details', { class: 'group-card season-card', 'data-remember': 'team-season:' + t.id },
+        h('summary', {}, h('b', { text: t.season || 'No season' }), h('span', { class: 'muted', text: ' ' + count })), body, actions);
     };
-    box.replaceChildren(...r.data.map(editor), editor(null));
+    // one card per team (by name) holding its seasons, newest first, and a way to start the next season from the last one
+    const groups = new Map();
+    for (const t of r.data) { const k = t.name.toLowerCase(); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); }
+    // newest season first by its year and part of the year ("Spring 2026" before "Fall 2026"), then by when it was set up
+    const when = (t) => {
+      const y = /(\d{4})/.exec(t.season || ''), term = (t.season || '').toLowerCase();
+      const part = /spring/.test(term) ? 1 : /summer/.test(term) ? 2 : /fall|autumn/.test(term) ? 3 : /winter/.test(term) ? 4 : 0;
+      return [y ? Number(y[1]) : 0, part, t.createdAt || ''];
+    };
+    const newerFirst = (a, b) => { const x = when(a), y = when(b); return (y[0] - x[0]) || (y[1] - x[1]) || String(y[2]).localeCompare(String(x[2])); };
+    for (const list of groups.values()) list.sort(newerFirst);
+    const teamCard = (seasons) => {
+      const last = seasons[0];
+      const msg = h('span', { class: 'muted', role: 'status' });
+      const next = h('input', { type: 'text', maxlength: 40, placeholder: 'Spring 2027', 'aria-label': `New season of ${last.name}` });
+      const start = async () => {
+        const res = await api(`/api/admin/teams/${last.id}/copy`, { method: 'POST', body: { season: next.value } });
+        if (res.ok) { toast(`Started ${res.data.fullName}. Edit its roster and jerseys, then choose it in the new season's galleries.`); render(); } else msg.textContent = aiErr(res);
+      };
+      next.addEventListener('keydown', e => { if (e.key === 'Enter') start(); });
+      const players = seasons.reduce((n, x) => n + x.players.length, 0);
+      return h('details', { class: 'group-card team-card', 'data-remember': 'team:' + last.name.toLowerCase() },
+        h('summary', {}, h('b', { text: last.name }), h('span', { class: 'muted', text: ` ${seasons.length} season${seasons.length === 1 ? '' : 's'}` + (seasons[0].season ? `, latest ${seasons[0].season}` : '') })),
+        ...seasons.map(editor),
+        h('div', { class: 'row new-season' }, h('label', {}, 'New season ', next), h('button', { class: 'primary', text: 'Start season', onclick: start }),
+          h('span', { class: 'muted', text: `Starts with the roster and jerseys of ${last.season || 'the latest season'}.` }), msg));
+    };
+    box.replaceChildren(...[...groups.values()].map(teamCard), editor(null));
   };
   await render();
   const fr = await api('/api/admin/settings/follow');
@@ -3263,10 +3296,11 @@ async function teamsPanel() {
     const res = await api('/api/admin/settings/follow', { method: 'PUT', body: { enabled: e.target.checked } });
     fmsg.textContent = res.ok ? 'Saved.' : aiErr(res);
   } }), ' Parents can follow a player in every team gallery'),
-    'A signed-in parent taps Follow on a player (team and number) in any gallery, in the photo viewer or on their My players page, and gets an email, at most once a day, when new photos of that player are approved in any of the team\'s galleries they can open. A gallery can turn it off (or on) for itself in its Players section. Players are named by number unless the team puts names in tags.'
+    'A signed-in parent taps Follow on a player in any gallery, in the photo viewer or on their My players page, and gets an email, at most once a day, when new photos of that player are approved in any gallery of her teams and seasons they can open. A gallery can turn it off (or on) for itself in its Players section. Players are named by number unless the team puts names in tags.'
     + (fr.data.mail ? '' : ' Needs email set up first (Settings, Email alerts), including the site address.')), fmsg) : null;
   return h('div', { class: 'panel' }, h('h3', { text: 'Teams' }), followBox,
     h('p', { class: 'muted' }, 'Choose a team in a gallery\'s Players section, then let the AI model find your players. Set up the model in ', h('a', { href: '/admin/settings/ai', text: 'Automatic tagging' }), '.'),
+    h('p', { class: 'muted', text: 'Each team has seasons, and each season has its own roster and jerseys. Start a new season from the team\'s card: it begins with the last season\'s roster and jerseys. A girl is one player across all her teams and seasons when her name is typed the same on each roster.' }),
     box);
 }
 
@@ -3777,7 +3811,7 @@ function playersManager(g) {
     const teamSel = h('select', { 'aria-label': 'Team in this gallery', onchange: async () => {
       const res = await api(`/api/admin/galleries/${g.id}/team`, { method: 'PUT', body: { teamId: teamSel.value ? Number(teamSel.value) : null } });
       if (res.ok) load(); else msg.textContent = aiErr(res);
-    } }, h('option', { value: '', text: 'No team (not tagged)' }), ...teams.data.map(t => h('option', { value: t.id, text: t.name, selected: t.id === d.teamId })));
+    } }, h('option', { value: '', text: 'No team (not tagged)' }), ...teams.data.map(t => h('option', { value: t.id, text: t.fullName || t.name, selected: t.id === d.teamId })));
     const team = teams.data.find(t => t.id === d.teamId);
     const kits = team ? team.kits : [];
     // what the team wears: one of its jersey sets, colours typed here alone, or (empty) the default
@@ -4040,7 +4074,7 @@ function playersManager(g) {
     syncSel();
     const allIds = d.pending.map(s => s.id);
     box.replaceChildren(
-      h('div', { class: 'form1' }, field('Team', teamSel, 'Only this team\'s players are looked for, in its jersey colours.'),
+      h('div', { class: 'form1' }, field('Team', teamSel, 'The team and season in these photos. Only that season\'s players are looked for, in its jersey colours, and the gallery is listed under that season on the home page.'),
         kitSel ? field('Jerseys', h('div', {}, h('datalist', { id: 'jersey-colours' }, JERSEY_COLOURS.map(c => h('option', { value: c }))), kitSel), 'The jersey the team wears in this gallery, from its list on the Teams page. Only players in that jersey are read, so the other team can wear the same numbers.') : null,
         folderRows ? field('Jersey per folder', folderRows, 'For a tournament: the jersey worn in each game. A folder left on "Same as the gallery" uses the jersey above.') : null,
         field('New photos', autoSel, 'Check photos for players by themselves when a scan or upload adds them. Needs a team with players.'),

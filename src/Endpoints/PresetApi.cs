@@ -12,7 +12,7 @@ public static class PresetApi
 
     static async Task<object> ListAsync(AppDb db, PresetSettings p)
     {
-        var teams = await db.Teams.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Name);
+        var teams = (await db.Teams.AsNoTracking().ToListAsync()).ToDictionary(t => t.Id, t => t.FullName);
         return new { defaultId = p.DefaultId, items = p.Items.Select(x => GalleryPresets.Dto(x, p.DefaultId, teams)) };
     }
 
