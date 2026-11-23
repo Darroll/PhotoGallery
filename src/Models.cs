@@ -74,6 +74,8 @@ public class Gallery
     public string FolderKits { get; set; } = "{}";
     /// <summary>Check new photos for players automatically after a scan: true or false here, or null to follow the main setting (<see cref="VisionSettings.AutoCheckNew"/>).</summary>
     public bool? AutoTag { get; set; }
+    /// <summary>Signed-in visitors (parents) may suggest which players are in a photo. Their suggestions wait for the admin's review. Off by default.</summary>
+    public bool AllowPlayerTags { get; set; }
     public List<Photo> Photos { get; set; } = new();
     public List<ShareLink> Links { get; set; } = new();
 }

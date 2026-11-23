@@ -658,3 +658,45 @@ table.data td:last-child { text-align: right; font-variant-numeric: tabular-nums
 .fixed-label { font-size: 13px; font-weight: 600; color: var(--ok); }
 .player-row.fixed .chips, .player-row.fixed .fix-picker { opacity: 0.4; pointer-events: none; }
 .num-chip.new { border-style: dashed; }
+
+/* players in one photo (the photo viewer) */
+.lb-players { display: inline-flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; margin: 4px auto; padding: 4px 8px; border-radius: 999px; background: rgba(0,0,0,.45); }
+.lb-players-lead { color: #bbb; font-size: 13px; margin-right: 2px; }
+.lb-player { --tag-c: var(--accent); display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border: 1px solid var(--tag-c); border-radius: 999px; background: color-mix(in srgb, var(--tag-c) 30%, transparent); color: #fff; font-weight: 600; font-size: 14px; }
+.lb-player.waiting { border-style: dashed; background: transparent; color: #ddd; padding-right: 4px; }
+.lb-player button { border: 0; background: rgba(255,255,255,.12); color: #fff; border-radius: 999px; min-width: 26px; min-height: 26px; padding: 0 6px; cursor: pointer; font-size: 14px; }
+.lb-player .lb-player-ok:hover { background: #2e7d32; }
+.lb-player .lb-player-no:hover { background: #b3261e; }
+.lb-player-add { border: 1px dashed #aaa; background: transparent; color: #eee; border-radius: 999px; padding: 3px 12px; min-height: 30px; cursor: pointer; font-size: 14px; }
+.lb-player-add:hover { border-color: #fff; color: #fff; }
+.player-pick { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; max-height: 50vh; overflow: auto; }
+.player-pick .player-chip.waiting { border-style: dashed; }
+.player-pick .player-chip:disabled { opacity: .7; cursor: default; }
+.player-wait-row { gap: 8px; align-items: center; margin-top: 4px; }
+.player-wait-row span { flex: 1; }
+
+/* the player review grid: large cards, click to select, a bar of actions for the selected photos */
+.review-bar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; margin: 8px 0; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.review-bar-num { display: inline-flex; gap: 6px; align-items: center; }
+.review-bar .fix-num { width: 4.5em; }
+.review-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-top: 8px; }
+.review-card { display: flex; flex-direction: column; border: 2px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; background: var(--card); position: relative; }
+.review-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.review-img { position: relative; padding: 0; border: 0; background: #000; cursor: pointer; line-height: 0; }
+.review-img img { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; display: block; }
+.review-tick { position: absolute; top: 8px; left: 8px; width: 22px; height: 22px; pointer-events: none; accent-color: var(--accent); }
+.review-body { padding: 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.review-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.review-tags .tag-pill { font-size: 12px; }
+.review-card .chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.review-card .tag-chip button, .review-card .chip-add { min-width: 32px; min-height: 32px; padding: 0 6px; border: none; background: none; color: var(--fg); cursor: pointer; font-size: 16px; line-height: 1; border-radius: 999px; }
+.review-card .chip-add { border: 1px dashed var(--line); }
+.review-card .tag-chip .chip-ok:hover, .review-card .tag-chip .chip-ok:focus-visible { color: var(--ok); }
+.review-card .tag-chip .chip-x:hover, .review-card .tag-chip .chip-x:focus-visible { color: var(--danger); }
+.review-card .tag-chip .chip-fix:hover, .review-card .tag-chip .chip-fix:focus-visible { color: var(--accent, var(--fg)); }
+.tag-chip.parent { border-style: dotted; }
+.review-card.fixed img { opacity: 0.35; }
+.review-card.fixed .chips, .review-card.fixed .fix-picker { opacity: 0.4; pointer-events: none; }
+.review-card .fixed-label { padding: 0 8px 8px; }
+@media (max-width: 560px) { .review-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); } }

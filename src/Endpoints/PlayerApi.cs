@@ -212,13 +212,7 @@ public static class PlayerApi
             if (!string.IsNullOrWhiteSpace(input.Sighting))
                 foreach (var x in await db.NumberSightings.Where(x => x.TeamId == team.Id && x.PhotoId == photoId && x.Number == input.Sighting).ToListAsync()) x.Fixed = true;
             if (player != null) await PlayerTags.TagByHandAsync(db, photoId, team, player);
-            if (newNumber != null)
-            {
-                // set by the admin, so it is listed even if the number was dismissed before, and tagged straight away once the player is added
-                var x = await db.NumberSightings.FirstOrDefaultAsync(x => x.TeamId == team.Id && x.PhotoId == photoId && x.Number == newNumber);
-                if (x == null) { x = new NumberSighting { TeamId = team.Id, PhotoId = photoId, Number = newNumber }; db.NumberSightings.Add(x); }
-                x.Confidence = 100; x.Source = PlayerTags.AdminSource; x.Dismissed = false; x.Fixed = false;
-            }
+            if (newNumber != null) await PlayerTags.HoldNumberAsync(db, photoId, team, newNumber);
             await db.SaveChangesAsync();
             return Results.Ok(new { tag = player == null ? null : PlayerTags.TagName(team, player), number = newNumber });
         });
@@ -248,6 +242,8 @@ public static class PlayerApi
             var unknown = sightings.GroupBy(x => x.Number)
                 .Select(x => new { number = x.Key, photos = x.Select(y => y.PhotoId).Distinct().Count(), confidence = x.Max(y => y.Confidence), photoIds = x.OrderByDescending(y => y.Confidence).Select(y => y.PhotoId).Distinct().Take(60) })
                 .OrderBy(x => int.TryParse(x.number, out var n) ? n : int.MaxValue).ThenBy(x => x.number.Length).ThenBy(x => x.number, StringComparer.Ordinal).ToList();   // in number order, like a roster
+            // every tag already on the photos waiting for review, so the review grid shows who else is in each photo
+            var photoTags = await Tags.NamesByPhotoAsync(db, rows.Select(r => r.PhotoId).Distinct().ToList());
             var approved = await (from s in db.PlayerSuggestions join p in db.Photos on s.PhotoId equals p.Id where p.GalleryId == id && s.Status == "approved" select s.Id).CountAsync();
             // sub folders (the games of a tournament), each with its own jersey: the gallery's sections first, then any other folder holding photos
             var folderKits = PlayerTags.FolderKits(g);
@@ -259,11 +255,12 @@ public static class PlayerApi
                 .Select(x => new { folder = x.Folder, title = x.Title, photos = photoFolders[x.Folder], kit = folderKits.GetValueOrDefault(x.Folder, "") }).ToList();
             return Results.Ok(new
             {
-                teamId = g.TeamId, teamKit = g.TeamKit, folders, autoTag = g.AutoTag, autoTagDefault = settings.Vision.AutoCheckNew, teamPlayers = team?.Players.Count ?? 0,
+                teamId = g.TeamId, teamKit = g.TeamKit, folders, autoTag = g.AutoTag, allowPlayerTags = g.AllowPlayerTags, autoTagDefault = settings.Vision.AutoCheckNew, teamPlayers = team?.Players.Count ?? 0,
                 photos = total, @checked = checkedCount, approved,
                 providers = settings.Vision.Chain.Select(p => VisionProvider.Label(p.Kind)),
                 job,
                 unknown,
+                photoTags,
                 pending = rows.OrderBy(r => r.TakenAt).ThenBy(r => r.photo).Select(r => new
                 {
                     r.Id, r.PhotoId, r.photo, r.Number, r.player, r.Confidence, r.Source, r.Unsure, r.Note, r.ReadAs,

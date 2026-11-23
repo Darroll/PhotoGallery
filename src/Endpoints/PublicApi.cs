@@ -136,6 +136,7 @@ public static class PublicApi
             {
                 g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId, tags = gTags, tagColors,
                 players = players.Select(x => new { tag = x.Tag, label = x.Label, number = x.Number }),
+                playerTagging = PhotoPlayersApi.Can(ctx, g),
                 g.Location, eventDate = g.EventDate, eventEndDate = g.EventEndDate, coverMode = g.CoverMode, shareUrl = GalleryRules.ShareUrl(g, null, settings.Email.SiteUrl, $"{ctx.Request.Scheme}://{ctx.Request.Host}"), hideRawOnly = g.HideRawOnly, allowLikes = g.AllowLikes, allowComments = g.AllowComments, allowFeedback = g.AllowFeedback, showLikeCounts = g.ShowLikeCounts || admin, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note, preview = previews && GalleryRules.CategoryOf(l) == "external" ? ExternalLinkPreviews.ForPage(cfg, l.Url) : null }), sections = layout.Select(s => new { folder = s.Folder, s.Title, count = sectionCounts.GetValueOrDefault(s.Folder), links = (s.Links ?? new()).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }) }), favorites = favoriteIds, favoriteName, sizes =GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
                 allowDownload = g.AllowDownload,
                 allowOriginal = g.AllowDownload && !locked,

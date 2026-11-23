@@ -192,6 +192,7 @@ public class MigrationTests : IDisposable
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Photos\" DROP COLUMN \"TakenFromRaw\"");
         db.Database.ExecuteSqlRaw("DROP TABLE \"FeedbackMessages\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"AllowFeedback\"");
+        db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"AllowPlayerTags\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"AutoTag\"");
         db.Database.ExecuteSqlRaw("ALTER TABLE \"Galleries\" DROP COLUMN \"FolderKits\"");
         db.Database.ExecuteSqlRaw("DROP TABLE \"NumberSightings\"");

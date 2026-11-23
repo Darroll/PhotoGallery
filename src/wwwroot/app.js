@@ -111,8 +111,10 @@ function tagPill(name, extra) {
 // right where they are shown: on a gallery card, a search result, the gallery page, the photo viewer. url is the PUT endpoint that replaces the tags.
 function tagLine(names, edit) {
   const canEdit = !!(edit && ((me && me.admin) || (G && G.admin)));
-  if (!(names && names.length) && !canEdit) return null;
-  let current = [...(names || [])];
+  const hide = (edit && edit.hide) || (() => false);   // tags shown elsewhere (players); kept on save, never dropped
+  let all = [...(names || [])];
+  let current = all.filter(n => !hide(n));
+  if (!current.length && !canEdit) return null;
   const el = h('div', { class: 'tag-line' });
   // replaceChildren turns a null into the text "null", so the button is only passed when there is one
   const draw = () => el.replaceChildren(...current.map(n => tagPill(n)), ...(canEdit ? [h('button', {
@@ -121,9 +123,9 @@ function tagLine(names, edit) {
     onclick: (e) => {
       e.preventDefault(); e.stopPropagation();
       tagEditSheet(edit.title, current, async (list) => {
-        const r = await api(edit.url, { method: 'PUT', body: { names: list } });
+        const r = await api(edit.url, { method: 'PUT', body: { names: [...list, ...all.filter(hide)] } });
         if (!r.ok || !Array.isArray(r.data)) return false;
-        current = r.data; draw(); if (edit.onSaved) edit.onSaved(r.data);
+        all = r.data; current = all.filter(n => !hide(n)); draw(); if (edit.onSaved) edit.onSaved(r.data);
         return true;
       });
     } })] : []));
@@ -1280,6 +1282,131 @@ function tagEditor(initial, onChange, opts = {}) {
   return wrap;
 }
 
+// ---- Players in one photo (the photo viewer) ----
+// Player tags are ordinary tags; G.players lists the gallery's player chips. They show in their own row, apart from the other tags.
+const isPlayerTag = (n) => (G && G.players || []).some(c => c.tag.toLowerCase() === String(n).toLowerCase());
+const playersOn = (p) => (G && G.players || []).filter(c => hasTag(p, c.tag));
+const playersPath = (p) => `/api/g/${encodeURIComponent(G.slug)}/photo/${p.id}/players`;
+const pendingByPhoto = new Map();   // admin: suggestions waiting on each photo, fetched as photos are shown
+
+// a new player tag joins the gallery's chips, labelled like the others
+function learnPlayerChips(chips) {
+  if (!G) return;
+  G.players = G.players || [];
+  const short = G.players.every(c => c.label.startsWith('#'));
+  for (const c of chips || []) if (!G.players.some(x => x.tag.toLowerCase() === c.tag.toLowerCase()))
+    G.players.push({ tag: c.tag, label: short ? '#' + c.number : c.tag, number: c.number });
+  G.players.sort((a, b) => (parseInt(a.number, 10) - parseInt(b.number, 10)) || (a.number.length - b.number.length));
+}
+
+function playerSourceText(s) {
+  if (s.source && s.source.startsWith('parent ')) return 'from ' + s.source.slice(7);
+  if (s.source === 'admin') return 'added by hand';
+  return `auto ${s.confidence}%` + (s.unsure ? ', partly hidden' : '');
+}
+
+// approve or reject waiting suggestions, then refresh the photo's tags
+async function reviewPhotoPlayers(p, approve, reject, redraw) {
+  const r = await api('/api/admin/players/review', { method: 'POST', body: { approve, reject } });
+  if (!r.ok) { toast('Could not save. Try again.'); return false; }
+  const d = await api(playersPath(p));
+  if (d.ok) { if (d.data.tags) p.tags = d.data.tags; learnPlayerChips(d.data.players); pendingByPhoto.set(p.id, d.data.pending || []); }
+  if (redraw) redraw();
+  return true;
+}
+
+// The row under the photo: every player tagged in it; for the admin also the waiting suggestions (dashed, with ✓ and ×)
+// and "+ Tag players"; for a signed-in parent, when the gallery allows it, "Tag a player".
+function photoPlayersRow(p, redraw) {
+  // a parent can only tag once signed in, so without sign-in set up the button is not offered
+  const can = G && (G.playerTagging === 'admin' || (G.playerTagging === 'suggest' && me && (me.sso || me.signedIn))) ? G.playerTagging : null;
+  const on = playersOn(p);
+  const isAdmin = can === 'admin';
+  const pending = isAdmin ? pendingByPhoto.get(p.id) : null;
+  if (isAdmin && pending === undefined) {
+    pendingByPhoto.set(p.id, []);   // asked once per photo
+    api(playersPath(p)).then(d => { if (d.ok && d.data.pending && d.data.pending.length) { pendingByPhoto.set(p.id, d.data.pending); redraw(); } });
+  }
+  if (!on.length && !can) return null;
+  const chip = (c) => { const el = h('span', { class: 'lb-player', text: c.label, title: c.tag }); el.style.setProperty('--tag-c', tagColor(c.tag)); return el; };
+  const waiting = (pending || []).filter(s => !on.some(c => c.number === s.number)).map(s => h('span', { class: 'lb-player waiting', title: playerSourceText(s) },
+    h('span', { text: '#' + s.number + (s.source && s.source.startsWith('parent ') ? ' ?' : '') }),
+    h('button', { type: 'button', class: 'lb-player-ok', title: 'Approve: #' + s.number + ' is in this photo', 'aria-label': 'Approve #' + s.number, text: '✓',
+      onclick: (e) => { e.stopPropagation(); reviewPhotoPlayers(p, [s.id], [], redraw); } }),
+    h('button', { type: 'button', class: 'lb-player-no', title: 'Reject', 'aria-label': 'Reject #' + s.number, text: '×',
+      onclick: (e) => { e.stopPropagation(); reviewPhotoPlayers(p, [], [s.id], redraw); } })));
+  const add = can ? h('button', { type: 'button', class: 'lb-player-add', text: isAdmin ? (on.length ? '+' : '+ Tag players') : 'Tag a player',
+    title: isAdmin ? 'Tag or untag players in this photo' : 'Say who is in this photo', onclick: (e) => { e.stopPropagation(); playersSheet(p, redraw); } }) : null;
+  return h('div', { class: 'lb-players', role: 'group', 'aria-label': 'Players in this photo' },
+    on.length || waiting.length ? h('span', { class: 'lb-players-lead', text: 'Players' }) : null, ...on.map(chip), ...waiting, add);
+}
+
+// Tag several players at once. The admin's choice applies straight away (a number not on the roster waits under that number
+// until the player is added); a signed-in parent's goes to the photographer for review.
+async function playersSheet(p, redraw) {
+  closeSheet();
+  const d = await api(playersPath(p));
+  if (!d.ok || !d.data.roster) { toast('Could not load the players.'); return; }
+  const isAdmin = d.data.can === 'admin';
+  const tagged = new Set((d.data.players || []).map(x => x.number));
+  const waitingNums = new Set((d.data.pending || []).map(x => x.number));
+  const picked = new Set(isAdmin ? tagged : []);
+  const msg = h('p', { class: 'muted' });
+  const grid = h('div', { class: 'player-pick', role: 'group', 'aria-label': 'Players' });
+  const draw = () => grid.replaceChildren(...d.data.roster.map(c => {
+    const done = !isAdmin && tagged.has(c.number);
+    const on = done || picked.has(c.number);
+    const el = h('button', { type: 'button', class: 'player-chip' + (on ? ' on' : '') + (!isAdmin && waitingNums.has(c.number) ? ' waiting' : ''), 'aria-pressed': on ? 'true' : 'false', disabled: done,
+      title: done ? 'Already tagged' : c.tag, text: c.label,
+      onclick: () => { picked.has(c.number) ? picked.delete(c.number) : picked.add(c.number); draw(); } });
+    el.style.setProperty('--tag-c', tagColor(c.tag));
+    return el;
+  }));
+  draw();
+  const extra = isAdmin ? h('input', { type: 'text', inputmode: 'numeric', placeholder: 'e.g. 44, 18', 'aria-label': 'Numbers not on the roster' }) : null;
+  const pendingList = isAdmin && (d.data.pending || []).length ? h('div', { class: 'sheet-field' }, h('span', { text: 'Waiting for review' }),
+    ...d.data.pending.map(s => h('div', { class: 'row player-wait-row' },
+      h('span', { text: `#${s.number} · ${playerSourceText(s)}` + (s.note ? ` · ${s.note}` : '') }),
+      h('button', { text: 'Approve', onclick: async () => { if (await reviewPhotoPlayers(p, [s.id], [], redraw)) playersSheet(p, redraw); } }),
+      h('button', { text: 'Reject', onclick: async () => { if (await reviewPhotoPlayers(p, [], [s.id], redraw)) playersSheet(p, redraw); } })))) : null;
+  const note = isAdmin ? 'Tap every player in the photo, then Save. Tap a lit chip to untag that player.'
+    : !d.data.signedIn ? 'Sign in to tag players. The photographer checks each tag before it appears.'
+    : 'Tap every player you can see, then Send. The photographer checks them before they appear.';
+  const submit = async () => {
+    if (isAdmin) {
+      const add = [...picked].filter(n => !tagged.has(n)).concat((extra.value.match(/\d{1,3}/g) || []).filter(n => !picked.has(n)));
+      const remove = [...tagged].filter(n => !picked.has(n));
+      if (!add.length && !remove.length) { closeSheet(); return; }
+      const r = await api(`/api/admin/photos/${p.id}/players`, { method: 'POST', body: { add, remove } });
+      if (!r.ok) { msg.textContent = typeof r.data === 'string' ? r.data : 'Could not save. Try again.'; return; }
+      p.tags = r.data.tags; learnPlayerChips(r.data.players);
+      closeSheet(); redraw();
+      toast(r.data.held && r.data.held.length ? `Saved. #${r.data.held.join(', #')} waits in Players until added to the team.` : 'Players saved');
+      return;
+    }
+    if (!picked.size) { msg.textContent = 'Tap a player first.'; return; }
+    const r = await api(`${playersPath(p)}/suggest`, { method: 'POST', body: { numbers: [...picked] } });
+    if (r.status === 401) { msg.textContent = 'Sign in to tag players.'; return; }
+    if (r.status === 429) { msg.textContent = 'That is a lot of tags at once. Try again in a minute.'; return; }
+    if (!r.ok) { msg.textContent = 'Could not send. Try again.'; return; }
+    closeSheet(); toast(r.data.suggested ? 'Thanks. The photographer will check your tags.' : 'Those players were already suggested.');
+  };
+  const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } },
+    h('div', { class: 'sheet', role: 'dialog', 'aria-label': 'Players in this photo' },
+      h('div', { class: 'sheet-grab' }), h('h3', { text: isAdmin ? 'Players in this photo' : 'Who is in this photo?' }),
+      grid,
+      extra ? h('label', { class: 'sheet-field' }, 'Numbers not on the roster yet (they wait until you add the player)', extra) : null,
+      pendingList,
+      h('p', { class: 'muted', text: note }), msg,
+      h('div', { class: 'row sheet-actions' },
+        isAdmin || d.data.signedIn ? h('button', { class: 'primary', text: isAdmin ? 'Save' : 'Send', onclick: submit })
+          : me && me.sso ? h('a', { class: 'btn primary', href: '/auth/login?next=' + encodeURIComponent(location.pathname), text: 'Sign in' }) : null,
+        h('button', { text: 'Close', onclick: closeSheet }))));
+  sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } else if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') { e.preventDefault(); submit(); } };
+  document.addEventListener('keydown', sheet._key, true);
+  document.body.append(sheet);
+}
+
 function captionBlock(photo) {
   return h('div', { class: 'info-caption' }, h('h4', { text: 'Caption and description' }),
     h('p', { text: photo.caption || 'No caption yet.' }),
@@ -1442,12 +1569,13 @@ function openLightbox(index, play, mode = 'push') {
   };
   const centre = (e) => { const r = stage.getBoundingClientRect(); return [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2]; };
 
-  // the caption and tags under the photo; the admin also gets a + to add tags without leaving the viewer
+  // the caption, the players and the other tags under the photo; the admin also gets a + to add tags without leaving the viewer
   lb.drawCaption = () => {
     const p = cur(); if (!p) return;
-    const tags = tagLine(p.tags, photoTagEdit(p));
-    captionEl.replaceChildren(...[p.caption ? h('div', { text: p.caption }) : null, tags].filter(Boolean));
-    captionEl.classList.toggle('hidden', !p.caption && !tags);
+    const players = photoPlayersRow(p, () => { if (cur() === p) lb.drawCaption(); });
+    const tags = tagLine(p.tags, { ...photoTagEdit(p), hide: isPlayerTag });
+    captionEl.replaceChildren(...[p.caption ? h('div', { text: p.caption }) : null, players, tags].filter(Boolean));
+    captionEl.classList.toggle('hidden', !p.caption && !tags && !players);
   };
   const show = (i, updateUrl = true) => {
     lb.i = (i + list.length) % list.length;
@@ -3571,33 +3699,91 @@ function playersManager(g) {
       const res = await api('/api/admin/players/review', { method: 'POST', body: approve ? { approve: ids } : { reject: ids } });
       if (res.ok) load(); else msg.textContent = aiErr(res);
     };
-    const rows = [...byPhoto.entries()].map(([pid, list]) => {
-      // tap the photo to add a player the model missed; ✎ on a chip to say who it really is
+    // the review grid: a large card per photo with every tag already on it and the suggestions waiting. Click cards to select them
+    // (Shift-click selects a run), then approve, reject or tag all the selected photos at once.
+    const selected = new Set();
+    let lastClicked = -1;
+    const pids = [...byPhoto.keys()];
+    const cards = new Map();
+    const selInfo = h('strong', { role: 'status' });
+    const syncSel = () => {
+      for (const [pid, c] of cards) { const on = selected.has(pid); c.classList.toggle('selected', on); c.querySelector('.review-tick').checked = on; }
+      selInfo.textContent = selected.size ? `${selected.size} selected` : 'Click photos to select them';
+      selBar.querySelectorAll('[data-needs-sel]').forEach(b => { b.disabled = !selected.size; });
+    };
+    const pick = (pid, e) => {
+      const i = pids.indexOf(pid);
+      if (e && e.shiftKey && lastClicked >= 0) {
+        const [a, b] = [Math.min(i, lastClicked), Math.max(i, lastClicked)];
+        for (let k = a; k <= b; k++) if (!cards.get(pids[k]).classList.contains('fixed')) selected.add(pids[k]);
+      } else if (selected.has(pid)) selected.delete(pid); else selected.add(pid);
+      lastClicked = i; syncSel();
+    };
+    const sourceText = (s) => s.source && s.source.startsWith('parent ') ? `from ${s.source.slice(7)}` : s.source === 'admin' ? 'by hand' : `${s.confidence}%`;
+    const reviewCards = [...byPhoto.entries()].map(([pid, list]) => {
       const addPicker = fixPicker(pid, null, 'Add a player:');
       const fixers = list.map(s => fixPicker(pid, { suggestion: s.id }, `Not ${s.tag}? It is:`));
       const one = list.length === 1 ? list[0] : null;
-      const thumb = photoPreview.attach(h('button', { class: 'thumb-btn', title: 'Click to add a player the model missed; right-click to fix', onclick: () => { photoPreview.hide(); toggle(addPicker); } }, h('img', { src: `/img/${pid}/thumb`, alt: list[0].photo, loading: 'lazy', width: 96, height: 72 })), pid, `${list[0].photo}: ${list.map(s => (s.unsure ? 'maybe ' : '') + s.tag + ' ' + s.confidence + '%').join(', ')}`);
-      const quick = async (ids, ok) => { const res = await api('/api/admin/players/review', { method: 'POST', body: ok ? { approve: ids } : { reject: ids } }); if (res.ok) markDone(row, ok ? 'Approved' : 'Rejected'); else msg.textContent = aiErr(res); };
-      const menuFor = (sg) => ({ title: `${sg.unsure ? 'Maybe ' : ''}${sg.tag}. It is really:`, read: sg.number, replace: { suggestion: sg.id }, approve: () => quick([sg.id], true), reject: () => quick([sg.id], false), done: (t) => markDone(row, t) });
+      const quick = async (ids, ok) => { const res = await api('/api/admin/players/review', { method: 'POST', body: ok ? { approve: ids } : { reject: ids } }); if (res.ok) { markDone(card, ok ? 'Approved' : 'Rejected'); selected.delete(pid); syncSel(); } else msg.textContent = aiErr(res); };
+      const menuFor = (sg) => ({ title: `${sg.unsure ? 'Maybe ' : ''}${sg.tag}. It is really:`, read: sg.number, replace: { suggestion: sg.id }, approve: () => quick([sg.id], true), reject: () => quick([sg.id], false), done: (t) => markDone(card, t) });
+      const pendingTags = new Set(list.map(s => s.tag.toLowerCase()));
+      const onPhoto = ((d.photoTags || {})[pid] || []).filter(t => !pendingTags.has(t.toLowerCase()));
+      const img = photoPreview.attach(h('button', { class: 'review-img', title: 'Click to select, Shift-click to select a run, right-click to fix', 'aria-label': `Select ${list[0].photo}`,
+        onclick: (e) => { photoPreview.hide(); pick(pid, e); } },
+        h('img', { src: `/img/${pid}/thumb`, alt: list[0].photo, loading: 'lazy' }),
+        h('input', { type: 'checkbox', class: 'review-tick', tabindex: '-1', 'aria-hidden': 'true' })), pid, `${list[0].photo}: ${list.map(s => (s.unsure ? 'maybe ' : '') + s.tag).join(', ')}`);
       // with one suggestion the menu fixes it; with several it adds a player (right-click a chip to fix that one)
-      thumb.addEventListener('contextmenu', e => fixMenu(e, pid, one ? menuFor(one) : { title: 'Add a player to this photo:', replace: null, done: (t) => markDone(row, t) }));
-      const row = h('div', { class: 'player-row' }, thumb,
-        h('div', {}, h('div', { class: 'muted' }, list[0].photo, ' ', h('a', { href: `/img/${pid}/view`, target: '_blank', rel: 'noopener', text: 'open' })),
-          list.filter(s => s.unsure).map(s => s.note).filter((n, i, a) => a.indexOf(n) === i).map(n => h('div', { class: 'muted unsure-note', text: `Not sure: ${n}.` + (list.filter(s => s.unsure).length > 1 ? ' Approve the right player; the others it could be are rejected.' : '') })),
-          h('div', { class: 'chips' }, list.map((s, i) => h('span', { class: 'tag-chip' + (s.unsure ? ' unsure' : ''), title: `${s.confidence}% sure, read by ${s.source}` + (s.note ? ` (${s.note})` : '') }, `${s.unsure ? 'maybe ' : ''}${s.tag} · ${s.confidence}%`,
-            h('button', { class: 'chip-ok', 'aria-label': `Approve ${s.tag} on ${s.photo}`, title: 'Approve', text: '✓', onclick: () => review([s.id], true) }),
+      img.addEventListener('contextmenu', e => fixMenu(e, pid, one ? menuFor(one) : { title: 'Add a player to this photo:', replace: null, done: (t) => markDone(card, t) }));
+      const card = h('div', { class: 'review-card' }, img,
+        h('div', { class: 'review-body' },
+          h('div', { class: 'muted review-name' }, list[0].photo, ' ', h('a', { href: `/img/${pid}/view`, target: '_blank', rel: 'noopener', text: 'open' })),
+          onPhoto.length ? h('div', { class: 'review-tags', title: 'Already tagged' }, onPhoto.map(t => tagPill(t))) : null,
+          list.filter(s => s.unsure).map(s => s.note).filter((n, i, a) => a.indexOf(n) === i).map(n => h('div', { class: 'muted unsure-note', text: `Not sure: ${n}.` + (list.filter(s => s.unsure).length > 1 ? ' Approve the right player; the others are rejected.' : '') })),
+          h('div', { class: 'chips' }, list.map((s, i) => h('span', { class: 'tag-chip' + (s.unsure ? ' unsure' : '') + (s.source && s.source.startsWith('parent ') ? ' parent' : ''), title: `${s.confidence}% sure, ${s.source && s.source.startsWith('parent ') ? 'suggested ' + sourceText(s) : 'read by ' + s.source}` + (s.note ? ` (${s.note})` : '') },
+            `${s.unsure ? 'maybe ' : ''}${s.tag} · ${sourceText(s)}`,
+            h('button', { class: 'chip-ok', 'aria-label': `Approve ${s.tag} on ${s.photo}`, title: 'Approve', text: '✓', onclick: () => quick([s.id], true) }),
             h('button', { class: 'chip-fix', 'aria-label': `Change ${s.tag} on ${s.photo}`, title: 'Wrong number: pick the right player', text: '✎', onclick: () => toggle(fixers[i]) }),
-            h('button', { class: 'chip-x', 'aria-label': `Reject ${s.tag} on ${s.photo}`, title: 'Reject', text: '×', onclick: () => review([s.id], false) })))),
+            h('button', { class: 'chip-x', 'aria-label': `Reject ${s.tag} on ${s.photo}`, title: 'Reject', text: '×', onclick: () => quick([s.id], false) }))),
+            h('button', { class: 'chip-add', title: 'Add a player the model missed', 'aria-label': `Add a player to ${list[0].photo}`, text: '+', onclick: () => toggle(addPicker) })),
           addPicker, ...fixers));
-      row.querySelectorAll('.tag-chip').forEach((chip, i) => chip.addEventListener('contextmenu', e => fixMenu(e, pid, menuFor(list[i]))));
-      return row;
+      card.querySelectorAll('.tag-chip').forEach((chip, i) => chip.addEventListener('contextmenu', e => fixMenu(e, pid, menuFor(list[i]))));
+      cards.set(pid, card);
+      return card;
     });
+    // the selected photos at once
+    const selIds = () => [...selected].flatMap(pid => byPhoto.get(pid).map(s => s.id));
+    const bulkNum = h('input', { type: 'text', inputmode: 'numeric', maxlength: 3, placeholder: '#', class: 'fix-num', 'aria-label': 'Number for the selected photos' });
+    const bulk = async (label, fn) => {
+      const num = bulkNum.value.trim().replace(/^#/, '');
+      if (!/^\d{1,3}$/.test(num)) { msg.textContent = 'Type a number first.'; bulkNum.focus(); return; }
+      let done = 0, skipped = 0;
+      for (const pid of selected) { const r = await fn(pid, num); if (r === null) skipped++; else if (r.ok) done++; else { msg.textContent = aiErr(r); break; } }
+      toast(`${label} #${num} on ${done} photo${done === 1 ? '' : 's'}` + (skipped ? `, ${skipped} skipped (more than one suggestion: fix those one at a time)` : ''));
+      load();
+    };
+    const selBar = h('div', { class: 'review-bar' }, selInfo,
+      h('button', { text: 'Select all', onclick: () => { pids.forEach(pid => { if (!cards.get(pid).classList.contains('fixed')) selected.add(pid); }); syncSel(); } }),
+      h('button', { text: 'Clear', 'data-needs-sel': '', onclick: () => { selected.clear(); syncSel(); } }),
+      h('button', { class: 'primary', text: 'Approve selected', 'data-needs-sel': '', onclick: () => review(selIds(), true) }),
+      h('button', { text: 'Reject selected', 'data-needs-sel': '', onclick: () => review(selIds(), false) }),
+      h('span', { class: 'review-bar-num' },
+        bulkNum,
+        h('button', { text: 'Add to selected', 'data-needs-sel': '', title: 'Tag this player on every selected photo too (other tags stay)', onclick: () => bulk('Added', (pid, num) => api(`/api/admin/photos/${pid}/players`, { method: 'POST', body: { add: [num] } })) }),
+        h('button', { text: 'Change to', 'data-needs-sel': '', title: 'The model misread these: the suggestion on each selected photo becomes this number instead', onclick: () => bulk('Changed to', (pid, num) => {
+          const list = byPhoto.get(pid);
+          return list.length !== 1 ? Promise.resolve(null) : api(`/api/admin/galleries/${g.id}/photos/${pid}/player`, { method: 'POST', body: { number: num, suggestion: list[0].id } });
+        }) })));
+    syncSel();
     const allIds = d.pending.map(s => s.id);
     box.replaceChildren(
       h('div', { class: 'form1' }, field('Team', teamSel, 'Only this team\'s players are looked for, in its jersey colours.'),
         kitSel ? field('Jerseys', h('div', {}, h('datalist', { id: 'jersey-colours' }, JERSEY_COLOURS.map(c => h('option', { value: c }))), kitSel), 'The jersey the team wears in this gallery, from its list on the Teams page. Only players in that jersey are read, so the other team can wear the same numbers.') : null,
         folderRows ? field('Jersey per folder', folderRows, 'For a tournament: the jersey worn in each game. A folder left on "Same as the gallery" uses the jersey above.') : null,
-        field('New photos', autoSel, 'Check photos for players by themselves when a scan or upload adds them. Needs a team with players.')),
+        field('New photos', autoSel, 'Check photos for players by themselves when a scan or upload adds them. Needs a team with players.'),
+        field('Parents', h('label', {}, h('input', { type: 'checkbox', checked: !!d.allowPlayerTags, onchange: async (e) => {
+          const res = await api(`/api/admin/galleries/${g.id}/playertags`, { method: 'PUT', body: { allow: e.target.checked } });
+          msg.textContent = res.ok ? (res.data.allow ? 'Saved. Signed-in visitors can say who is in a photo; you approve each tag here.' : 'Saved. Only you tag players.') : aiErr(res);
+        } }), ' Signed-in visitors can suggest player tags'), 'They tap "Tag a player" under a photo. Nothing is tagged until you approve it below. They see jersey numbers only, unless the team puts names in tags.')),
       setupHint,
       h('p', { class: 'muted', text: `${d.checked} of ${d.photos} photos checked, ${d.approved} tag${d.approved === 1 ? '' : 's'} approved.` + (d.providers.length ? ` Uses ${d.providers.join(', then ')}.` : '') }),
       h('div', { class: 'row' },
@@ -3616,7 +3802,8 @@ function playersManager(g) {
         h('div', { class: 'row' },
           h('button', { class: 'primary', text: `Approve all ${d.pending.length}`, onclick: () => { if (confirm(`Tag ${byPhoto.size} photo${byPhoto.size === 1 ? '' : 's'} with all ${d.pending.length} suggestions?`)) review(allIds, true); } }),
           h('button', { text: 'Reject all', onclick: () => { if (confirm('Reject every suggestion waiting here?')) review(allIds, false); } })),
-        h('div', { class: 'player-list' }, rows)) : null);
+        selBar,
+        h('div', { class: 'review-grid' }, reviewCards)) : null);
     if (running) timer = setTimeout(load, 2000);
   };
   load();

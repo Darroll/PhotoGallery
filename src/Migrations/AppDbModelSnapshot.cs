@@ -431,6 +431,9 @@ namespace PhotoGallery.Migrations
                     b.Property<bool>("AllowLikes")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("AllowPlayerTags")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("AllowRaw")
                         .HasColumnType("INTEGER");
 
