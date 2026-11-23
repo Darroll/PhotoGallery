@@ -2,6 +2,10 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.6.1 (not released yet)
+
+- On Settings, **Teams**, each season lists its players who are also on another team, such as "Reagan is also #11 on East Ridge (Fall 2026)", so you can see who is linked. Seasons of the same team are not listed. To unlink two girls, change the name on one roster.
+
 ## 2.6.0 (not released yet)
 
 - **Teams have seasons.** Each season of a team (Fall 2026, Spring 2027) has its own roster and its own jerseys, for a year with special pink jerseys. Settings, **Teams** shows one card per team with its seasons inside, newest first. **Start season** on a team's card begins the next season with the last season's roster and jerseys, so only the players who left or joined change. A gallery picks the team season in its Players section: the AI looks for that season's numbers in that season's jerseys, and the home page lists the gallery under that season (the gallery's own Season box still wins, and galleries without a team still go by the event date). The home page's team chips, the search team filter and the admin list's team filter cover every season of a team.

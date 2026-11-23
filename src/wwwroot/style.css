@@ -719,3 +719,5 @@ details.season .season-name { font-family: var(--font-heading); font-size: 20px;
 /* Teams page: a team's seasons inside its card */
 .team-card > .season-card { margin: 10px 0 10px 12px; }
 .team-card .new-season { margin: 12px 0 4px 12px; }
+.also-on { margin: 0; padding-left: 18px; }
+.also-on li { margin: 2px 0; }

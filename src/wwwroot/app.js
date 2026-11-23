@@ -3209,6 +3209,19 @@ async function teamsPanel() {
   const render = async () => {
     const r = await api('/api/admin/teams');
     if (!r.ok) { box.replaceChildren(h('p', { class: 'err', text: 'Could not load the teams.' })); return; }
+    // every roster place of each girl, so a season can say where else she plays
+    const placesOf = new Map();
+    for (const t of r.data) for (const p of t.players) if (p.athleteId != null) {
+      if (!placesOf.has(p.athleteId)) placesOf.set(p.athleteId, []);
+      placesOf.get(p.athleteId).push({ team: t, number: p.number });
+    }
+    // "Reagan is also #11 on East Ridge (Fall 2026)": only places on teams with another name, not this team's other seasons
+    const alsoOn = (t) => t.players.filter(p => p.athleteId != null).map(p => {
+      const other = (placesOf.get(p.athleteId) || []).filter(x => x.team.name.toLowerCase() !== t.name.toLowerCase());
+      if (!other.length) return null;
+      return h('li', {}, h('b', { text: p.name || '#' + p.number }), ' is also ',
+        ...other.flatMap((x, i) => [i ? (i === other.length - 1 ? ' and ' : ', ') : '', `#${x.number} on ${x.team.fullName || x.team.name}`]));
+    }).filter(Boolean);
     const editor = (t) => {
       const msg = h('span', { class: 'muted', role: 'status' });
       const name = h('input', { type: 'text', maxlength: 30, value: t ? t.name : '', placeholder: 'Team name, such as Hurricanes U12', 'aria-label': 'Team name' });
@@ -3253,6 +3266,7 @@ async function teamsPanel() {
         field('Season', season, 'Such as Fall 2026. Each season has its own roster and jerseys. A gallery of this season is listed under it on the home page.'),
         field('Jerseys', colors, 'Each jersey the team wears: a name (Home, Away), the shirt colour and the number colour. Each gallery picks the jersey worn that day. Other teams may use the same colours.'),
         field('Roster', roster, 'One player per line: the number, then a name if you like. Only these numbers are tagged. Type a girl\'s name the same way on every roster she is on (#42 on one team, #11 on another, or a new season) so she is one player: a parent who follows her gets her photos from all of them. Two different girls with the same name need names that differ, such as Emma S. and Emma K. Names stay off the site unless names in tags is on.'),
+        t && alsoOn(t).length ? field('Other teams', h('ul', { class: 'also-on' }, ...alsoOn(t)), 'Linked because the name is the same on both rosters, so following her covers every team. Change a name on one roster to unlink them.') : null,
         field('Names in tags', h('label', {}, names, ' Tag photos with the player\'s name ("Emma 10")'), 'Off keeps children\'s names off the site: tags use the team and number.'));
       const actions = h('div', { class: 'row' }, save, del, msg);
       if (!t) return h('div', { class: 'group-card' }, h('b', { text: 'Add a team' }), body, actions);
