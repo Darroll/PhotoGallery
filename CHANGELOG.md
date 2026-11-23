@@ -2,6 +2,10 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.3.2 (not released yet)
+
+- **The right-click fix menu in a gallery's Players section stays open.** It closed at the slightest scroll, including the page settling as photos load, so it could vanish as soon as it opened. It now closes only when you really scroll away (or click elsewhere, or press Escape). The database does not change.
+
 ## 2.3.1 (not released yet)
 
 - **Follow a player is one site-wide switch.** Turn it on once at the top of Settings, **Teams**, and every team gallery offers it. A gallery's Players section can still turn it off (or on) for that gallery alone. A follow is for the player (team and number), so one follow covers every gallery of the team.

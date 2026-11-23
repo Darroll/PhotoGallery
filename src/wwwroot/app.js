@@ -3694,13 +3694,16 @@ function playersManager(g) {
         note);
       menu.addEventListener('keydown', ev => { if (ev.key === 'Escape') closeMenu(); });
       document.body.append(menu);
+      menuY = window.scrollY;
       const r = menu.getBoundingClientRect();
       menu.style.left = `${Math.max(8, Math.min(e.clientX, window.innerWidth - r.width - 8))}px`;
       menu.style.top = `${Math.max(8, Math.min(e.clientY, window.innerHeight - r.height - 8))}px`;
       typed.focus();
       setTimeout(() => document.addEventListener('pointerdown', outside, true));
     };
-    window.addEventListener('scroll', closeMenu, { passive: true });
+    // closes when the page is really scrolled away, not on the small shifts from images loading or the list redrawing
+    let menuY = 0;
+    window.addEventListener('scroll', () => { if (menu && Math.abs(window.scrollY - menuY) > 80) closeMenu(); }, { passive: true });
     const markDone = (el, text) => { el.classList.add('fixed'); el.querySelector('.fixed-label')?.remove(); el.append(h('span', { class: 'fixed-label', text })); };
     const toggle = (picker) => { const open = picker.hidden; box.querySelectorAll('.fix-picker').forEach(x => { x.hidden = true; }); picker.hidden = !open; if (open) picker.querySelector('.num-chip, input')?.focus(); };
     // numbers read on players in our colours that are not on the roster: add the player, or say it is not ours
