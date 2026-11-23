@@ -1841,6 +1841,7 @@ const adminNav = [
   { href: '/admin/settings/sso', key: 'settings/sso', label: 'Sign-in (SSO)' },
   { href: '/admin/settings/ai', key: 'settings/ai', label: 'Automatic tagging' },
   { href: '/admin/settings/teams', key: 'settings/teams', label: 'Teams' },
+  { href: '/admin/settings/presets', key: 'settings/presets', label: 'Gallery presets' },
   { href: '/admin/settings/library', key: 'settings/library', label: 'Library and schedule' },
   { href: '/admin/settings/cache', key: 'settings/cache', label: 'Thumbnail cache' },
   { heading: 'Help' },
@@ -2076,8 +2077,8 @@ async function viewAdmin(app) {
   document.title = 'Galleries - ' + site.title;
   const main = await adminPage(app, 'galleries', 'Galleries');
   if (!main) return;
-  const [gals, folders, homeOrder] = await Promise.all([api('/api/admin/galleries'), api('/api/admin/folders'), api('/api/admin/settings/home')]);
-  main.append(newGalleryPanel((folders.data || []).filter(f => !f.galleryId).map(f => f.path)));
+  const [gals, folders, homeOrder, presets] = await Promise.all([api('/api/admin/galleries'), api('/api/admin/folders'), api('/api/admin/settings/home'), api('/api/admin/presets')]);
+  main.append(newGalleryPanel((folders.data || []).filter(f => !f.galleryId).map(f => f.path), presets.ok ? presets.data : null));
   const list = gals.data || [];
   main.append(h('h2', { text: `Galleries (${list.length})` }));
   if (!list.length) return main.append(h('p', { class: 'muted', text: 'No galleries yet. Create one from a folder above.' }));
@@ -2164,24 +2165,87 @@ function checkRow(label, checked) {
   return { box, el: h('label', {}, box, ' ' + label) };
 }
 
-function newGalleryPanel(folders) {
+function newGalleryPanel(folders, presets) {
   if (!folders.length) return h('div', { class: 'panel' }, h('h3', { text: 'New gallery from a library folder' }), h('p', { class: 'muted', text: 'Every folder in the photo library already has a gallery. Add a new folder to the library, then reload this page.' }));
   const title = h('input', { type: 'text', placeholder: 'Gallery title' });
   const folder = h('select', {}, folders.map(f => h('option', { value: f, text: f })));
-  const vis = h('select', {}, Object.entries(visLabels).map(([v, t]) => h('option', { value: v, text: t, selected: v === '2' })));
+  const vis = h('select', { 'aria-label': 'Who can open it' }, Object.entries(visLabels).map(([v, t]) => h('option', { value: v, text: t, selected: v === '2' })));
   const out = h('span', { class: 'muted' });
+  // a preset fills in the rest of the settings: team, player checks, follow, downloads, curated only, tags...
+  const items = (presets && presets.items) || [];
+  const preset = items.length ? h('select', { 'aria-label': 'Start with the settings of' },
+    items.map(p => h('option', { value: p.id, text: 'Preset: ' + p.name, selected: p.isDefault })),
+    h('option', { value: '', text: 'No preset (standard settings)', selected: !presets.defaultId })) : null;
+  const summary = h('div', { class: 'muted' });
+  const syncPreset = () => {
+    const p = preset && items.find(x => x.id === preset.value);
+    if (p) vis.value = String(p.visibility);
+    summary.textContent = p ? presetSummary(p) : '';
+  };
+  if (preset) { preset.addEventListener('change', syncPreset); syncPreset(); }
+  const body = () => ({ title: title.value, folder: folder.value, visibility: Number(vis.value), presetId: preset ? preset.value : '' });
   return h('div', { class: 'panel' }, h('h3', { text: 'New gallery from a library folder' }),
-    h('div', { class: 'row' }, title, folder, vis,
+    h('div', { class: 'row' }, title, folder, preset, vis,
       h('button', { class: 'primary', text: 'Create & scan', onclick: async () => {
         out.textContent = 'Scanning...';
-        const r = await api('/api/admin/galleries', { method: 'POST', body: { title: title.value, folder: folder.value, visibility: Number(vis.value) } });
+        const r = await api('/api/admin/galleries', { method: 'POST', body: body() });
         if (r.ok) go('/admin/galleries/' + r.data.gallery.id); else out.textContent = typeof r.data === 'string' ? r.data : 'Failed';
-      } }), out));
+      } }), out),
+    summary,
+    items.length ? null : h('p', { class: 'muted' }, 'Tip: set up one gallery the way you like (team, downloads, player checks...), then use Save as preset at the bottom of its settings. New galleries can then start with those settings.'));
+}
+
+// one line saying what a preset sets, so the admin can tell presets apart
+function presetSummary(p) {
+  const bits = [];
+  if (p.team) bits.push('team ' + p.team + (p.teamKit ? ' (' + p.teamKit.split(/[:\n]/)[0].trim() + ')' : ''));
+  if (p.autoTag === true) bits.push('checks new photos for players');
+  if (p.autoTag === false) bits.push('waits before checking for players');
+  if (p.followPlayers === true) bits.push('follow a player on');
+  if (p.followPlayers === false) bits.push('follow a player off');
+  if (p.allowPlayerTags) bits.push('parents suggest players');
+  bits.push(p.allowDownload ? (p.allowRaw ? 'downloads with RAW' : 'downloads') : 'no downloads');
+  if (p.hideRawOnly) bits.push('curated only');
+  if (p.hasPassword) bits.push('password');
+  if (p.groups) bits.push(plural(p.groups, 'invited group'));
+  if (p.allowComments) bits.push('comments');
+  if (p.watermarkView || p.watermarkDownload) bits.push('watermark');
+  if (p.tags && p.tags.length) bits.push('tags: ' + p.tags.join(', '));
+  if (p.location) bits.push(p.location);
+  return 'Starts with: ' + bits.join(', ') + '.';
+}
+
+// Site settings: the saved presets, which one new galleries start with, rename and delete
+async function presetsPanel() {
+  const box = h('div');
+  const draw = (data) => {
+    const items = data.items || [];
+    box.replaceChildren(
+      h('p', { class: 'muted', text: 'A preset is a set of gallery settings that a new gallery starts with, so a weekly game gallery needs only a folder and a title. To make one, open a gallery that is set up the way you like and press Save as preset at the bottom of its settings. Title, dates, cover, links and sections are never part of a preset. Changing a preset does not change galleries already made with it.' }),
+      items.length ? null : h('p', { text: 'No presets yet.' }),
+      ...items.map(p => {
+        const msg = h('span', { class: 'muted', role: 'status' });
+        const name = h('input', { type: 'text', value: p.name, maxlength: 60, 'aria-label': 'Preset name' });
+        const call = async (path, opts) => { const r = await api(path, opts); if (r.ok) draw(r.data); else msg.textContent = typeof r.data === 'string' ? r.data : 'Could not save'; };
+        return h('div', { class: 'panel' },
+          h('div', { class: 'row' }, name,
+            h('button', { text: 'Rename', onclick: () => call('/api/admin/presets/' + p.id, { method: 'PUT', body: { name: name.value } }) }),
+            h('label', {}, h('input', { type: 'checkbox', checked: p.isDefault, onchange: (e) => call('/api/admin/presets/' + p.id, { method: 'PUT', body: { isDefault: e.target.checked } }) }), ' New galleries start with this'),
+            h('span', { class: 'grow' }),
+            h('button', { class: 'danger', text: 'Delete', onclick: () => { if (confirm('Delete the preset "' + p.name + '"? Galleries made with it keep their settings.')) call('/api/admin/presets/' + p.id, { method: 'DELETE' }); } })),
+          h('div', { class: 'muted', text: presetSummary(p) }),
+          h('div', { class: 'muted', text: (p.fromGallery ? 'Saved from "' + p.fromGallery + '"' : 'Saved') + ' on ' + new Date(p.createdAt).toLocaleDateString() + '.' }),
+          msg);
+      }));
+  };
+  const r = await api('/api/admin/presets');
+  if (r.ok) draw(r.data); else box.append(h('p', { text: 'Could not load the presets.' }));
+  return h('div', { class: 'panel' }, h('h3', { text: 'Gallery presets' }), box);
 }
 
 async function viewSettings(app, section) {
   document.title = 'Site settings - ' + site.title;
-  const titles = { general: 'Site and appearance', watermark: 'Watermark', review: 'Caption suggestions', tags: 'Tags', groups: 'Groups', license: 'License', privacy: 'Privacy', 'visitor-stats': 'Visitor tracking', email: 'Email alerts', sso: 'Sign-in (SSO)', cache: 'Thumbnail cache', library: 'Library and schedule', ai: 'Automatic tagging', teams: 'Teams' };
+  const titles = { general: 'Site and appearance', watermark: 'Watermark', review: 'Caption suggestions', tags: 'Tags', groups: 'Groups', license: 'License', privacy: 'Privacy', 'visitor-stats': 'Visitor tracking', email: 'Email alerts', sso: 'Sign-in (SSO)', cache: 'Thumbnail cache', library: 'Library and schedule', ai: 'Automatic tagging', teams: 'Teams', presets: 'Gallery presets' };
   if (!titles[section]) section = 'general';
   const main = await adminPage(app, 'settings/' + section, titles[section]);
   if (!main) return;
@@ -2198,6 +2262,7 @@ async function viewSettings(app, section) {
   if (section === 'library') return main.append(await libraryPanel());
   if (section === 'ai') return main.append(await visionPanel());
   if (section === 'teams') return main.append(await teamsPanel());
+  if (section === 'presets') return main.append(await presetsPanel());
   main.append(cachePanel());
 }
 
@@ -3201,6 +3266,29 @@ const toLocalInput = (iso) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
+// Save this gallery's settings as a preset that new galleries can start with
+async function presetSection(g, isDirty) {
+  const r = await api('/api/admin/presets');
+  const items = r.ok ? r.data.items : [];
+  const name = h('input', { type: 'text', maxlength: 60, placeholder: 'Preset name, e.g. Saturday league game', 'aria-label': 'Preset name' });
+  const target = h('select', { 'aria-label': 'Save as' }, h('option', { value: '', text: 'as a new preset' }), items.map(p => h('option', { value: p.id, text: 'over "' + p.name + '"' })));
+  const makeDefault = h('input', { type: 'checkbox', checked: !items.length || items.some(p => p.isDefault && p.fromGallery === g.title) });
+  const msg = h('span', { class: 'muted', role: 'status' });
+  target.addEventListener('change', () => { const p = items.find(x => x.id === target.value); name.placeholder = p ? p.name : 'Preset name, e.g. Saturday league game'; makeDefault.checked = p ? p.isDefault : makeDefault.checked; });
+  const save = h('button', { class: 'primary', text: 'Save as preset', onclick: async () => {
+    if (isDirty()) { msg.textContent = 'Save your changes first. The preset takes the settings as last saved.'; return; }
+    const replaceId = target.value || null;
+    const res = await api('/api/admin/presets', { method: 'POST', body: { galleryId: g.id, name: name.value, replaceId, makeDefault: makeDefault.checked } });
+    if (!res.ok) { msg.textContent = typeof res.data === 'string' ? res.data : 'Could not save the preset'; return; }
+    toast('Preset saved');
+    const fresh = await presetSection(g, isDirty); sec.replaceWith(fresh);
+  } });
+  const sec = section('Save as preset', 'Start new galleries with these settings', false,
+    h('p', { class: 'muted', text: 'Saves this gallery\'s settings, as last saved, so a new gallery can start with them: who can open it and its password, invited groups, tags, location, downloads, RAW and curated only, likes and comments, watermark, the team and jersey, automatic player checks, parent suggestions and follow a player. The title, dates, cover, links and sections stay with this gallery. Manage presets in ' }, h('a', { href: '/admin/settings/presets', text: 'Gallery presets' }), '.'),
+    h('div', { class: 'row' }, name, target, h('label', {}, makeDefault, ' New galleries start with this'), save), msg);
+  return sec;
+}
+
 async function viewGallerySettings(app, id) {
   app = await adminPage(app, 'galleries');
   if (!app) return;
@@ -3484,7 +3572,7 @@ async function viewGallerySettings(app, id) {
       h('a', { class: 'btn', href: '/admin/stats?gallery=' + g.id, text: 'Statistics' }),
       h('a', { class: 'btn', href: '/g/' + encodeURIComponent(g.slug), text: 'View gallery' })),
     h('p', { class: 'muted counts', text: countsLine(g) }),
-    general, access, downloads, wmUp, favSection, commentSection, playersSection, raw,
+    general, access, downloads, wmUp, favSection, commentSection, playersSection, raw, await presetSection(g, () => dirty),
     h('div', { class: 'savebar' }, saveBtn, status));
 }
 

@@ -19,7 +19,7 @@ public static class AdminApi
         string? Password, bool? AllowDownload, bool? AllowRaw, bool? AllowZip, bool? AllowGuestUpload, bool? AllowLikes, bool? ShowLikeCounts, bool? AllowComments, bool? AllowFeedback,
         bool? WatermarkView, bool? WatermarkDownload, RawMatch? RawMatchMode,
         bool? HideRawOnly, GallerySort? SortMode, bool? SortDesc, string? EventDate, string? Location,
-        string? AllowedSizes, string? AllowedFormats, string? ExpiresAt, List<LinkItem>? FootageLinks, List<SectionItem>? Sections, string? EventEndDate, CoverMode? CoverMode);
+        string? AllowedSizes, string? AllowedFormats, string? ExpiresAt, List<LinkItem>? FootageLinks, List<SectionItem>? Sections, string? EventEndDate, CoverMode? CoverMode, string? PresetId = null);
     record SectionItem(string? Folder, string? Title, List<LinkItem>? Links);
     record LinkRawInput(int RawPhotoId);
     record CommentSwitch(bool Off);
@@ -284,7 +284,7 @@ public static class AdminApi
         secured.MapGet("/settings/home",(SettingsService settings) => Results.Ok(settings.Home));
         secured.MapPut("/settings/home", (HomeSettings input, SettingsService settings) => Results.Ok(settings.SetHome(input)));
 
-        secured.MapPost("/galleries", async (GalleryInput input, AppDb db, AppConfig cfg, Scanner scanner, SettingsService settings) =>
+        secured.MapPost("/galleries", async (GalleryInput input, AppDb db, AppConfig cfg, Scanner scanner, SettingsService settings, PlayerTagJobs players) =>
         {
             if (string.IsNullOrWhiteSpace(input.Title)) return Results.BadRequest("Title required");
             var wanted = input.Title.Trim().ToLower();
@@ -299,23 +299,30 @@ public static class AdminApi
             var slug = baseSlug;
             for (int i = 2; await db.Galleries.AnyAsync(g => g.Slug == slug); i++) slug = $"{baseSlug}-{i}";
 
+            // a preset fills in the settings first (null: the default preset, "": none); anything sent with the request wins
+            var presets = settings.Presets;
+            var presetId = input.PresetId ?? presets.DefaultId;
+            var preset = string.IsNullOrEmpty(presetId) ? null : presets.Items.FirstOrDefault(p => p.Id == presetId);
+            if (preset == null && !string.IsNullOrEmpty(input.PresetId)) return Results.BadRequest("That preset no longer exists. Reload the page.");
+
             var maxOrder = await db.Galleries.AnyAsync() ? await db.Galleries.MaxAsync(x => x.SortOrder) : -1;
-            var g = new Gallery
-            {
-                SortOrder = maxOrder + 1,
-                Title = input.Title.Trim(), Slug = slug, Folder = cfg.Rel(dir),
-                Description = input.Description ?? "",
-                Visibility = input.Visibility ?? Visibility.Protected,
-                AllowDownload = input.AllowDownload ?? true, AllowRaw = input.AllowRaw ?? false,
-                AllowZip = input.AllowZip ?? true, AllowGuestUpload = input.AllowGuestUpload ?? false,
-                WatermarkView = input.WatermarkView ?? false, WatermarkDownload = input.WatermarkDownload ?? false,
-                RawMatchMode = input.RawMatchMode ?? RawMatch.Anywhere
-            };
+            var g = new Gallery { SortOrder = maxOrder + 1, Title = input.Title.Trim(), Slug = slug, Folder = cfg.Rel(dir), Description = input.Description ?? "" };
+            if (preset != null) await GalleryPresets.ApplyAsync(db, preset, g);
+            if (input.Visibility != null) g.Visibility = input.Visibility.Value;
+            if (input.AllowDownload != null) g.AllowDownload = input.AllowDownload.Value;
+            if (input.AllowRaw != null) g.AllowRaw = input.AllowRaw.Value;
+            if (input.AllowZip != null) g.AllowZip = input.AllowZip.Value;
+            if (input.AllowGuestUpload != null) g.AllowGuestUpload = input.AllowGuestUpload.Value;
+            if (input.WatermarkView != null) g.WatermarkView = input.WatermarkView.Value;
+            if (input.WatermarkDownload != null) g.WatermarkDownload = input.WatermarkDownload.Value;
+            if (input.RawMatchMode != null) g.RawMatchMode = input.RawMatchMode.Value;
             if (!string.IsNullOrEmpty(input.Password)) g.PasswordHash = Passwords.Hash(input.Password);
             db.Galleries.Add(g);
             await db.SaveChangesAsync();
+            if (preset != null) await GalleryPresets.ApplyLinksAsync(db, preset, g);
             var scan = await scanner.ScanAsync(db, g);
             await Subscribers.NewGalleryAsync(db, settings, g);
+            if (g.TeamId != null) await players.AutoStartAsync(db, g, settings.Vision);
             return Results.Ok(new { gallery = Dto(g, scan.Total, 0, scan.RawOnly), scan });
         });
 
