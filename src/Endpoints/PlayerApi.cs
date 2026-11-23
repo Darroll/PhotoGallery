@@ -11,6 +11,7 @@ public static class PlayerApi
     record TeamInput(string? Name, string? Colors, bool? TagWithNames, string? Roster);
     /// <summary>A fix to one photo: the player really in it (a roster number, or none for "not a player"), replacing a suggestion or a number read wrongly.</summary>
     record PhotoPlayerInput(string? Number, int? Suggestion, string? Sighting);
+    record AutoTagInput(bool? AutoTag);
     record GalleryTeamInput(int? TeamId, string? Kit, string? Folder = null);
     record CheckInput(int? Limit, bool? Recheck);
     record ReviewInput(List<int>? Approve, List<int>? Reject);
@@ -175,6 +176,17 @@ public static class PlayerApi
             return Results.NoContent();
         });
 
+        // check new photos automatically: on, off, or null to follow the main setting
+        secured.MapPut("/galleries/{id:int}/autotag", async (int id, AutoTagInput input, HttpContext ctx, AppDb db, PlayerTagJobs jobs, SettingsService settings) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var g = await db.Galleries.FindAsync(id);
+            if (g == null) return Results.NotFound();
+            g.AutoTag = input.AutoTag;
+            await db.SaveChangesAsync();
+            return Results.Ok(new { autoTag = g.AutoTag, on = PlayerTagJobs.AutoTagOn(g, settings.Vision) });
+        });
+
         // one photo fixed by hand: tag the right player and/or settle the wrong reading, for this photo only
         secured.MapPost("/galleries/{id:int}/photos/{photoId:int}/player", async (int id, int photoId, PhotoPlayerInput input, HttpContext ctx, AppDb db) =>
         {
@@ -239,7 +251,7 @@ public static class PlayerApi
                 .Select(x => new { folder = x.Folder, title = x.Title, photos = photoFolders[x.Folder], kit = folderKits.GetValueOrDefault(x.Folder, "") }).ToList();
             return Results.Ok(new
             {
-                teamId = g.TeamId, teamKit = g.TeamKit, folders, teamPlayers = team?.Players.Count ?? 0,
+                teamId = g.TeamId, teamKit = g.TeamKit, folders, autoTag = g.AutoTag, autoTagDefault = settings.Vision.AutoCheckNew, teamPlayers = team?.Players.Count ?? 0,
                 photos = total, @checked = checkedCount, approved,
                 providers = settings.Vision.Chain.Select(p => VisionProvider.Label(p.Kind)),
                 job,

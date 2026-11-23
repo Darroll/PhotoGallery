@@ -340,6 +340,8 @@ public class PlayerJobStatus
     public string CurrentPhoto { get; set; } = "";
     public string CurrentProvider { get; set; } = "";
     public DateTime? CurrentSince { get; set; }
+    /// <summary>Started by a scan that found new photos, not by the admin.</summary>
+    public bool Automatic { get; set; }
 
     /// <summary>The last 30 photos, newest first.</summary>
     public List<PlayerJobEntry> Recent { get { lock (gate) return recent.ToList(); } }
@@ -352,11 +354,34 @@ public class PlayerJobStatus
 
 /// <summary>
 /// Runs player checks in the background, one gallery at a time and one photo at a time, so a slow model never piles up
-/// requests. Nothing runs until the admin presses a button; there is no automatic pass over the whole library.
+/// requests. A check runs when the admin presses a button, or after a scan adds photos to a gallery that checks new photos
+/// automatically (<see cref="AutoStartAsync"/>); there is no pass over the whole library.
 /// </summary>
 public class PlayerTagJobs(IServiceScopeFactory scopes, ILogger<PlayerTagJobs> log) : BackgroundService
 {
-    record Job(int GalleryId, int? Limit, bool Recheck, CancellationTokenSource Stop);
+    record Job(int GalleryId, int? Limit, bool Recheck, CancellationTokenSource Stop, bool Automatic = false);
+
+    /// <summary>A failed photo is tried again on later automatic checks only this many times; a button press tries it again regardless.</summary>
+    public const int AutoAttempts = 3;
+
+    /// <summary>Whether new photos in this gallery are checked automatically: its own choice, else the main setting.</summary>
+    public static bool AutoTagOn(Gallery g, VisionSettings vision) => g.AutoTag ?? vision.AutoCheckNew;
+
+    /// <summary>
+    /// After a scan or an approval adds photos: queues a check of the gallery's unchecked photos when it checks new photos
+    /// automatically, has a team with players, and a provider is set up. Does nothing when a check is already running or waiting.
+    /// </summary>
+    public async Task<bool> AutoStartAsync(AppDb db, Gallery g, VisionSettings vision)
+    {
+        if (!AutoTagOn(g, vision) || g.TeamId == null || vision.Chain.Count == 0) return false;
+        if (status.TryGetValue(g.Id, out var s) && s.Running) return false;
+        if (!await db.Players.AnyAsync(p => p.TeamId == g.TeamId)) return false;
+        var hiddenCover = GalleryRules.HiddenCoverId(g);
+        if (!await db.Photos.AnyAsync(p => p.GalleryId == g.Id && p.Approved && p.Id != hiddenCover && p.PlayersCheckedAt == null && p.PlayerCheckAttempts < AutoAttempts)) return false;
+        if (!Start(g.Id, g.Title, null, false, automatic: true)) return false;
+        log.LogInformation("Player check of gallery {Id} ({Title}) queued automatically for its new photos", g.Id, g.Title);
+        return true;
+    }
     readonly Channel<Job> queue = Channel.CreateUnbounded<Job>();
     readonly ConcurrentDictionary<int, PlayerJobStatus> status = new();
     readonly ConcurrentDictionary<int, CancellationTokenSource> stops = new();
@@ -370,14 +395,17 @@ public class PlayerTagJobs(IServiceScopeFactory scopes, ILogger<PlayerTagJobs> l
         .ToList();
 
     /// <summary>Queues a check. False when this gallery already has one running or waiting.</summary>
-    public bool Start(int galleryId, string galleryTitle, int? limit, bool recheck)
+    public bool Start(int galleryId, string galleryTitle, int? limit, bool recheck, bool automatic = false)
     {
-        if (status.TryGetValue(galleryId, out var s) && s.Running) return false;
-        var anyRunning = status.Values.Any(x => x.Running);
-        status[galleryId] = new PlayerJobStatus { GalleryId = galleryId, Gallery = galleryTitle, Running = true, Waiting = anyRunning };
+        lock (queue)
+        {
+            if (status.TryGetValue(galleryId, out var s) && s.Running) return false;
+            var anyRunning = status.Values.Any(x => x.Running);
+            status[galleryId] = new PlayerJobStatus { GalleryId = galleryId, Gallery = galleryTitle, Running = true, Waiting = anyRunning, Automatic = automatic };
+        }
         var cts = new CancellationTokenSource();
         stops[galleryId] = cts;
-        queue.Writer.TryWrite(new Job(galleryId, limit, recheck, cts));
+        queue.Writer.TryWrite(new Job(galleryId, limit, recheck, cts, automatic));
         return true;
     }
 
@@ -435,6 +463,8 @@ public class PlayerTagJobs(IServiceScopeFactory scopes, ILogger<PlayerTagJobs> l
         var q = db.Photos.Where(p => p.GalleryId == g.Id && p.Approved && p.Id != hiddenCover);
         // every unchecked photo, including ones that failed before: a check only runs when the admin asks for it
         if (!job.Recheck) q = q.Where(p => p.PlayersCheckedAt == null);
+        // an automatic check leaves photos that keep failing for the admin, instead of trying them after every scan
+        if (job.Automatic) q = q.Where(p => p.PlayerCheckAttempts < AutoAttempts);
         var photos = GalleryRules.Sort(await q.ToListAsync(ct), g, x => x.TakenAt, x => x.Name, x => x.AddedAt);
         if (job.Limit is { } n) photos = photos.Take(n).ToList();
         st.Total = photos.Count;

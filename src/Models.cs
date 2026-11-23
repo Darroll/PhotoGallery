@@ -72,6 +72,8 @@ public class Gallery
     public string TeamKit { get; set; } = "";
     /// <summary>JSON object: sub folder name (a tournament's game) to the jersey worn in it, like <see cref="TeamKit"/>. A folder not listed uses <see cref="TeamKit"/>.</summary>
     public string FolderKits { get; set; } = "{}";
+    /// <summary>Check new photos for players automatically after a scan: true or false here, or null to follow the main setting (<see cref="VisionSettings.AutoCheckNew"/>).</summary>
+    public bool? AutoTag { get; set; }
     public List<Photo> Photos { get; set; } = new();
     public List<ShareLink> Links { get; set; } = new();
 }

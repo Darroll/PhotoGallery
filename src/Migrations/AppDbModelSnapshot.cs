@@ -449,6 +449,9 @@ namespace PhotoGallery.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool?>("AutoTag")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("CoverMode")
                         .HasColumnType("INTEGER");
 

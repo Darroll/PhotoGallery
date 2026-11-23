@@ -52,6 +52,8 @@ public class VisionSettings
     public List<VisionProvider> Providers { get; set; } = new();
     /// <summary>Suggestions at or above this confidence (0-100) are tagged straight away. 0 = everything waits for review (the default).</summary>
     public int AutoApproveAt { get; set; }
+    /// <summary>Check photos a scan adds to a gallery straight away, in galleries that have a team. Each gallery can override it (<see cref="Gallery.AutoTag"/>). Off by default.</summary>
+    public bool AutoCheckNew { get; set; }
 
     public VisionSettings Sanitized(string? captionUrl = null)
     {
@@ -75,10 +77,10 @@ public class VisionSettings
         foreach (var kind in VisionProvider.Kinds)
             if (!list.Any(x => x.Kind == kind))
                 list.Add(new VisionProvider { Kind = kind, Model = VisionProvider.DefaultModel(kind), Url = kind == "ollama" ? (captionUrl ?? "").TrimEnd('/') : "" });
-        return new VisionSettings { Providers = list, AutoApproveAt = Math.Clamp(AutoApproveAt, 0, 100) };
+        return new VisionSettings { Providers = list, AutoApproveAt = Math.Clamp(AutoApproveAt, 0, 100), AutoCheckNew = AutoCheckNew };
     }
 
-    public VisionSettings Clone() => new() { Providers = Providers.Select(p => p.Clone()).ToList(), AutoApproveAt = AutoApproveAt };
+    public VisionSettings Clone() => new() { Providers = Providers.Select(p => p.Clone()).ToList(), AutoApproveAt = AutoApproveAt, AutoCheckNew = AutoCheckNew };
 
     /// <summary>Keeps the stored API key when the browser sends the key field empty (the page never sees the stored key).</summary>
     public VisionSettings WithStoredKeys(VisionSettings stored)
@@ -96,6 +98,7 @@ public class VisionSettings
     public object Public() => new
     {
         autoApproveAt = AutoApproveAt,
+        autoCheckNew = AutoCheckNew,
         providers = Providers.Select(p => new { p.Kind, label = VisionProvider.Label(p.Kind), p.Enabled, p.Url, p.Model, keySet = p.ApiKey.Length > 0, p.SendPhotosAgreed, p.TimeoutSeconds, cloud = p.IsCloud, p.Ready }),
     };
 }

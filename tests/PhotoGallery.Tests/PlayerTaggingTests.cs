@@ -307,6 +307,59 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
     }
 
     [Fact]
+    public async Task New_photos_are_checked_automatically_when_the_gallery_or_main_setting_says_so()
+    {
+        await Serial.WaitAsync();
+        try
+        {
+            var admin = await app.AdminAsync();
+            async Task Vision(bool autoNew) => Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync("/api/admin/settings/vision", new { providers = new[] { new { kind = "ollama", enabled = true, url = "http://ollama.local:11434", model = "qwen3-vl:8b" } }, autoApproveAt = 0, autoCheckNew = autoNew })).StatusCode);
+            await Vision(true);
+            app.Reader.Answers["ollama"] = () => "{\"numbers\": [{\"number\": \"10\", \"confidence\": 90}]}";
+            var folder = app.NewFolder(1);
+            var slug = await AppFactory.GalleryAsync(admin, "Auto Flow", folder);
+            var gid = (await (await admin.GetAsync($"/api/g/{slug}")).ReadAsync()).GetProperty("id").GetInt32();
+            // no team yet: the first scan queues nothing
+            Assert.False((await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync()).GetProperty("job").GetProperty("running").GetBoolean());
+            var team = await (await admin.PostAsJsonAsync("/api/admin/teams", new { name = "Auto FC", colors = "red shirts", roster = "10 Emma" })).ReadAsync();
+            Assert.Equal(HttpStatusCode.NoContent, (await admin.PutAsJsonAsync($"/api/admin/galleries/{gid}/team", new { teamId = team.GetProperty("id").GetInt32() })).StatusCode);
+            var s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
+            Assert.Equal(JsonValueKind.Null, s.GetProperty("autoTag").ValueKind);   // a new gallery follows the main setting
+            Assert.True(s.GetProperty("autoTagDefault").GetBoolean());
+
+            int n = 1;
+            async Task<JsonElement> AddPhotoAndScan()
+            {
+                TestImages.Write(Path.Combine(app.Library, folder, $"new{n++}.jpg"), 500, 300, 90 + n * 10);
+                Assert.Equal(HttpStatusCode.OK, (await admin.PostAsync($"/api/admin/galleries/{gid}/scan", null)).StatusCode);
+                return await WaitAsync(admin, gid);
+            }
+            s = await AddPhotoAndScan();
+            Assert.Equal(2, s.GetProperty("checked").GetInt32());   // the first photo was waiting too: every unchecked photo is checked
+            Assert.True(s.GetProperty("job").GetProperty("automatic").GetBoolean());
+            Assert.Equal(2, s.GetProperty("pending").GetArrayLength());
+
+            // this gallery says no: new photos wait
+            Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/admin/galleries/{gid}/autotag", new { autoTag = false })).StatusCode);
+            s = await AddPhotoAndScan();
+            Assert.Equal(2, s.GetProperty("checked").GetInt32());
+
+            // main setting off, but this gallery says yes
+            await Vision(false);
+            Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/admin/galleries/{gid}/autotag", new { autoTag = true })).StatusCode);
+            s = await AddPhotoAndScan();
+            Assert.Equal(4, s.GetProperty("checked").GetInt32());
+
+            // back to the main setting, which is off
+            Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/admin/galleries/{gid}/autotag", new { autoTag = (bool?)null })).StatusCode);
+            s = await AddPhotoAndScan();
+            Assert.Equal(4, s.GetProperty("checked").GetInt32());
+            Assert.Equal(5, s.GetProperty("photos").GetInt32());
+        }
+        finally { Serial.Release(); }
+    }
+
+    [Fact]
     public async Task A_provider_that_does_not_answer_in_time_fails_with_the_setting_named()
     {
         // a server that accepts the connection and never answers, like a stalled Ollama

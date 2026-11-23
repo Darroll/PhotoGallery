@@ -2563,13 +2563,14 @@ async function visionPanel() {
   let rows = r.data.providers.map(p => ({ ...p, apiKey: '' }));
   const list = h('div', { class: 'vision-list' });
   const auto = h('input', { type: 'number', min: 0, max: 100, value: r.data.autoApproveAt, 'aria-label': 'Approve automatically at this confidence' });
+  const autoNew = h('input', { type: 'checkbox', checked: !!r.data.autoCheckNew });
   const msg = h('span', { class: 'muted', role: 'status' });
   const hints = {
     ollama: 'Runs on your own computer, so photos stay on your network. Install a vision model first, for example: ollama pull qwen3-vl:8b-instruct (needs about 8 GB of graphics memory; qwen3-vl:4b-instruct for less). Use an instruct model: the thinking versions (plain qwen3-vl:8b) spend their answer reasoning and leave no room for the numbers.',
     anthropic: 'Needs an API key from console.anthropic.com, billed per photo. A Claude Pro or Max subscription cannot be used here: Anthropic only allows API keys in other apps.',
     openai: 'Needs an API key from platform.openai.com, billed per photo. A ChatGPT subscription cannot be used here yet. Type a model that can see images.',
   };
-  const collect = () => ({ autoApproveAt: Number(auto.value) || 0, providers: rows.map(p => ({ kind: p.kind, enabled: p.enabled, url: p.url, model: p.model, apiKey: p.apiKey, sendPhotosAgreed: p.sendPhotosAgreed, timeoutSeconds: p.timeoutSeconds })) });
+  const collect = () => ({ autoApproveAt: Number(auto.value) || 0, autoCheckNew: autoNew.checked, providers: rows.map(p => ({ kind: p.kind, enabled: p.enabled, url: p.url, model: p.model, apiKey: p.apiKey, sendPhotosAgreed: p.sendPhotosAgreed, timeoutSeconds: p.timeoutSeconds })) });
   const draw = () => {
     list.replaceChildren(...rows.map((p, i) => {
       const on = h('input', { type: 'checkbox', checked: p.enabled, onchange: (e) => { p.enabled = e.target.checked; } });
@@ -2613,9 +2614,10 @@ async function visionPanel() {
     msg.textContent = ready.length === 0 ? 'Saved. No provider is ready yet, so nothing will be checked.' : ready.length === 1 ? `Saved. Only ${ready[0]} will be used; there is no fallback.` : `Saved. Tried in this order: ${ready.join(', then ')}.`;
   } });
   return h('div', {}, taggingActivity(), h('div', { class: 'panel' }, h('h3', { text: 'Automatic tagging' }),
-    h('p', { class: 'muted', text: 'An AI model looks at each photo and reads the jersey numbers of your team\'s players, so parents can find their child. Providers are tried from the top. Only providers that are switched on and fully set up are used, so if you set up just one, nothing else is ever tried. Nothing is checked until you press a button in a gallery\'s Players section.' }),
+    h('p', { class: 'muted', text: 'An AI model looks at each photo and reads the jersey numbers of your team\'s players, so parents can find their child. Providers are tried from the top. Only providers that are switched on and fully set up are used, so if you set up just one, nothing else is ever tried. Photos are checked when you press a button in a gallery\'s Players section, or by themselves when new photos arrive if you switch that on below.' }),
     list,
-    h('div', { class: 'form1' }, field('Approve automatically', h('label', {}, auto, ' % sure or more'), '0 (recommended) means every suggestion waits for you to check it. Tags are only added after you approve them.')),
+    h('div', { class: 'form1' }, field('Approve automatically', h('label', {}, auto, ' % sure or more'), '0 (recommended) means every suggestion waits for you to check it. Tags are only added after you approve them.'),
+      field('New photos', h('label', {}, autoNew, ' Check new photos automatically'), 'When a scan or upload adds photos to a gallery that has a team, they are checked in the background. Each gallery can change this in its Players section; galleries left on "Use the main setting" follow this box. Suggestions still wait for your review unless you approve automatically above.')),
     h('div', { class: 'row' }, save, msg)));
 }
 
@@ -3100,6 +3102,7 @@ const secsSince = (iso) => iso ? Math.max(0, Math.round((Date.now() - new Date(/
 function playerJobView(job, onStop, { recentCount = 8 } = {}) {
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const out = h('div', { class: 'job-view' });
+  if (job.automatic && (job.running || job.finishedAt)) out.append(h('p', { class: 'muted', text: 'Started automatically for new photos.' }));
   if (job.running && job.waiting) {
     out.append(h('p', { class: 'muted' }, 'Waiting for another gallery\'s check to finish (one gallery is checked at a time). ',
       onStop ? h('button', { text: 'Cancel', onclick: onStop }) : null));
@@ -3224,6 +3227,13 @@ function playersManager(g) {
           ...thumbs.map(t => t.picker),
           h('div', { class: 'row' }, pname, add, no, note)));
     });
+    const autoSel = h('select', { 'aria-label': 'Check new photos automatically', onchange: async () => {
+      const v = autoSel.value === '' ? null : autoSel.value === 'on';
+      const res = await api(`/api/admin/galleries/${g.id}/autotag`, { method: 'PUT', body: { autoTag: v } });
+      msg.textContent = res.ok ? (res.data.on ? 'Saved. New photos are checked automatically.' : 'Saved. New photos wait for you to press Check.') : aiErr(res);
+    } }, h('option', { value: '', text: `Use the main setting (${d.autoTagDefault ? 'check automatically' : 'wait for me'})`, selected: d.autoTag == null }),
+      h('option', { value: 'on', text: 'Check automatically', selected: d.autoTag === true }),
+      h('option', { value: 'off', text: 'Wait for me to press Check', selected: d.autoTag === false }));
     const start = async (body) => {
       const res = await api(`/api/admin/galleries/${g.id}/players/check`, { method: 'POST', body });
       if (res.ok) load(); else msg.textContent = aiErr(res);
@@ -3266,7 +3276,8 @@ function playersManager(g) {
     box.replaceChildren(
       h('div', { class: 'form1' }, field('Team', teamSel, 'Only this team\'s players are looked for, in its jersey colours.'),
         kitSel ? field('Jerseys', h('div', {}, h('datalist', { id: 'jersey-colours' }, JERSEY_COLOURS.map(c => h('option', { value: c }))), kitSel), 'The jersey the team wears in this gallery, from its list on the Teams page. Only players in that jersey are read, so the other team can wear the same numbers.') : null,
-        folderRows ? field('Jersey per folder', folderRows, 'For a tournament: the jersey worn in each game. A folder left on "Same as the gallery" uses the jersey above.') : null),
+        folderRows ? field('Jersey per folder', folderRows, 'For a tournament: the jersey worn in each game. A folder left on "Same as the gallery" uses the jersey above.') : null,
+        field('New photos', autoSel, 'Check photos for players by themselves when a scan or upload adds them. Needs a team with players.')),
       setupHint,
       h('p', { class: 'muted', text: `${d.checked} of ${d.photos} photos checked, ${d.approved} tag${d.approved === 1 ? '' : 's'} approved.` + (d.providers.length ? ` Uses ${d.providers.join(', then ')}.` : '') }),
       h('div', { class: 'row' },
