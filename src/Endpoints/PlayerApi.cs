@@ -23,9 +23,13 @@ public static class PlayerApi
     static bool Csrf(HttpContext ctx) => ctx.Request.Headers["X-Requested-With"] == "pg";
     static string Cut(string? s, int max) { s = (s ?? "").Trim(); return s.Length > max ? s[..max] : s; }
 
-    static object TeamOut(Team t, int galleries) => new
+    record FoundNumber(string Number, int Photos);
+
+    static object TeamOut(Team t, int galleries, IEnumerable<FoundNumber>? found = null) => new
     {
         t.Id, t.Name, t.Season, fullName = t.FullName, t.Colors, t.TagWithNames, galleries, t.CreatedAt,
+        // numbers the AI read on players in this team's jerseys (not ones the admin said are not ours), most photos first
+        found = found ?? [],
         kits = PlayerTags.Kits(t.Colors).Select(k => { var (shirt, number) = PlayerTags.SplitJersey(k.Description); return new { name = k.Name, description = k.Description, shirt, number }; }),
         players = t.Players.OrderBy(p => p.Number.Length).ThenBy(p => p.Number, StringComparer.Ordinal).Select(p => new { p.Id, p.Number, p.Name, p.AthleteId }),
         roster = string.Join("\n", t.Players.OrderBy(p => p.Number.Length).ThenBy(p => p.Number, StringComparer.Ordinal).Select(p => p.Name.Length > 0 ? $"{p.Number} {p.Name}" : p.Number)),
@@ -75,7 +79,11 @@ public static class PlayerApi
         {
             var teams = await db.Teams.Include(t => t.Players).OrderBy(t => t.Name).ThenByDescending(t => t.CreatedAt).ToListAsync();
             var use = await db.Galleries.Where(g => g.TeamId != null).GroupBy(g => g.TeamId!.Value).Select(x => new { x.Key, n = x.Count() }).ToDictionaryAsync(x => x.Key, x => x.n);
-            return Results.Ok(teams.Select(t => TeamOut(t, use.GetValueOrDefault(t.Id))));
+            var seen = (await db.NumberSightings.Where(x => !x.Dismissed).GroupBy(x => new { x.TeamId, x.Number })
+                    .Select(x => new { x.Key.TeamId, x.Key.Number, n = x.Select(y => y.PhotoId).Distinct().Count() }).ToListAsync())
+                .GroupBy(x => x.TeamId).ToDictionary(x => x.Key, x => x.OrderByDescending(y => y.n).ThenBy(y => y.Number.Length).ThenBy(y => y.Number, StringComparer.Ordinal)
+                    .Take(60).Select(y => new FoundNumber(y.Number, y.n)).ToList());
+            return Results.Ok(teams.Select(t => TeamOut(t, use.GetValueOrDefault(t.Id), seen.GetValueOrDefault(t.Id))));
         });
 
         secured.MapPost("/teams", async (TeamInput input, HttpContext ctx, AppDb db) =>

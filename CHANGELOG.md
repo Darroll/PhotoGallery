@@ -2,6 +2,10 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.6.2 (not released yet)
+
+- **The roster is one row per player.** On Settings, **Teams**, each season's roster is a list of rows: the jersey number, the name, and on the right the other teams a player with that name is on, such as "also #11 on East Ridge (Fall 2026)" (seasons of the same team are not listed; to unlink two girls, change the name on one roster). The number box takes any number, or offers the numbers the AI found in this team's photos, with how many photos each was found in. Numbers found but not on the roster yet are shown as buttons under the roster that add a row with that number. A number used twice, or a name without a number, is marked before saving. Pasting a whole roster ("10 Emma" per line) into a number box still fills one row per line.
+
 ## 2.6.0 (not released yet)
 
 - **Teams have seasons.** Each season of a team (Fall 2026, Spring 2027) has its own roster and its own jerseys, for a year with special pink jerseys. Settings, **Teams** shows one card per team with its seasons inside, newest first. **Start season** on a team's card begins the next season with the last season's roster and jerseys, so only the players who left or joined change. A gallery picks the team season in its Players section: the AI looks for that season's numbers in that season's jerseys, and the home page lists the gallery under that season (the gallery's own Season box still wins, and galleries without a team still go by the event date). The home page's team chips, the search team filter and the admin list's team filter cover every season of a team.

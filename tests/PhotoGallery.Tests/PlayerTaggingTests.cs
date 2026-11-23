@@ -200,6 +200,11 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             var unknown = s.GetProperty("unknown").EnumerateArray().ToList();
             Assert.Equal(new[] { "9", "21", "88" }, unknown.Select(u => u.GetProperty("number").GetString()).ToArray());   // in number order
             Assert.All(unknown, u => Assert.Equal(2, u.GetProperty("photos").GetInt32()));
+            // the Teams page offers the numbers found in the team's photos for its roster
+            async Task<string[]> FoundAsync() => (await (await admin.GetAsync("/api/admin/teams")).ReadAsync()).EnumerateArray()
+                .Single(t => t.GetProperty("id").GetInt32() == teamId).GetProperty("found").EnumerateArray()
+                .Select(f => f.GetProperty("number").GetString() + ":" + f.GetProperty("photos").GetInt32()).ToArray();
+            Assert.Equal(new[] { "9:2", "21:2", "88:2" }, await FoundAsync());
 
             // one of the two photos is unticked: only the other becomes a suggestion
             var skip = unknown[1].GetProperty("photoIds")[0].GetInt32();
@@ -209,6 +214,7 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/numbers/dismiss", new { number = "88" })).StatusCode);
             Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/numbers/dismiss", new { number = "9" })).StatusCode);
 
+            Assert.Equal(new[] { "21" }, (await FoundAsync()).Select(f => f.Split(':')[0]).ToArray());   // numbers said not to be ours are not offered
             s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
             Assert.Empty(s.GetProperty("unknown").EnumerateArray());
             var pending = s.GetProperty("pending").EnumerateArray().ToList();
