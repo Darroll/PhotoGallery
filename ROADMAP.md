@@ -131,7 +131,7 @@ The main use is photos of a youth soccer team plus a link to the game film, shar
 
 | # | Work | Effort | Complexity | Seen in |
 |---|---|---|---|---|
-| 30 | [x] **Save to phone** (built, not yet released): on a phone, save picked photos straight to the camera roll (share sheet with files) instead of a ZIP that phones handle badly | M | Med | Pixieset, Pic-Time apps |
+| 30 | [x] **Save to phone** (built, not yet released): on a phone, save picked photos straight to the camera roll (share sheet with files) instead of a ZIP that phones handle badly. 2.2.0 cuts the taps: one-tap Save in the viewer, long press to choose photos, Save to phone in the selection bar and on a player's button | M | Med | Pixieset, Pic-Time apps |
 | 35 | [x] **Automatic player tagging** (built, not yet released) with a vision model: your own Ollama, or Claude or OpenAI with an API key, tried in the order the admin sets (no fallback unless more than one is set up). Team-aware: a roster per team (number to name), and only players in our team's colors are tagged, because the other team can wear the same numbers. Admin reviews before tags go live. Comes before the player filter, which needs the tags | L | Med | Pic-Time (AI search) |
 | 29 | [x] **Player filter in a gallery** (built, not yet released): chips for each player tag (name or jersey number) above the grid, in every visibility including unlisted and protected; "Download all photos of #10" in one click. Builds on bulk tagging and on #35 | M | Med | Pic-Time, Immich (people) |
 | 31 | **Follow a player**: a parent subscribes to one player tag and gets an email when new photos of her are added. Builds on the subscriber digest | M | Med | Pic-Time |
