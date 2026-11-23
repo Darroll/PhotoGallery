@@ -703,4 +703,28 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
         await admin.PostAsJsonAsync("/api/admin/players/review", new { approve = new[] { seven } });
         Assert.Equal("#7", (await (await app.NewClient().GetAsync($"/api/g/{slug}/photo/{photo}/players")).ReadAsync()).GetProperty("players").EnumerateArray().Single().GetProperty("label").GetString());
     }
+    [Fact]
+    public async Task A_gallery_tag_box_offers_only_its_own_team_players()
+    {
+        var admin = await app.AdminAsync();
+        var (gid, slug, _) = await GalleryWithTeamAsync(admin, "Box Ours", 1, "10 Emma");
+        var (otherGid, otherSlug, _) = await GalleryWithTeamAsync(admin, "Box Theirs", 1, "9 Zoe");
+        await admin.PostAsJsonAsync($"/api/admin/photos/{(await AppFactory.PhotoIdsAsync(admin, slug))[0]}/players", new { add = new[] { "10" } });
+        await admin.PostAsJsonAsync($"/api/admin/photos/{(await AppFactory.PhotoIdsAsync(admin, otherSlug))[0]}/players", new { add = new[] { "9" } });
+        await admin.PutAsJsonAsync($"/api/admin/photos/{(await AppFactory.PhotoIdsAsync(admin, slug))[0]}/tags", new { names = new[] { "Box Ours FC 10", "Sunset" } });
+        var noTeamSlug = await AppFactory.GalleryAsync(admin, "Box None", app.NewFolder(1));
+        var noTeam = (await (await admin.GetAsync($"/api/g/{noTeamSlug}")).ReadAsync()).GetProperty("id").GetInt32();
+
+        async Task<string[]> Offered(int? g) => (await (await admin.GetAsync("/api/admin/tags" + (g == null ? "" : $"?gallery={g}"))).ReadAsync()).EnumerateArray().Select(x => x.GetProperty("name").GetString()!).ToArray();
+        var ours = await Offered(gid);
+        Assert.Contains("Box Ours FC 10", ours);
+        Assert.Contains("Sunset", ours);
+        Assert.DoesNotContain("Box Theirs FC 9", ours);
+        var none = await Offered(noTeam);
+        Assert.Contains("Sunset", none);
+        Assert.DoesNotContain("Box Ours FC 10", none);
+        Assert.DoesNotContain("Box Theirs FC 9", none);
+        Assert.Contains("Box Theirs FC 9", await Offered(null));   // the Tags settings page still lists every tag
+        _ = otherGid;
+    }
 }

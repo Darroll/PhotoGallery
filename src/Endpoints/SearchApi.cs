@@ -75,7 +75,7 @@ public static class SearchApi
             .OrderByDescending(p => p.TakenAt).Take(60)
             .Select(p => (object)new
             {
-                id = p.Id, slug = byId[p.GalleryId].Slug, gallery = byId[p.GalleryId].Title,
+                id = p.Id, galleryId = p.GalleryId, slug = byId[p.GalleryId].Slug, gallery = byId[p.GalleryId].Title,
                 name = p.Name, caption = p.Caption, altText = p.AltText, takenAt = p.TakenAt,
                 tags = tags.TryGetValue(p.Id, out var photoTagNames) ? photoTagNames : new List<string>()
             }).ToList();
@@ -109,8 +109,22 @@ public static class SearchApi
 
         var secured = app.MapGroup("/api/admin").RequireAuthorization("Admin");
 
-        secured.MapGet("/tags", async (AppDb db) => Results.Ok(await db.Tags.OrderBy(x => x.Name)
-            .Select(x => new { x.Id, x.Name, x.Color, photos = db.PhotoTags.Count(pt => pt.TagId == x.Id), galleries = db.GalleryTags.Count(gt => gt.TagId == x.Id) }).ToListAsync()));
+        // every tag, with how often it is used. With ?gallery=<id> (the tag box on a gallery or one of its photos) player tags are
+        // offered only for that gallery's team, and none when the gallery has no team; ordinary tags are always offered.
+        secured.MapGet("/tags", async (int? gallery, AppDb db) =>
+        {
+            var tags = await db.Tags.OrderBy(x => x.Name)
+                .Select(x => new { x.Id, x.Name, x.Color, photos = db.PhotoTags.Count(pt => pt.TagId == x.Id), galleries = db.GalleryTags.Count(gt => gt.TagId == x.Id) }).ToListAsync();
+            if (gallery == null) return Results.Ok(tags);
+            var teamId = await db.Galleries.Where(g => g.Id == gallery).Select(g => g.TeamId).FirstOrDefaultAsync();
+            var teams = await db.Teams.AsNoTracking().Include(t => t.Players).ToListAsync();
+            var playerTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var ours = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in teams)
+                foreach (var p in t.Players)
+                    foreach (var n in PlayerTags.TagNames(t, p)) { playerTags.Add(n); if (t.Id == teamId) ours.Add(n); }
+            return Results.Ok(tags.Where(x => !playerTags.Contains(x.Name) || ours.Contains(x.Name)));
+        });
 
         // sets a tag's colour (#rrggbb), or clears it so the site picks one from the name
         secured.MapPut("/tags/{id:int}/color", async (int id, TagColorInput input, HttpContext ctx, AppDb db) =>

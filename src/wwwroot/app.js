@@ -122,7 +122,7 @@ function tagLine(names, edit) {
     // the + often sits inside a card that is a link, so it must not follow it
     onclick: (e) => {
       e.preventDefault(); e.stopPropagation();
-      tagEditSheet(edit.title, current, async (list) => {
+      tagEditSheet(edit.title, current, edit.gallery, async (list) => {
         const r = await api(edit.url, { method: 'PUT', body: { names: [...list, ...all.filter(hide)] } });
         if (!r.ok || !Array.isArray(r.data)) return false;
         all = r.data; current = all.filter(n => !hide(n)); draw(); if (edit.onSaved) edit.onSaved(r.data);
@@ -132,13 +132,13 @@ function tagLine(names, edit) {
   draw();
   return el;
 }
-const galleryTagEdit = (g) => g && g.id != null ? { title: 'Tags for ' + g.title, url: `/api/admin/galleries/${g.id}/tags`, onSaved: (t) => { g.tags = t; } } : null;
-const photoTagEdit = (p) => ({ title: 'Tags for ' + (p.name || 'this photo'), url: `/api/admin/photos/${p.id}/tags`, onSaved: (t) => { p.tags = t; } });
+const galleryTagEdit = (g) => g && g.id != null ? { title: 'Tags for ' + g.title, url: `/api/admin/galleries/${g.id}/tags`, gallery: g.id, onSaved: (t) => { g.tags = t; } } : null;
+const photoTagEdit = (p) => ({ title: 'Tags for ' + (p.name || 'this photo'), url: `/api/admin/photos/${p.id}/tags`, gallery: p.galleryId ?? (G && G.photos && G.photos.includes(p) ? G.id : undefined), onSaved: (t) => { p.tags = t; } });
 
 // Admin: a small editor for one gallery's or photo's tags. save(names) returns true when it worked.
-function tagEditSheet(title, names, save) {
+function tagEditSheet(title, names, gallery, save) {
   closeSheet();
-  const editor = tagEditor(names, null, { open: true });
+  const editor = tagEditor(names, null, { open: true, gallery });
   const msg = h('span', { class: 'muted' });
   const submit = async () => {
     if (!await save(editor.names())) { msg.textContent = 'Could not save. Try again.'; return; }
@@ -1261,7 +1261,7 @@ function tagEditor(initial, onChange, opts = {}) {
   const openAdd = async () => {
     addRow.hidden = false;
     addBox.focus();
-    const r = await api('/api/admin/tags');
+    const r = await api('/api/admin/tags' + (opts.gallery != null ? '?gallery=' + opts.gallery : ''));   // a gallery's box offers only its own team's player tags
     if (r.ok && Array.isArray(r.data)) { known = r.data; for (const t of known) if (t.color) tagColorMap[t.name.toLowerCase()] = t.color; draw(); }
     suggest();
   };
@@ -1422,7 +1422,7 @@ function captionSheet(photo) {
   const caption = h('input', { type: 'text', maxlength: 120, value: photo.caption || '', 'aria-label': 'Caption' });
   const alt = h('textarea', { rows: 3, maxlength: 300, 'aria-label': 'Alt text' });
   alt.value = photo.altText || '';
-  const tags = isAdmin ? tagEditor(photo.tags || []) : null;
+  const tags = isAdmin ? tagEditor(photo.tags || [], null, { gallery: G && G.id }) : null;
   const msg = h('span', { class: 'muted' });
   const note = isAdmin ? 'Your changes apply straight away.'
     : signedIn ? 'Your suggestion goes to the photographer, who approves it before it appears.'
@@ -1453,7 +1453,7 @@ function bulkTagSheet() {
   closeSheet();
   const ids = [...sel];
   if (!ids.length) { toast('Tick some photos first'); return; }
-  const add = tagEditor([], null, { open: true });
+  const add = tagEditor([], null, { open: true, gallery: G && G.id });
   const remove = tagEditor([], null, { open: true });
   const msg = h('span', { class: 'muted' });
   const submit = async () => {

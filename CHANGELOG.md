@@ -2,6 +2,10 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.2.4 (not released yet)
+
+- **Tag suggestions stay with the gallery's team.** The + tag box on a gallery or a photo now suggests ordinary tags plus the player tags of that gallery's team only. A gallery without a team suggests no player tags. Tags already on a photo stay as they are, and the Tags settings page still lists every tag. The database does not change.
+
 ## 2.2.3 (not released yet)
 
 - **Tag players while looking at a photo.** The photo viewer shows a **Players** row under each photo with everyone tagged in it, apart from the other tags. The admin sees suggestions still waiting (dashed, with ✓ and ×) and **+ Tag players**, which opens the roster: tap every player in the photo, tap a lit one to untag it, and **Save**. Numbers not on the roster can be typed there too and wait until the player is added.
