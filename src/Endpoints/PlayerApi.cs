@@ -48,6 +48,18 @@ public static class PlayerApi
             return Results.Ok(settings.SetVision(input).Public());
         });
 
+        // scene descriptions for search: how far along they are
+        secured.MapGet("/settings/vision/descriptions", async (AppDb db) => Results.Ok(await PhotoDescriptions.CountsAsync(db)));
+
+        // gives the photos whose description failed a few times new tries
+        secured.MapPost("/settings/vision/descriptions/retry", async (HttpContext ctx, AppDb db) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var n = await db.Photos.Where(p => p.DescriptionSource != PhotoDescriptions.Admin && p.DescriptionAttempts >= PhotoDescriptions.MaxAttempts)
+                .ExecuteUpdateAsync(u => u.SetProperty(p => p.DescriptionAttempts, 0));
+            return Results.Ok(new { photos = n });
+        });
+
         // Sends one photo (or a plain test picture) to a single provider with the settings as typed, without saving them.
         secured.MapPost("/settings/vision/test", async (TestInput input, HttpContext ctx, SettingsService settings, AppDb db, ImageService images, IVisionReader reader) =>
         {

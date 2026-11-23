@@ -54,6 +54,8 @@ public class VisionSettings
     public int AutoApproveAt { get; set; }
     /// <summary>Check photos a scan adds to a gallery straight away, in galleries that have a team. Each gallery can override it (<see cref="Gallery.AutoTag"/>). Off by default.</summary>
     public bool AutoCheckNew { get; set; }
+    /// <summary>Have the first ready provider describe each photo's scene so parents can search for it. Off by default (a cloud provider bills per photo).</summary>
+    public bool DescribePhotos { get; set; }
 
     public VisionSettings Sanitized(string? captionUrl = null)
     {
@@ -77,10 +79,10 @@ public class VisionSettings
         foreach (var kind in VisionProvider.Kinds)
             if (!list.Any(x => x.Kind == kind))
                 list.Add(new VisionProvider { Kind = kind, Model = VisionProvider.DefaultModel(kind), Url = kind == "ollama" ? (captionUrl ?? "").TrimEnd('/') : "" });
-        return new VisionSettings { Providers = list, AutoApproveAt = Math.Clamp(AutoApproveAt, 0, 100), AutoCheckNew = AutoCheckNew };
+        return new VisionSettings { Providers = list, AutoApproveAt = Math.Clamp(AutoApproveAt, 0, 100), AutoCheckNew = AutoCheckNew, DescribePhotos = DescribePhotos };
     }
 
-    public VisionSettings Clone() => new() { Providers = Providers.Select(p => p.Clone()).ToList(), AutoApproveAt = AutoApproveAt, AutoCheckNew = AutoCheckNew };
+    public VisionSettings Clone() => new() { Providers = Providers.Select(p => p.Clone()).ToList(), AutoApproveAt = AutoApproveAt, AutoCheckNew = AutoCheckNew, DescribePhotos = DescribePhotos };
 
     /// <summary>Keeps the stored API key when the browser sends the key field empty (the page never sees the stored key).</summary>
     public VisionSettings WithStoredKeys(VisionSettings stored)
@@ -99,6 +101,7 @@ public class VisionSettings
     {
         autoApproveAt = AutoApproveAt,
         autoCheckNew = AutoCheckNew,
+        describePhotos = DescribePhotos,
         providers = Providers.Select(p => new { p.Kind, label = VisionProvider.Label(p.Kind), p.Enabled, p.Url, p.Model, keySet = p.ApiKey.Length > 0, p.SendPhotosAgreed, p.TimeoutSeconds, cloud = p.IsCloud, p.Ready }),
     };
 }

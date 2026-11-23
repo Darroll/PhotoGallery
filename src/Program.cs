@@ -32,6 +32,8 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<PlayerTagJobs>());
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ActivityLog>());
 builder.Services.AddHostedService<EmailService>();
 builder.Services.AddHostedService<CaptionService>();
+builder.Services.AddSingleton<DescriptionService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<DescriptionService>());
 builder.Services.AddScoped<AccessService>();
 builder.Services.AddScoped<Scanner>();
 builder.Services.AddHostedService<RescanService>();
@@ -139,6 +141,13 @@ app.Use(async (ctx, next) =>
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+// an admin change may have retagged photos (players identified, numbers corrected): have their descriptions looked at soon
+app.Use(async (ctx, next) =>
+{
+    await next();
+    if (!HttpMethods.IsGet(ctx.Request.Method) && ctx.Request.Path.StartsWithSegments("/api/admin") && ctx.Response.StatusCode < 400)
+        ctx.RequestServices.GetRequiredService<DescriptionService>().Nudge();
+});
 // The page is served with a content hash on its asset URLs, so CDNs/browsers can never keep a stale app.js.
 var webRoot = app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot");
 string AssetVersion()

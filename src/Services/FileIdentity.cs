@@ -50,9 +50,10 @@ public static class FileIdentity
 
     public record SavedLike(string VisitorId, string IdentityKey, string Ip, DateTime CreatedAt);
     /// <summary>CommentIds are the comments written on the photo; they are re-pointed, not copied, so the log stays intact.</summary>
-    public record Saved(string Caption, string AltText, string CaptionSource, List<int> TagIds, List<SavedLike> Likes, List<int>? CommentIds = null)
+    public record Saved(string Caption, string AltText, string CaptionSource, List<int> TagIds, List<SavedLike> Likes, List<int>? CommentIds = null,
+        string Description = "", string DescriptionSource = "", string DescriptionPlayers = "")
     {
-        public bool IsEmpty => Caption == "" && AltText == "" && TagIds.Count == 0 && Likes.Count == 0 && (CommentIds?.Count ?? 0) == 0;
+        public bool IsEmpty => Caption == "" && AltText == "" && Description == "" && TagIds.Count == 0 && Likes.Count == 0 && (CommentIds?.Count ?? 0) == 0;
     }
 
     /// <summary>Takes what a visitor or the admin attached to these photos, so it can be put back on the same file elsewhere.</summary>
@@ -66,7 +67,8 @@ public static class FileIdentity
         var comments = (await db.Comments.AsNoTracking().Where(c => ids.Contains(c.PhotoId)).Select(c => new { c.PhotoId, c.Id }).ToListAsync())
             .GroupBy(c => c.PhotoId).ToDictionary(x => x.Key, x => x.Select(c => c.Id).ToList());
         return photos.ToDictionary(p => p.Id, p => new Saved(p.Caption, p.AltText, p.CaptionSource,
-            tags.GetValueOrDefault(p.Id) ?? [], likes.GetValueOrDefault(p.Id) ?? [], comments.GetValueOrDefault(p.Id) ?? []));
+            tags.GetValueOrDefault(p.Id) ?? [], likes.GetValueOrDefault(p.Id) ?? [], comments.GetValueOrDefault(p.Id) ?? [],
+            p.Description, p.DescriptionSource, p.DescriptionPlayers));
     }
 
     /// <summary>Adds saved data to a photo without overwriting anything it already has.</summary>
@@ -74,6 +76,8 @@ public static class FileIdentity
     {
         if (target.Caption == "" && s.Caption != "") { target.Caption = s.Caption; target.CaptionSource = s.CaptionSource; }
         if (target.AltText == "" && s.AltText != "") target.AltText = s.AltText;
+        // the players kept with a model's description are compared again here, so one moved to another team's gallery is rewritten
+        if (target.Description == "" && s.Description != "") { target.Description = s.Description; target.DescriptionSource = s.DescriptionSource; target.DescriptionPlayers = s.DescriptionPlayers; }
 
         var haveTags = (await db.PhotoTags.Where(t => t.PhotoId == target.Id).Select(t => t.TagId).ToListAsync()).ToHashSet();
         var liveTags = (await db.Tags.Where(t => s.TagIds.Contains(t.Id)).Select(t => t.Id).ToListAsync()).ToHashSet();

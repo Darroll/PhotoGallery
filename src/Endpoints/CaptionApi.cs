@@ -9,7 +9,7 @@ namespace PhotoGallery;
 /// </summary>
 public static class CaptionApi
 {
-    record SuggestInput(string? Caption, string? Alt);
+    record SuggestInput(string? Caption, string? Alt, string? Description);
     record ApproveInput(bool? Force);
 
     static bool Csrf(HttpContext ctx) => ctx.Request.Headers["X-Requested-With"] == "pg";
@@ -28,8 +28,10 @@ public static class CaptionApi
             {
                 if (input.Caption != null) Captions.Set(p, "caption", input.Caption, "admin");
                 if (input.Alt != null) Captions.Set(p, "alt", input.Alt, "admin");
+                // the scene description for search: yours stays as written; cleared, the model writes a new one
+                if (input.Description != null && PhotoDescriptions.Clean(input.Description) != p.Description) PhotoDescriptions.SetByHand(p, input.Description);
                 await db.SaveChangesAsync();
-                return Results.Ok(new { applied = true, caption = p.Caption, alt = p.AltText });
+                return Results.Ok(new { applied = true, caption = p.Caption, alt = p.AltText, description = p.Description, descriptionSource = p.DescriptionSource });
             }
 
             var sub = AuthApi.Sub(ctx);
