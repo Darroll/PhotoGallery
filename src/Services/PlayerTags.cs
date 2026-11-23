@@ -256,13 +256,52 @@ public static class PlayerTags
         return new PhotoCheckResult(added, seenOurs, unknown.Select(n => "#" + n.Number).Distinct().ToList(), VisionProvider.Label(answer.Provider), answer.Ms);
     }
 
+    /// <summary>The source of a number the admin set by hand.</summary>
+    public const string AdminSource = "admin";
+
     /// <summary>The admin says this player is in this photo: approves the suggestion, making one if the model never read it.</summary>
     public static async Task TagByHandAsync(AppDb db, int photoId, Team team, Player player)
     {
         var s = await db.PlayerSuggestions.FirstOrDefaultAsync(x => x.PhotoId == photoId && x.PlayerId == player.Id);
-        if (s == null) { s = new PlayerSuggestion { PhotoId = photoId, PlayerId = player.Id, Confidence = 100, Source = "admin" }; db.PlayerSuggestions.Add(s); }
+        if (s == null) { s = new PlayerSuggestion { PhotoId = photoId, PlayerId = player.Id, Confidence = 100, Source = AdminSource }; db.PlayerSuggestions.Add(s); }
         s.Unsure = false; s.Note = "";
         await ApproveAsync(db, s, team, player);
+    }
+
+    /// <summary>The tag names a player can carry: "Team 10", and "Emma 10" when the player has a name.</summary>
+    public static List<string> TagNames(Team t, Player p) =>
+        new[] { Tags.Clean($"{t.Name} {p.Number}"), p.Name.Length > 0 ? Tags.Clean($"{p.Name} {p.Number}") : "" }.Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+    /// <summary>The team's players tagged on this photo.</summary>
+    public static async Task<List<Player>> OnPhotoAsync(AppDb db, int photoId, Team team)
+    {
+        var names = (await Tags.NamesByPhotoAsync(db, new List<int> { photoId })).GetValueOrDefault(photoId) ?? new();
+        var set = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
+        return team.Players.Where(p => TagNames(team, p).Any(set.Contains))
+            .OrderBy(p => int.TryParse(p.Number, out var n) ? n : int.MaxValue).ThenBy(p => p.Number.Length).ToList();
+    }
+
+    /// <summary>The admin says this player is not in this photo: removes the tag and rejects the suggestion so a check does not bring it back.</summary>
+    public static async Task UntagAsync(AppDb db, int photoId, Team team, Player player)
+    {
+        var names = TagNames(team, player).Select(n => n.ToLower()).ToList();
+        var tagIds = await db.Tags.Where(t => names.Contains(t.Name.ToLower())).Select(t => t.Id).ToListAsync();
+        db.PhotoTags.RemoveRange(await db.PhotoTags.Where(pt => pt.PhotoId == photoId && tagIds.Contains(pt.TagId)).ToListAsync());
+        var s = await db.PlayerSuggestions.FirstOrDefaultAsync(x => x.PhotoId == photoId && x.PlayerId == player.Id);
+        if (s == null) { s = new PlayerSuggestion { PhotoId = photoId, PlayerId = player.Id, Confidence = 100, Source = AdminSource }; db.PlayerSuggestions.Add(s); }
+        s.Status = "rejected"; s.ReviewedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// A number the admin set by hand that is not on the roster yet: the photo waits under it (Numbers not on the roster)
+    /// and is tagged as soon as the player is added. Listed even if the number was dismissed before.
+    /// </summary>
+    public static async Task HoldNumberAsync(AppDb db, int photoId, Team team, string number)
+    {
+        var x = await db.NumberSightings.FirstOrDefaultAsync(x => x.TeamId == team.Id && x.PhotoId == photoId && x.Number == number)
+                ?? db.NumberSightings.Local.FirstOrDefault(x => x.TeamId == team.Id && x.PhotoId == photoId && x.Number == number);
+        if (x == null) { x = new NumberSighting { TeamId = team.Id, PhotoId = photoId, Number = number }; db.NumberSightings.Add(x); }
+        x.Confidence = 100; x.Source = AdminSource; x.Dismissed = false; x.Fixed = false;
     }
 
     /// <summary>Puts the player's tag on the photo and marks the suggestion approved.</summary>
@@ -287,7 +326,7 @@ public static class PlayerTags
         var players = team.Players.Where(p => p.Id > 0).ToDictionary(p => p.Number);
         if (players.Count == 0) return 0;
         var nums = players.Keys.ToList();
-        var sightings = await db.NumberSightings.Where(x => x.TeamId == team.Id && !x.Dismissed && !x.Fixed && nums.Contains(x.Number)).ToListAsync();
+        var sightings = await db.NumberSightings.Where(x => x.TeamId == team.Id && !x.Fixed && (!x.Dismissed || x.Source == AdminSource) && nums.Contains(x.Number)).ToListAsync();
         if (sightings.Count == 0) return 0;
         var ids = players.Values.Select(p => p.Id).ToList();
         var photoIds = sightings.Select(x => x.PhotoId).Distinct().ToList();
@@ -299,8 +338,10 @@ public static class PlayerTags
             var pl = players[x.Number];
             if (known.Add((x.PhotoId, pl.Id)))
             {
-                db.PlayerSuggestions.Add(new PlayerSuggestion { PhotoId = x.PhotoId, PlayerId = pl.Id, Confidence = x.Confidence, Source = x.Source, Status = "pending" });
+                var s = new PlayerSuggestion { PhotoId = x.PhotoId, PlayerId = pl.Id, Confidence = x.Confidence, Source = x.Source, Status = "pending" };
+                db.PlayerSuggestions.Add(s);
                 added++;
+                if (x.Source == AdminSource) await ApproveAsync(db, s, team, pl);   // the admin already said who it is
             }
             db.NumberSightings.Remove(x);
         }

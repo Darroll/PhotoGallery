@@ -30,7 +30,7 @@ public class FakeVisionReader : IVisionReader
     }
 }
 
-public class VisionAppFactory : AppFactory
+public class VisionAppFactory : UserFactory
 {
     public FakeVisionReader Reader { get; } = new();
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -614,7 +614,7 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             var fix = await (await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/photos/{pid}/player", new { number = "00", suggestion = zoe.GetProperty("id").GetInt32() })).ReadAsync();
             Assert.Equal("Hidden Flow FC 00", fix.GetProperty("tag").GetString());
             Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/photos/{pid}/player", new { sighting = "1" })).StatusCode);
-            Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/photos/{pid}/player", new { number = "44" })).StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/photos/{pid}/player", new { number = "abc" })).StatusCode);
             s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
             Assert.Empty(s.GetProperty("pending").EnumerateArray());
             Assert.Empty(s.GetProperty("unknown").EnumerateArray());
@@ -625,7 +625,106 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             s = await WaitAsync(admin, gid);
             Assert.Empty(s.GetProperty("pending").EnumerateArray());
             Assert.Empty(s.GetProperty("unknown").EnumerateArray());
+
+            // a number not on the roster yet (the name is not known): the photo waits under it, then is tagged once the player is added
+            var moved = await (await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/photos/{pid}/player", new { number = "44" })).ReadAsync();
+            Assert.Equal("44", moved.GetProperty("number").GetString());
+            s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
+            var u44 = s.GetProperty("unknown").EnumerateArray().Single();
+            Assert.Equal("44", u44.GetProperty("number").GetString());
+            Assert.Equal(pid, u44.GetProperty("photoIds")[0].GetInt32());
+            var added = await (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/players", new { number = "44", name = "Noa" })).ReadAsync();
+            Assert.Equal(1, added.GetProperty("suggestions").GetInt32());
+            s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
+            Assert.Empty(s.GetProperty("unknown").EnumerateArray());
+            Assert.Empty(s.GetProperty("pending").EnumerateArray());   // set by hand, so tagged straight away
+            Assert.Equal(4, s.GetProperty("approved").GetInt32());
         }
         finally { Serial.Release(); }
+    }
+    [Fact]
+    public async Task The_admin_tags_several_players_at_once_from_the_photo()
+    {
+        var admin = await app.AdminAsync();
+        var (gid, slug, _) = await GalleryWithTeamAsync(admin, "Viewer Tags", 1);
+        var photo = (await AppFactory.PhotoIdsAsync(admin, slug))[0];
+
+        var view = await (await admin.GetAsync($"/api/g/{slug}/photo/{photo}/players")).ReadAsync();
+        Assert.Equal("admin", view.GetProperty("can").GetString());
+        Assert.Equal(new[] { "3", "7", "10" }, view.GetProperty("roster").EnumerateArray().Select(x => x.GetProperty("number").GetString()).ToArray());
+
+        var r = await (await admin.PostAsJsonAsync($"/api/admin/photos/{photo}/players", new { add = new[] { "10", "7", "44" } })).ReadAsync();
+        Assert.Equal(new[] { "7", "10" }, r.GetProperty("players").EnumerateArray().Select(x => x.GetProperty("number").GetString()).OrderBy(x => x.Length).ThenBy(x => x).ToArray());
+        Assert.Equal("44", r.GetProperty("held").EnumerateArray().Single().GetString());   // not on the roster: waits under #44
+
+        r = await (await admin.PostAsJsonAsync($"/api/admin/photos/{photo}/players", new { remove = new[] { "7" } })).ReadAsync();
+        Assert.Equal("10", r.GetProperty("players").EnumerateArray().Single().GetProperty("number").GetString());
+
+        // everyone sees who is tagged, without the roster or the tagging buttons
+        var anon = await (await app.NewClient().GetAsync($"/api/g/{slug}/photo/{photo}/players")).ReadAsync();
+        Assert.Equal(JsonValueKind.Null, anon.GetProperty("can").ValueKind);
+        Assert.Equal("#10", anon.GetProperty("players").EnumerateArray().Single().GetProperty("label").GetString());
+        Assert.Equal(JsonValueKind.Null, anon.GetProperty("roster").ValueKind);
+        var s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
+        Assert.Contains("44", s.GetProperty("unknown").EnumerateArray().Select(x => x.GetProperty("number").GetString()));
+    }
+
+    [Fact]
+    public async Task Signed_in_parents_suggest_players_only_when_the_gallery_allows_it()
+    {
+        var admin = await app.AdminAsync();
+        var (gid, slug, _) = await GalleryWithTeamAsync(admin, "Parent Tags", 1);
+        var photo = (await AppFactory.PhotoIdsAsync(admin, slug))[0];
+        var parent = app.AsUser("parent-tagger-1");
+
+        // off by default
+        Assert.Equal(JsonValueKind.Null, (await (await parent.GetAsync($"/api/g/{slug}/photo/{photo}/players")).ReadAsync()).GetProperty("can").ValueKind);
+        Assert.Equal(HttpStatusCode.BadRequest, (await parent.PostAsJsonAsync($"/api/g/{slug}/photo/{photo}/players/suggest", new { numbers = new[] { "7" } })).StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/admin/galleries/{gid}/playertags", new { allow = true })).StatusCode);
+        var view = await (await parent.GetAsync($"/api/g/{slug}/photo/{photo}/players")).ReadAsync();
+        Assert.Equal("suggest", view.GetProperty("can").GetString());
+        Assert.Equal("#7", view.GetProperty("roster").EnumerateArray().First(x => x.GetProperty("number").GetString() == "7").GetProperty("label").GetString());   // numbers only, no names
+        Assert.Equal("suggest", (await (await app.NewClient().GetAsync($"/api/g/{slug}")).ReadAsync()).GetProperty("playerTagging").GetString());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await app.NewClient().PostAsJsonAsync($"/api/g/{slug}/photo/{photo}/players/suggest", new { numbers = new[] { "7" } })).StatusCode);
+        var r = await (await parent.PostAsJsonAsync($"/api/g/{slug}/photo/{photo}/players/suggest", new { numbers = new[] { "7", "10", "99" } })).ReadAsync();
+        Assert.Equal(2, r.GetProperty("suggested").GetInt32());   // 99 is not on the roster
+        Assert.Equal(0, (await (await parent.PostAsJsonAsync($"/api/g/{slug}/photo/{photo}/players/suggest", new { numbers = new[] { "7" } })).ReadAsync()).GetProperty("suggested").GetInt32());
+
+        // nothing is tagged until the admin approves
+        Assert.Empty((await (await app.NewClient().GetAsync($"/api/g/{slug}/photo/{photo}/players")).ReadAsync()).GetProperty("players").EnumerateArray());
+        var s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
+        var mine = s.GetProperty("pending").EnumerateArray().Where(x => x.GetProperty("photoId").GetInt32() == photo).ToList();
+        Assert.Equal(2, mine.Count);
+        Assert.All(mine, x => Assert.StartsWith("parent", x.GetProperty("source").GetString()));
+        var seven = mine.First(x => x.GetProperty("number").GetString() == "7").GetProperty("id").GetInt32();
+        Assert.Equal(2, (await (await admin.GetAsync($"/api/g/{slug}/photo/{photo}/players")).ReadAsync()).GetProperty("pending").GetArrayLength());
+        await admin.PostAsJsonAsync("/api/admin/players/review", new { approve = new[] { seven } });
+        Assert.Equal("#7", (await (await app.NewClient().GetAsync($"/api/g/{slug}/photo/{photo}/players")).ReadAsync()).GetProperty("players").EnumerateArray().Single().GetProperty("label").GetString());
+    }
+    [Fact]
+    public async Task A_gallery_tag_box_offers_only_its_own_team_players()
+    {
+        var admin = await app.AdminAsync();
+        var (gid, slug, _) = await GalleryWithTeamAsync(admin, "Box Ours", 1, "10 Emma");
+        var (otherGid, otherSlug, _) = await GalleryWithTeamAsync(admin, "Box Theirs", 1, "9 Zoe");
+        await admin.PostAsJsonAsync($"/api/admin/photos/{(await AppFactory.PhotoIdsAsync(admin, slug))[0]}/players", new { add = new[] { "10" } });
+        await admin.PostAsJsonAsync($"/api/admin/photos/{(await AppFactory.PhotoIdsAsync(admin, otherSlug))[0]}/players", new { add = new[] { "9" } });
+        await admin.PutAsJsonAsync($"/api/admin/photos/{(await AppFactory.PhotoIdsAsync(admin, slug))[0]}/tags", new { names = new[] { "Box Ours FC 10", "Sunset" } });
+        var noTeamSlug = await AppFactory.GalleryAsync(admin, "Box None", app.NewFolder(1));
+        var noTeam = (await (await admin.GetAsync($"/api/g/{noTeamSlug}")).ReadAsync()).GetProperty("id").GetInt32();
+
+        async Task<string[]> Offered(int? g) => (await (await admin.GetAsync("/api/admin/tags" + (g == null ? "" : $"?gallery={g}"))).ReadAsync()).EnumerateArray().Select(x => x.GetProperty("name").GetString()!).ToArray();
+        var ours = await Offered(gid);
+        Assert.Contains("Box Ours FC 10", ours);
+        Assert.Contains("Sunset", ours);
+        Assert.DoesNotContain("Box Theirs FC 9", ours);
+        var none = await Offered(noTeam);
+        Assert.Contains("Sunset", none);
+        Assert.DoesNotContain("Box Ours FC 10", none);
+        Assert.DoesNotContain("Box Theirs FC 9", none);
+        Assert.Contains("Box Theirs FC 9", await Offered(null));   // the Tags settings page still lists every tag
+        _ = otherGid;
     }
 }
