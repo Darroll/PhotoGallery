@@ -934,7 +934,9 @@ function openDownloadSheet(opts = {}) {
   let scope = scopes.some(s => s[0] === opts.scope) ? opts.scope : scopes[0][0];
 
   const scopeBox = h('div', { class: 'sheet-scopes' });
-  const size = h('select'), fmt = h('select'), rawBox = h('input', { type: 'checkbox' });
+  // The RAW files of the edited photos come along by default wherever the gallery offers them (the admin always may).
+  const canRaw = (G.allowRaw || G.admin) && G.photos.some(p => p.raw && !p.rawOnly);
+  const size = h('select'), fmt = h('select'), rawBox = h('input', { type: 'checkbox', checked: true });
   const rawRow = h('label', { class: 'sheet-row' }, rawBox, ' Include the RAW files (where they exist)');
   const note = h('p', { class: 'muted' });
   const needAgree = license.enabled && license.require && !license.accepted;
@@ -961,7 +963,7 @@ function openDownloadSheet(opts = {}) {
   for (const f of G.formats) fmt.append(h('option', { value: f, text: fmtLabels[f] || f }));
   const sync = () => {
     fillSizes();
-    rawRow.classList.toggle('hidden', !(G.allowRaw && scope !== 'photo'));
+    rawRow.classList.toggle('hidden', !(canRaw && scope !== 'photo'));
     note.textContent = (G.watermarkDownload ? 'Downloads carry a watermark, so the original file is not offered. ' : '') + 'Resized copies are lossless.';
   };
   scopeBox.replaceChildren(...scopes.map(([v, t]) => h('label', { class: 'sheet-row' },
@@ -974,7 +976,7 @@ function openDownloadSheet(opts = {}) {
     if (needAgree && !(await recordLicenseAcceptance())) return;
     const q = new URLSearchParams({ size: size.value, fmt: fmt.value });
     if (scope === 'photo') { location.href = `/dl/${photo.id}?${q}`; closeSheet(); return; }
-    if (rawBox.checked && G.allowRaw) q.set('raw', 'true');
+    if (rawBox.checked && canRaw) q.set('raw', 'true');
     if (G.curatedOnly && (scope === 'section' || scope === 'player' || scope === 'all')) q.set('curated', 'true');
     if (scope === 'section') q.set('section', opts.section.folder);
     else if (scope === 'player') q.set('player', pl.tag);
