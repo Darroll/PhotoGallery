@@ -414,6 +414,13 @@ function searchForm(v) {
   const tag = h('input', { type: 'text', placeholder: 'Tag', value: v.tag || '', 'aria-label': 'Tag', maxlength: 40 });
   const scopes = [['all', 'Galleries and photos'], ['galleries', 'Galleries only'], ['photos', 'Photos only']];
   const scope = h('select', { 'aria-label': 'Search in' }, scopes.map(([val, text]) => h('option', { value: val, text, selected: val === (v.scope || 'all') })));
+  // the teams that have a public gallery; hidden until there is at least one
+  const team = h('select', { 'aria-label': 'Team', hidden: true }, h('option', { value: '', text: 'All teams' }));
+  api('/api/teams').then(r => {
+    if (!r.ok || !r.data.length) return;
+    team.append(...r.data.map(t => h('option', { value: String(t.id), text: t.name, selected: String(t.id) === String(v.team || '') })));
+    team.hidden = false;
+  });
   const submit = () => {
     const p = new URLSearchParams();
     if (q.value.trim()) p.set('q', q.value.trim());
@@ -422,12 +429,13 @@ function searchForm(v) {
     if (to.value) p.set('to', to.value);
     if (tag.value.trim()) p.set('tag', tag.value.trim());
     if (scope.value !== 'all') p.set('scope', scope.value);
+    if (team.value) p.set('team', team.value);
     const qs = p.toString();
     go('/search' + (qs ? '?' + qs : ''));
   };
   // the filters stay folded away until asked for, unless the search already uses one
-  const active = [v.where, v.tag, v.from, v.to, v.scope && v.scope !== 'all' ? v.scope : ''].filter(Boolean).length;
-  const filters = h('div', { class: 'search-filters', id: 'search-filters' }, scope, where, tag, h('label', { class: 'muted' }, 'From ', from), h('label', { class: 'muted' }, 'To ', to));
+  const active = [v.where, v.tag, v.from, v.to, v.scope && v.scope !== 'all' ? v.scope : '', v.team].filter(Boolean).length;
+  const filters = h('div', { class: 'search-filters', id: 'search-filters' }, scope, team, where, tag, h('label', { class: 'muted' }, 'From ', from), h('label', { class: 'muted' }, 'To ', to));
   const toggle = h('button', { type: 'button', class: 'filters-toggle', 'aria-controls': 'search-filters' });
   const setOpen = (open) => {
     filters.hidden = !open;
@@ -443,7 +451,7 @@ function searchForm(v) {
 async function viewSearch(app) {
   const sp = new URLSearchParams(location.search);
   document.title = 'Search - ' + site.title;
-  app.append(h('h1', { text: 'Search' }), searchForm({ q: sp.get('q'), where: sp.get('where'), tag: sp.get('tag'), from: sp.get('from'), to: sp.get('to'), scope: sp.get('scope') }));
+  app.append(h('h1', { text: 'Search' }), searchForm({ q: sp.get('q'), where: sp.get('where'), tag: sp.get('tag'), from: sp.get('from'), to: sp.get('to'), scope: sp.get('scope'), team: sp.get('team') }));
   const [r, colors] = await Promise.all([api('/api/search?' + sp.toString()), api('/api/tag-colors')]);
   if (colors.ok) learnTagColors(colors.data);
   if (!r.ok) return app.append(h('p', { class: 'err', text: 'Search failed. Try again.' }));
@@ -471,10 +479,51 @@ async function viewHome(app) {
   app.append(h('h1', { text: site.title }), h('p', { class: 'sub', text: me && me.admin ? 'All galleries, including ones visitors cannot see' : 'Public galleries' }));
   app.append(searchForm({}));
   if (!r.ok || !r.data.length) return app.append(h('p', { class: 'muted', text: 'No public galleries yet. Private galleries are reached through their share link.' }));
-  app.append(h('div', { class: 'cards' }, r.data.map(g =>
-    h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
-      g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
-      h('div', { class: 'meta' }, h('b', { text: g.title }), eventLines(g), h('span', { class: 'muted', text: plural(g.count, 'photo') }), adminStatus(g, me && me.admin, true), tagChips(g))))));
+  const all = r.data;
+  const card = (g) => h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
+    g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
+    h('div', { class: 'meta' }, h('b', { text: g.title }), eventLines(g), h('span', { class: 'muted', text: plural(g.count, 'photo') }), adminStatus(g, me && me.admin, true), tagChips(g)));
+
+  // Team filter: the teams set on the galleries (Admin -> Players and teams). Offered only when picking one would leave some galleries out.
+  // The choice lives in the address (?team=3, so it can be shared) and is remembered on this device.
+  const teams = [...new Map(all.filter(g => g.team).map(g => [g.team.id, g.team])).values()].sort((a, b) => a.name.localeCompare(b.name));
+  const filterable = teams.some(t => all.some(g => !g.team || g.team.id !== t.id));
+  const teamKey = 'pg-home-team';
+  const wanted = new URLSearchParams(location.search).get('team') ?? (() => { try { return localStorage.getItem(teamKey); } catch { return null; } })();
+  let team = filterable ? teams.find(t => String(t.id) === wanted) || null : null;
+  const teamBar = filterable ? h('div', { class: 'player-bar team-bar', role: 'group', 'aria-label': 'Show the galleries of one team' }) : null;
+  const list = h('div', { class: 'home-list' });
+  const pickTeam = (t) => {
+    team = t && (!team || team.id !== t.id) ? t : null;   // tapping the chosen team again shows every team
+    try { if (team) localStorage.setItem(teamKey, String(team.id)); else localStorage.removeItem(teamKey); } catch { }
+    const u = new URL(location.href);
+    if (team) u.searchParams.set('team', team.id); else u.searchParams.delete('team');
+    history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+    render();
+  };
+  const render = () => {
+    if (teamBar) teamBar.replaceChildren(h('span', { class: 'player-lead muted', text: 'Teams' }),
+      h('button', { class: 'player-chip' + (team ? '' : ' on'), 'aria-pressed': team ? 'false' : 'true', text: 'All teams', onclick: () => pickTeam(null) }),
+      ...teams.map(t => h('button', { class: 'player-chip' + (team && team.id === t.id ? ' on' : ''), 'aria-pressed': team && team.id === t.id ? 'true' : 'false', text: t.name, onclick: () => pickTeam(t) })));
+    const shown = team ? all.filter(g => g.team && g.team.id === team.id) : all;
+    // the server sends the galleries grouped by season, newest season first; a heading starts where the season changes
+    const groups = [];
+    for (const g of shown) {
+      const last = groups[groups.length - 1];
+      if (last && last.season === (g.season || '')) last.items.push(g); else groups.push({ season: g.season || '', items: [g] });
+    }
+    if (!shown.length) return list.replaceChildren(h('p', { class: 'muted', text: 'No public galleries for this team yet.' }));
+    if (groups.length === 1 && !groups[0].season) return list.replaceChildren(h('div', { class: 'cards' }, shown.map(card)));
+    if (groups.length === 1) return list.replaceChildren(h('h2', { class: 'season-head', text: groups[0].season }), h('div', { class: 'cards' }, shown.map(card)));
+    // this season is open; earlier seasons start folded so the newest games are at the top, and stay as the visitor left them
+    list.replaceChildren(...groups.map((x, i) => {
+      return h('details', { class: 'season', open: i === 0, 'data-remember': 'season:' + x.season.toLowerCase() },
+        h('summary', {}, h('span', { class: 'season-name', text: x.season }), h('span', { class: 'muted', text: x.items.length === 1 ? '1 gallery' : `${x.items.length} galleries` })),
+        h('div', { class: 'cards' }, x.items.map(card)));
+    }));
+  };
+  render();
+  app.append(teamBar, list);
 }
 
 // Admin only: the gallery's visibility level (and whether it has expired) with a shortcut to its settings.
@@ -2077,13 +2126,37 @@ async function viewAdmin(app) {
   document.title = 'Galleries - ' + site.title;
   const main = await adminPage(app, 'galleries', 'Galleries');
   if (!main) return;
-  const [gals, folders, homeOrder, presets] = await Promise.all([api('/api/admin/galleries'), api('/api/admin/folders'), api('/api/admin/settings/home'), api('/api/admin/presets')]);
+  const [gals, folders, homeOrder, presets, teamRes] = await Promise.all([api('/api/admin/galleries'), api('/api/admin/folders'), api('/api/admin/settings/home'), api('/api/admin/presets'), api('/api/admin/teams')]);
   main.append(newGalleryPanel((folders.data || []).filter(f => !f.galleryId).map(f => f.path), presets.ok ? presets.data : null));
   const list = gals.data || [];
-  main.append(h('h2', { text: `Galleries (${list.length})` }));
+  const heading = h('h2', { text: `Galleries (${list.length})` });
+  main.append(heading);
   if (!list.length) return main.append(h('p', { class: 'muted', text: 'No galleries yet. Create one from a folder above.' }));
   const manual = (homeOrder.data && homeOrder.data.order) === 'manual';
-  main.append(h('div', { class: 'gal-list' }, list.map((g, i) => galleryRow(g, manual ? { first: i === 0, last: i === list.length - 1 } : null))));
+  const teamNames = new Map((teamRes.ok ? teamRes.data : []).map(t => [t.id, t.name]));
+  list.forEach(g => { g.teamName = g.teamId != null ? teamNames.get(g.teamId) || '' : ''; });
+  // filters by team and season, shown when there is something to choose between; they are remembered while the page is open
+  const usedTeams = [...new Set(list.map(g => g.teamId).filter(x => x != null && teamNames.has(x)))].sort((a, b) => teamNames.get(a).localeCompare(teamNames.get(b)));
+  const usedSeasons = [...new Set(list.map(g => g.seasonShown).filter(Boolean))];
+  const teamSel = usedTeams.length ? h('select', { 'aria-label': 'Team' }, h('option', { value: '', text: 'All teams' }),
+    usedTeams.map(id => h('option', { value: String(id), text: teamNames.get(id) })), h('option', { value: 'none', text: 'No team' })) : null;
+  const seasonSel = usedSeasons.length > 1 ? h('select', { 'aria-label': 'Season' }, h('option', { value: '', text: 'All seasons' }),
+    usedSeasons.map(x => h('option', { value: x, text: x }))) : null;
+  const rows = h('div', { class: 'gal-list' });
+  const fill = () => {
+    const t = teamSel ? teamSel.value : '', se = seasonSel ? seasonSel.value : '';
+    const shown = list.filter(g => (!t || (t === 'none' ? g.teamId == null : String(g.teamId) === t)) && (!se || g.seasonShown === se));
+    heading.textContent = shown.length === list.length ? `Galleries (${list.length})` : `Galleries (${shown.length} of ${list.length})`;
+    // moving up and down only makes sense in the full list
+    const canMove = manual && shown.length === list.length;
+    rows.replaceChildren(...shown.map((g, i) => galleryRow(g, canMove ? { first: i === 0, last: i === shown.length - 1 } : null)));
+  };
+  if (teamSel || seasonSel) {
+    [teamSel, seasonSel].forEach(x => x && x.addEventListener('change', fill));
+    main.append(h('div', { class: 'row gal-filters' }, teamSel, seasonSel));
+  }
+  fill();
+  main.append(rows);
 }
 
 const visShort = { 0: 'Public', 1: 'Unlisted', 2: 'Protected', 3: 'Specific people' };
@@ -2102,6 +2175,8 @@ function galleryRow(g, move) {
         h('span', { class: 'chip v' + g.visibility, text: visShort[g.visibility] }),
         h('span', { class: 'chip', text: plural(g.count, 'photo') }),
         g.eventDate ? h('span', { class: 'chip', text: eventDateText(g) }) : null,
+        g.seasonShown ? h('span', { class: 'chip', text: g.seasonShown, title: g.season ? 'Season typed on this gallery' : 'Season worked out from the date' }) : null,
+        g.teamName ? h('span', { class: 'chip', text: g.teamName, title: 'Team' }) : null,
         g.pending ? h('span', { class: 'chip warn', text: `${g.pending} pending` }) : null,
         expired ? h('span', { class: 'chip warn', text: 'Expired' }) : null,
         g.hasPassword ? h('span', { class: 'chip', text: 'Password' }) : null),
@@ -2206,6 +2281,7 @@ function newGalleryPanel(folders, presets) {
 function presetSummary(p) {
   const bits = [];
   if (p.team) bits.push('team ' + p.team + (p.teamKit ? ' (' + p.teamKit.split(/[:\n]/)[0].trim() + ')' : ''));
+  if (p.season) bits.push('season ' + p.season);
   if (p.autoTag === true) bits.push('checks new photos for players');
   if (p.autoTag === false) bits.push('waits before checking for players');
   if (p.followPlayers === true) bits.push('follow a player on');
@@ -2759,13 +2835,18 @@ async function adminPasswordPanel() {
     } }), msg));
 }
 
+const seasonLabels = [['fall-spring', 'Fall and Spring (Fall is August to December)'], ['school-year', 'August to July ("2026-27 season")'], ['year', 'Calendar year'], ['off', 'Off (one list)']];
 function homePanel() {
-  const sel = h('select', {}, orderLabels.map(([v, t]) => h('option', { value: v, text: t })));
-  api('/api/admin/settings/home').then(r => { if (r.ok) sel.value = r.data.order; });
+  const sel = h('select', { 'aria-label': 'Order of galleries' }, orderLabels.map(([v, t]) => h('option', { value: v, text: t })));
+  const seasons = h('select', { 'aria-label': 'Group galleries by season' }, seasonLabels.map(([v, t]) => h('option', { value: v, text: t })));
+  api('/api/admin/settings/home').then(r => { if (r.ok) { sel.value = r.data.order; seasons.value = r.data.seasons || 'fall-spring'; } });
   return h('div', { class: 'panel' }, h('h3', { text: 'Home page' }),
     h('p', { class: 'muted', text: 'The order of galleries on the public home page and in the admin list. Galleries without an event date come last when sorting by event date.' }),
-    h('div', { class: 'row' }, sel, h('button', { class: 'primary', text: 'Save order', onclick: async () => {
-      const r = await api('/api/admin/settings/home', { method: 'PUT', body: { order: sel.value } });
+    h('div', { class: 'row' }, h('label', {}, 'Order ', sel)),
+    h('p', { class: 'muted', text: 'Seasons: the home page shows the newest season first and folds earlier seasons away, so parents find this season\'s games straight away. A gallery goes in the season of its event date (or the day it was made). To name a season yourself, such as "Fall 2026 travel", type it in the gallery\'s Season box.' }),
+    h('div', { class: 'row' }, h('label', {}, 'Seasons ', seasons)),
+    h('div', { class: 'row' }, h('button', { class: 'primary', text: 'Save', onclick: async () => {
+      const r = await api('/api/admin/settings/home', { method: 'PUT', body: { order: sel.value, seasons: seasons.value } });
       toast(r.ok ? 'Saved' : 'Save failed');
     } })));
 }
@@ -3327,6 +3408,7 @@ async function viewGallerySettings(app, id) {
   const eventEnd = track(h('input', { type: 'date', value: g.eventEndDate ? g.eventEndDate.slice(0, 10) : '', 'aria-label': 'Last day' }));
   const coverMode = track(h('select', { 'aria-label': 'How the cover photo is used' }, [[0, 'Also one of the photos'], [1, 'Only the cover (not in the photos)'], [2, 'Only the cover, shown as a banner at the top']].map(([v, t]) => h('option', { value: v, text: t, selected: v === (g.coverMode || 0) }))));
   const location_ = track(h('input', { type: 'text', value: g.location || '', placeholder: 'e.g. Field 3, Springfield' }));
+  const season = track(h('input', { type: 'text', value: g.season || '', maxlength: 40, placeholder: g.autoSeason ? 'Automatic: ' + g.autoSeason : 'Seasons are off on the home page' }));
   const sortMode = track(h('select', {}, [[0, 'Capture time'], [1, 'File name'], [2, 'Date added']].map(([v, t]) => h('option', { value: v, text: t, selected: v === g.sortMode }))));
   const sortDesc = track(h('input', { type: 'checkbox', checked: g.sortDesc }));
   const coverImg = h('img', { class: 'cover-prev', alt: '' });
@@ -3459,7 +3541,9 @@ async function viewGallerySettings(app, id) {
     h('div', { class: 'form1' },
       field('Title', title), field('URL name', slug, `Gallery address: /g/${g.slug}`), field('Description', desc),
       field('Event date', h('div', { class: 'row' }, eventDate, h('span', { class: 'muted', text: 'to' }), eventEnd), 'The first day, and the last day if the event lasts longer (a weekend, a week). Leave the last day empty for a one-day event. Search finds the gallery on any of its days.'),
-      field('Location', location_), field('Tags', tagsInput, 'Click + to add a label that helps visitors find this gallery in search. Start typing to pick one already in use.'),
+      field('Location', location_),
+      field('Season', season, 'The heading this gallery is listed under on the home page. Leave it empty to go by the event date' + (g.autoSeason ? ` (now ${g.autoSeason})` : '') + '. Galleries with the same season are listed together. How seasons are worked out is in Settings, Site and appearance.'),
+      field('Tags', tagsInput, 'Click + to add a label that helps visitors find this gallery in search. Start typing to pick one already in use.'),
       field('Videos and links', footage, 'Paste YouTube links to show the recordings together on the gallery page (leave the title empty to use the video\'s own title). Preview images are re-checked on YouTube every 12 hours; use Refresh thumbnails and previews to update them now. Choose a category for each link: Video links show in a grid above the photos, External links show below the gallery. Tick Button under title to also show a link as a button beside the title. Only http and https links are kept, up to 30.'),
       field('Sections', sectionsBox, 'For a gallery that holds several events, such as the games of a tournament, keep each in its own folder inside the gallery folder. Press Find subfolders, give each section a heading, and add its YouTube link. Visitors then see each folder under its own heading, with its video above the photos and its own ZIP download. Photos outside any subfolder show last. Remove every section to go back to one grid.'),
       field('Photo order', h('div', { class: 'row' }, sortMode, h('label', {}, sortDesc, ' Reverse (newest / Z-A first)'))),
@@ -3553,7 +3637,7 @@ async function viewGallerySettings(app, id) {
   saveBtn.onclick = async () => {
     if (folderSelect.value !== g.folder && !confirm(`Point this gallery at "${folderSelect.value}"? It will rescan, the cover resets, and hand-made RAW links are lost. Your files are not touched.`)) return;
     const body = {
-      folder: folderSelect.value, title: title.value, slug: slug.value, description: desc.value, location: location_.value,
+      folder: folderSelect.value, title: title.value, slug: slug.value, description: desc.value, location: location_.value, season: season.value,
       eventDate: eventDate.value || '', eventEndDate: eventEnd.value || '', coverMode: Number(coverMode.value), sortMode: Number(sortMode.value), sortDesc: sortDesc.checked,
       visibility: Number(vis.value), expiresAt: expires.value ? new Date(expires.value).toISOString() : '',
       allowDownload: allowDl.checked, allowZip: allowZip.checked,

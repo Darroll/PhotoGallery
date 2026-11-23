@@ -71,12 +71,19 @@ public static class PublicApi
                 .Select(g => new { g, count = g.Photos.Count(p => p.Approved && (g.CoverMode == CoverMode.WithPhotos || g.CoverPhotoId == null || p.Id != g.CoverPhotoId)) }).ToListAsync();
             var counts = rows.ToDictionary(r => r.g.Id, r => r.count);
             var galleryTags = await Tags.NamesByGalleryAsync(db, rows.Select(r => r.g.Id).ToList());
-            var list = GalleryRules.OrderGalleries(rows.Select(r => r.g), settings.Home.Order).Select(g => new
-            {
-                g.Id, g.Slug, g.Title, g.Description, g.Location, eventDate = g.EventDate, eventEndDate = g.EventEndDate, cover = g.CoverPhotoId, count = counts[g.Id],
-                g.Visibility, expired = g.ExpiresAt != null && g.ExpiresAt <= now,
-                tags = galleryTags.TryGetValue(g.Id, out var gt) ? gt : new List<string>()
-            });
+            var teamIds = rows.Select(r => r.g.TeamId).OfType<int>().Distinct().ToList();
+            var teams = await db.Teams.AsNoTracking().Where(t => teamIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, t => t.Name);
+            // grouped by season (newest season first), each season in the home page order; the page shows a heading where the season changes
+            var home = settings.Home;
+            var list = GalleryRules.GroupBySeason(GalleryRules.OrderGalleries(rows.Select(r => r.g), home.Order), home.Seasons)
+                .SelectMany(s => s.Galleries.Select(g => new
+                {
+                    g.Id, g.Slug, g.Title, g.Description, g.Location, eventDate = g.EventDate, eventEndDate = g.EventEndDate, cover = g.CoverPhotoId, count = counts[g.Id],
+                    g.Visibility, expired = g.ExpiresAt != null && g.ExpiresAt <= now,
+                    tags = galleryTags.TryGetValue(g.Id, out var gt) ? gt : new List<string>(),
+                    season = s.Season,
+                    team = g.TeamId is { } tid && teams.TryGetValue(tid, out var tn) ? new { id = tid, name = tn } : null
+                }));
             return Results.Ok(list);
         });
 

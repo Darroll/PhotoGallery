@@ -17,6 +17,46 @@ public static class GalleryRules
         return allowed.Count == 0 ? ImageService.LosslessFormats : ImageService.LosslessFormats.Where(allowed.Contains).ToArray();
     }
 
+    public const int MaxSeason = 40;
+
+    /// <summary>The day a gallery counts from when it is placed in a season: its event date, or the day it was made.</summary>
+    public static DateTime SeasonDate(Gallery g) => g.EventDate ?? g.CreatedAt;
+
+    /// <summary>
+    /// The season a gallery is worked out to be in from its date, with the home page's season setting:
+    /// "Fall 2026" / "Spring 2027" (fall-spring: August to December is fall), "2026-27 season" (school-year: August to July),
+    /// "2026" (year). Empty when seasons are off.
+    /// </summary>
+    public static string AutoSeason(Gallery g, string mode)
+    {
+        var d = SeasonDate(g);
+        return mode switch
+        {
+            "off" => "",
+            "year" => d.Year.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "school-year" => d.Month >= 8 ? $"{d.Year}-{(d.Year + 1) % 100:00} season" : $"{d.Year - 1}-{d.Year % 100:00} season",
+            _ => d.Month >= 8 ? $"Fall {d.Year}" : $"Spring {d.Year}"
+        };
+    }
+
+    /// <summary>The season heading a gallery is listed under: the one typed on the gallery, else the automatic one. Empty when seasons are off.</summary>
+    public static string SeasonOf(Gallery g, string mode) => mode == "off" ? "" : CleanSeason(g.Season) is { Length: > 0 } own ? own : AutoSeason(g, mode);
+
+    public static string CleanSeason(string? s) => new string((s ?? "").Where(c => !char.IsControl(c)).Take(MaxSeason).ToArray()).Trim();
+
+    /// <summary>
+    /// Galleries grouped by season, newest season first (the season whose latest gallery is newest), keeping the given order inside
+    /// each season. Galleries with the same season text (any letter case) share a group. With seasons off, one group with an empty name.
+    /// </summary>
+    public static List<(string Season, List<Gallery> Galleries)> GroupBySeason(IEnumerable<Gallery> ordered, string mode)
+    {
+        var list = ordered.ToList();
+        if (mode == "off") return [("", list)];
+        return list.GroupBy(g => SeasonOf(g, mode), StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(x => x.Max(SeasonDate))
+            .Select(x => (SeasonOf(x.First(), mode), x.ToList())).ToList();
+    }
+
     /// <summary>Orders galleries for the home page and the admin list. Galleries without an event date come last in date orders.</summary>
     public static List<Gallery> OrderGalleries(IEnumerable<Gallery> list, string order) => order switch
     {

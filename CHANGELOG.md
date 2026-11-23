@@ -2,6 +2,12 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.5.0 (not released yet)
+
+- **Galleries are grouped by season on the home page.** This season's galleries come first and open; earlier seasons are folded under their heading ("Spring 2026, 4 galleries") and open with a tap, so parents find this season's games straight away. A gallery's season comes from its event date (or the day it was made): Fall is August to December and Spring January to July. Settings, **Site and appearance** can switch to August-to-July seasons ("2026-27 season"), calendar years, or off (one list as before). To name a season yourself, such as "Indoor 2027", type it in the gallery's new **Season** box; galleries with the same season are listed together. A preset carries the Season box too. Inside each season the galleries keep the home page order.
+- **Team filter.** When the home page has team galleries (the team set in a gallery's Players section) next to galleries of another team or of none, a row of team chips shows only that team's galleries. The choice is kept in the address (`/?team=3`, so it can be shared) and remembered on that device. Search has a team filter under Filters, and the admin Galleries list filters by team and season and shows both on each row.
+- Updating adds one column to the database; a copy of the database is saved first.
+
 ## 2.4.0 (not released yet)
 
 - **Gallery presets.** Set up one gallery the way you like, then press **Save as preset** at the bottom of its settings. New galleries can start with those settings: who can open it and its password, invited groups, tags, location, downloads, RAW and curated only, likes and comments, watermark, the team and its jersey, automatic player checks, parent suggestions and follow a player. The new gallery box on the Galleries page has a preset picker and says what the preset sets, so a weekly game gallery needs only a folder (the title starts as the folder name), and its new photos are checked for players straight away when the preset says so. One preset can be the one new galleries start with; manage them in Settings, **Gallery presets**. Title, dates, cover, links and sections are never part of a preset, and changing a preset does not change galleries already made with it.

@@ -33,6 +33,7 @@ The galleries below are sample pictures (coloured circles), not real photos.
 | Need | How it works |
 |---|---|
 | Multiple galleries | Each gallery points at a folder under the photo library (read-only mount). Rescan any time. |
+| Seasons and teams | The home page lists galleries by season, newest first, with earlier seasons folded away. Seasons come from the event date (Fall and Spring, August to July, or calendar year: Settings -> Site and appearance) unless a gallery names its own in its **Season** box. When galleries belong to different teams (or some to none), team chips show one team's galleries; search and the admin gallery list filter by team too. |
 | Public / private | **Public** (listed on home page), **Unlisted** (anyone with the URL), **Protected** (password and/or share link), **Specific people** (only the invited email addresses, after single sign-on). |
 | Slideshow | Fullscreen lightbox with play/pause, 3-12 s interval, keyboard (space, arrows, F, Esc) and swipe. |
 | Resolutions, no quality loss | Downloads at configured long-edge sizes (`SIZES`) as **lossless PNG, lossless WebP or LZW TIFF**, or the **byte-identical original**. On-screen viewing uses WebP q88. |
@@ -53,7 +54,7 @@ The admin area has a menu on the left and the page in the middle (a scrolling st
 - **Capture time** comes from the RAW file when a photo has one (edited exports and RAW-only frames alike, to the hundredth of a second, so bursts keep their order); otherwise from the picture's own metadata, then the file date.
 - Per-gallery options include photo order (capture time / name / date added, reversible), event date and location, auto-expire date, offered download sizes and formats, and the curated-only default.
 - `/admin/stats`: visitor statistics (see below).
-- `/admin/settings/...`: one page per topic: *Site and appearance* (site name, theme, the order of galleries on the home page), *Watermark* (none / text / PNG with live preview), *Caption suggestions*, *Tags*, *Groups*, *License*, *Visitor tracking*, *Email alerts* and *Thumbnail cache*.
+- `/admin/settings/...`: one page per topic: *Site and appearance* (site name, theme, the order of galleries on the home page and how they are grouped into seasons), *Watermark* (none / text / PNG with live preview), *Caption suggestions*, *Tags*, *Groups*, *License*, *Visitor tracking*, *Email alerts* and *Thumbnail cache*.
 
 ### Photo pages and browser history
 

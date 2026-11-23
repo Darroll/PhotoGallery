@@ -35,7 +35,15 @@ public class HomeSettings
 
     public static readonly string[] Orders = ["event-desc", "event-asc", "name-asc", "name-desc", "created-desc", "created-asc", "manual"];
 
-    public HomeSettings Sanitized() => new() { Order = Orders.Contains(Order) ? Order : "created-desc" };
+    /// <summary>
+    /// How galleries are grouped into seasons on the home page: fall-spring (Fall = August to December, Spring = January to July),
+    /// school-year (August to July, "2026-27"), year (calendar year), or off (one list). A gallery's own Season text wins over the automatic one.
+    /// </summary>
+    public string Seasons { get; set; } = "fall-spring";
+
+    public static readonly string[] SeasonModes = ["fall-spring", "school-year", "year", "off"];
+
+    public HomeSettings Sanitized() => new() { Order = Orders.Contains(Order) ? Order : "created-desc", Seasons = SeasonModes.Contains(Seasons) ? Seasons : "fall-spring" };
 }
 
 /// <summary>Schedule settings the admin can change in the app. Null means "not chosen here": the container variable or the built-in default applies.</summary>
@@ -141,7 +149,7 @@ public class SettingsService
 
     public HomeSettings Home
     {
-        get { lock (gate) return new HomeSettings { Order = data.Home.Order }; }
+        get { lock (gate) return new HomeSettings { Order = data.Home.Order, Seasons = data.Home.Seasons }; }
     }
 
     public StatsSettings Stats
@@ -458,7 +466,7 @@ public class SettingsService
         {
             data.Home = s.Sanitized();
             Save();
-            return new HomeSettings { Order = data.Home.Order };
+            return new HomeSettings { Order = data.Home.Order, Seasons = data.Home.Seasons };
         }
     }
 
