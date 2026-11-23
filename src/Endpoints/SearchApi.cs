@@ -176,7 +176,7 @@ public static class SearchApi
             var havePhotos = (await db.PhotoTags.Where(pt => pt.TagId == into.Id).Select(pt => pt.PhotoId).ToListAsync()).ToHashSet();
             var haveGalleries = (await db.GalleryTags.Where(gt => gt.TagId == into.Id).Select(gt => gt.GalleryId).ToListAsync()).ToHashSet();
             foreach (var pt in await db.PhotoTags.Where(pt => pt.TagId == from.Id).ToListAsync())
-                if (!havePhotos.Contains(pt.PhotoId)) db.PhotoTags.Add(new PhotoTag { PhotoId = pt.PhotoId, TagId = into.Id });
+                if (!havePhotos.Contains(pt.PhotoId)) db.PhotoTags.Add(new PhotoTag { PhotoId = pt.PhotoId, TagId = into.Id, TaggedAt = pt.TaggedAt });
             foreach (var gt in await db.GalleryTags.Where(gt => gt.TagId == from.Id).ToListAsync())
                 if (!haveGalleries.Contains(gt.GalleryId)) db.GalleryTags.Add(new GalleryTag { GalleryId = gt.GalleryId, TagId = into.Id });
             db.PhotoTags.RemoveRange(db.PhotoTags.Where(pt => pt.TagId == from.Id));

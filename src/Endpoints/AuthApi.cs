@@ -13,7 +13,7 @@ public static class AuthApi
 
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/me", async (HttpContext ctx, SsoConfig sso, AppDb db) =>
+        app.MapGet("/api/me", async (HttpContext ctx, SsoConfig sso, AppDb db, SettingsService settings) =>
         {
             var signedIn = ctx.User.Identity?.IsAuthenticated == true;
             // preferences exist only for accounts with a provider id (not for the password admin), and follow the person across devices
@@ -26,7 +26,9 @@ public static class AuthApi
                 name = signedIn ? ctx.User.Identity?.Name : null,
                 admin = AccessService.IsAdmin(ctx),
                 likes = await Likes.Mine(db, ActivityLog.ReadVisitorId(ctx), Likes.IdentityKey(ctx)).Select(f => f.PhotoId).Distinct().CountAsync(),
-                preferences = prefs
+                preferences = prefs,
+                // the "My players" link: following is set up somewhere on the site, or this person already follows someone
+                follow = sub != null && PlayerFollows.Available(settings) && (settings.Follow.Enabled || await db.Galleries.AnyAsync(g => g.FollowPlayers == true) || await db.PlayerFollows.AnyAsync(f => f.Sub == sub)),
             };
         });
 

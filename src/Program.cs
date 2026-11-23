@@ -70,6 +70,7 @@ builder.Services.AddRateLimiter(o =>
     o.AddPolicy("unlock", c => Per(c, 10));
     o.AddPolicy("subscribe", c => Per(c, 5));
     o.AddPolicy("suggest", c => Per(c, 10));
+    o.AddPolicy("follow", c => Per(c, 60));
     o.AddPolicy("feedback", c => Per(c, 10));
     o.AddPolicy("upload", c => Per(c, 30));
     o.AddPolicy("viewed", c => Per(c, 240));
@@ -149,7 +150,7 @@ string AssetVersion()
     return Convert.ToHexString(sha.Hash!)[..10].ToLowerInvariant();
 }
 static bool IsAppRoute(PathString p) =>
-    p.Value is "/" or "/index.html" or "/admin" or "/expired" or "/license" or "/privacy" or "/search" or "/likes" || p.StartsWithSegments("/g") || p.StartsWithSegments("/admin");
+    p.Value is "/" or "/index.html" or "/admin" or "/expired" or "/license" or "/privacy" or "/search" or "/likes" or "/players" || p.StartsWithSegments("/g") || p.StartsWithSegments("/admin");
 var indexHtml = File.ReadAllText(Path.Combine(webRoot, "index.html")).Replace("__V__", AssetVersion());
 app.Use(async (ctx, next) =>
 {
@@ -195,6 +196,7 @@ CaptionApi.Map(app);
 SearchApi.Map(app);
 PlayerApi.Map(app);
 PhotoPlayersApi.Map(app);
+FollowApi.Map(app);
 GroupApi.Map(app);
 
 app.Run();

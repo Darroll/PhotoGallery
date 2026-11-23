@@ -74,6 +74,7 @@ public static class Privacy
         foreach (var s in await db.Comments.Where(c => c.Email.ToLower() == email && c.Sub != "").Select(c => c.Sub).Distinct().ToListAsync()) subs.Add(s);
         foreach (var s in await db.CommentEvents.Where(c => c.ActorEmail.ToLower() == email && c.ActorSub != "").Select(c => c.ActorSub).Distinct().ToListAsync()) subs.Add(s);
         foreach (var s in await db.CommentBlocks.Where(b => b.Email.ToLower() == email && b.Sub != "").Select(b => b.Sub).Distinct().ToListAsync()) subs.Add(s);
+        foreach (var s in await db.PlayerFollows.Where(f => f.Email == email).Select(f => f.Sub).Distinct().ToListAsync()) subs.Add(s);
         var keys = subs.Select(s => "u:" + s).ToList();
         var vids = new HashSet<string>();
         foreach (var v in await db.Favorites.Where(f => keys.Contains(f.IdentityKey) && f.VisitorId != "").Select(f => f.VisitorId).Distinct().ToListAsync()) vids.Add(v);
@@ -97,6 +98,7 @@ public static class Privacy
         foreach (var u in await db.Users.AsNoTracking().Select(u => new { u.Email, u.Name, u.DisplayName }).ToListAsync()) Add(u.Email, u.DisplayName != "" ? u.DisplayName : u.Name, "signed in");
         foreach (var c in await db.Comments.AsNoTracking().Where(c => c.Email != "").Select(c => c.Email).Distinct().ToListAsync()) Add(c, "", "comments");
         foreach (var s in await db.Subscribers.AsNoTracking().Select(s => s.Email).ToListAsync()) Add(s, "", "subscriber");
+        foreach (var f in await db.PlayerFollows.AsNoTracking().Select(f => f.Email).Distinct().ToListAsync()) Add(f, "", "follows a player");
         foreach (var m in await db.GroupMembers.AsNoTracking().Select(m => m.Email).Distinct().ToListAsync()) Add(m, "", "group");
         foreach (var g in await db.Galleries.AsNoTracking().Where(g => g.AllowedEmails != "").Select(g => g.AllowedEmails).ToListAsync())
             foreach (var e in GalleryPeople.Parse(g)) Add(e, "", "invited");
@@ -130,6 +132,9 @@ public static class Privacy
             ["captionSuggestions"] = await db.CaptionEdits.AsNoTracking().Where(c => p.Subs.Contains(c.Sub)).Select(c => new { c.Field, c.Proposed, c.Status, c.CreatedAt, c.Name }).ToListAsync(),
             ["licenseAcceptances"] = await db.LicenseAcceptances.AsNoTracking().Where(a => p.Subs.Contains(a.Sub)).Select(a => new { a.Name, a.Version, a.AcceptedAt }).ToListAsync(),
             ["subscription"] = await db.Subscribers.AsNoTracking().Where(s => s.Email.ToLower() == email).Select(s => new { s.Email, s.CreatedAt, s.ConfirmedAt, s.Unsubscribed }).ToListAsync(),
+            ["playerFollows"] = await (from f in db.PlayerFollows.AsNoTracking() where f.Email.ToLower() == email || p.Subs.Contains(f.Sub)
+                                       join pl in db.Players on f.PlayerId equals pl.Id join t in db.Teams on pl.TeamId equals t.Id
+                                       select new { team = t.Name, number = pl.Number, f.Email, f.CreatedAt }).ToListAsync(),
             ["commentBlock"] = await db.CommentBlocks.AsNoTracking().Where(b => b.Email.ToLower() == email || p.Subs.Contains(b.Sub)).Select(b => new { b.Name, b.Reason, b.At }).ToListAsync(),
             ["groupMemberships"] = await db.GroupMembers.AsNoTracking().Where(m => m.Email.ToLower() == email)
                 .Join(db.PeopleGroups, m => m.GroupId, g => g.Id, (m, g) => g.Name).ToListAsync(),
@@ -168,6 +173,9 @@ public static class Privacy
         other += await db.LicenseAcceptances.Where(a => p.Subs.Contains(a.Sub)).ExecuteDeleteAsync();
         other += await db.CaptionEdits.Where(c => p.Subs.Contains(c.Sub)).ExecuteDeleteAsync();
         other += await db.Subscribers.Where(s => s.Email.ToLower() == email).ExecuteDeleteAsync();
+        other += await db.PlayerFollows.Where(f => f.Email.ToLower() == email || p.Subs.Contains(f.Sub)).ExecuteDeleteAsync();
+        var sentKeys = p.Subs.Select(s => "follow-sent:" + s).ToList();
+        await db.AlertStates.Where(a => sentKeys.Contains(a.Key)).ExecuteDeleteAsync();
         other += await db.GroupMembers.Where(m => m.Email.ToLower() == email).ExecuteDeleteAsync();
         other += await db.EmailOutbox.Where(m => m.ToAddr.ToLower() == email).ExecuteDeleteAsync();
         if (removeBlock) other += await db.CommentBlocks.Where(b => b.Email.ToLower() == email || p.Subs.Contains(b.Sub)).ExecuteDeleteAsync();

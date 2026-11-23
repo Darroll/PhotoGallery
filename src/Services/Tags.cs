@@ -18,6 +18,8 @@ public class PhotoTag
 {
     public int PhotoId { get; set; }
     public int TagId { get; set; }
+    /// <summary>When the tag was put on the photo, so followers of a player hear about new photos only. Tags from before 2.3.0 carry the earliest date.</summary>
+    public DateTime TaggedAt { get; set; } = DateTime.UtcNow;
 }
 
 /// <summary>Links a tag to a whole gallery.</summary>

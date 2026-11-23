@@ -76,6 +76,8 @@ public class Gallery
     public bool? AutoTag { get; set; }
     /// <summary>Signed-in visitors (parents) may suggest which players are in a photo. Their suggestions wait for the admin's review. Off by default.</summary>
     public bool AllowPlayerTags { get; set; }
+    /// <summary>New photos of a player here are emailed to the player's followers: true or false here, or null to follow the site-wide setting (<see cref="FollowSettings.Enabled"/>).</summary>
+    public bool? FollowPlayers { get; set; }
     public List<Photo> Photos { get; set; } = new();
     public List<ShareLink> Links { get; set; } = new();
 }
@@ -217,6 +219,7 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
     public DbSet<Player> Players => Set<Player>();
     public DbSet<PlayerSuggestion> PlayerSuggestions => Set<PlayerSuggestion>();
     public DbSet<NumberSighting> NumberSightings => Set<NumberSighting>();
+    public DbSet<PlayerFollow> PlayerFollows => Set<PlayerFollow>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -260,6 +263,9 @@ public class AppDb(DbContextOptions<AppDb> options) : DbContext(options)
         b.Entity<NumberSighting>().HasOne<Team>().WithMany().HasForeignKey(s => s.TeamId).OnDelete(DeleteBehavior.Cascade);
         b.Entity<NumberSighting>().HasIndex(s => new { s.TeamId, s.Number, s.PhotoId }).IsUnique();
         b.Entity<NumberSighting>().HasIndex(s => s.PhotoId);
+        b.Entity<PlayerFollow>().HasOne<Player>().WithMany().HasForeignKey(f => f.PlayerId).OnDelete(DeleteBehavior.Cascade);
+        b.Entity<PlayerFollow>().HasIndex(f => new { f.Sub, f.PlayerId }).IsUnique();
+        b.Entity<PlayerFollow>().HasIndex(f => f.Token).IsUnique();
         b.Entity<ShareLink>().HasOne(l => l.Gallery).WithMany(g => g.Links).HasForeignKey(l => l.GalleryId).OnDelete(DeleteBehavior.Cascade);
     }
 }

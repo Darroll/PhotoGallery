@@ -142,6 +142,7 @@ public class EmailService(IServiceScopeFactory scopes, SettingsService settings,
         {
             await Task.Delay(TimeSpan.FromSeconds(20), ct);
             var lastChecks = DateTime.MinValue;
+            var lastFollows = DateTime.MinValue;
             while (!ct.IsCancellationRequested)
             {
                 try
@@ -150,6 +151,7 @@ public class EmailService(IServiceScopeFactory scopes, SettingsService settings,
                     var db = scope.ServiceProvider.GetRequiredService<AppDb>();
                     var s = settings.Email;
                     if (s.Ready) await Subscribers.SendDigestAsync(db, settings);
+                    if (s.Ready && DateTime.UtcNow - lastFollows > TimeSpan.FromMinutes(5)) { await PlayerFollows.SendAsync(db, settings); lastFollows = DateTime.UtcNow; }
                     if (s.Ready && !string.IsNullOrWhiteSpace(s.To))
                     {
                         if (DateTime.UtcNow - lastChecks > TimeSpan.FromMinutes(2)) { await Alerts.RunAsync(db, s, ct); lastChecks = DateTime.UtcNow; }
