@@ -66,6 +66,8 @@ public class NumberSighting
     public string Source { get; set; } = "";
     /// <summary>The admin said this number is not one of ours (for example the other team, or a misreading). It is not offered again.</summary>
     public bool Dismissed { get; set; }
+    /// <summary>The admin settled this photo alone (tagged the right player, or said it is not a player). Kept so checking again does not bring it back.</summary>
+    public bool Fixed { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -147,7 +149,7 @@ public static class PlayerTags
         return kits.Count == 1 ? kits[0].Description : "one of these sets: " + string.Join("; or ", kits.Select(x => x.Description));
     }
 
-    /// <summary>A number with a digit hidden, as in a missing digit: the roster numbers it could be. "1?" fits 10 to 19; "1" marked partly hidden fits 1, 10 to 19, 21, 31...</summary>
+    /// <summary>The roster numbers a partly hidden reading could be: "1?" fits 10 to 19. Without a "?" only the number as read.</summary>
     public static List<string> Candidates(string read, bool partial, IEnumerable<string> roster)
     {
         if (read.Contains('?'))
@@ -155,12 +157,8 @@ public static class PlayerTags
             var rx = new System.Text.RegularExpressions.Regex("^" + read.Replace("?", "[0-9]") + "$");
             return roster.Where(r => rx.IsMatch(r)).ToList();
         }
-        return partial ? roster.Where(r => r == read || (r.Length > read.Length && (r.StartsWith(read, StringComparison.Ordinal) || r.EndsWith(read, StringComparison.Ordinal)))).ToList() : new();
+        return roster.Where(r => r == read).ToList();
     }
-
-    /// <summary>Roster numbers this reading could be if one digit was hidden without the model noticing: 1 for 19, 9 for 19, 0 for 00.</summary>
-    public static List<string> MissingDigit(string read, IEnumerable<string> roster) =>
-        roster.Where(r => r.Length == read.Length + 1 && (r.StartsWith(read, StringComparison.Ordinal) || r.EndsWith(read, StringComparison.Ordinal))).ToList();
 
     /// <summary>More roster numbers than this for one partial reading tells nothing; it is skipped.</summary>
     const int MaxCandidates = 4;
@@ -222,29 +220,23 @@ public static class PlayerTags
             {
                 // part of the number is hidden: suggest each roster number it could be, for the admin to pick one
                 var maybe = Candidates(seen.Number, true, roster);
-                if (maybe.Count == 0 || maybe.Count > MaxCandidates) { seenOurs.Add($"#{seen.Number} partly hidden ({(maybe.Count == 0 ? "no roster number fits" : $"{maybe.Count} roster numbers fit")})"); continue; }
-                seenOurs.Add($"#{seen.Number} partly hidden, maybe {string.Join(" or ", maybe.Select(n => "#" + n))} ({seen.Confidence}%)");
-                foreach (var n in maybe) await Suggest(players[n], seen.Confidence, true, seen.Number, $"read as {seen.Number}, number partly hidden");
+                if (maybe.Count == 0 || maybe.Count > MaxCandidates)
+                {
+                    seenOurs.Add($"#{seen.Number} may be partly hidden ({(maybe.Count == 0 ? "not on the roster" : $"{maybe.Count} roster numbers fit")})");
+                    if (maybe.Count == 0 && !seen.Number.Contains('?')) unknown.Add(seen);
+                    continue;
+                }
+                seenOurs.Add($"#{seen.Number} may be partly hidden, maybe {string.Join(" or ", maybe.Select(n => "#" + n))} ({seen.Confidence}%)");
+                foreach (var n in maybe) await Suggest(players[n], seen.Confidence, true, seen.Number, seen.Number.Contains('?') ? $"read as {seen.Number}, number partly hidden" : "number may be partly hidden");
                 continue;
             }
-            var longer = MissingDigit(seen.Number, roster);
             if (players.TryGetValue(seen.Number, out var player))
             {
-                // on the roster, but another player's number with one more digit reads like this when a digit is covered
-                var unsure = longer.Count > 0;
-                seenOurs.Add($"#{player.Number} ({seen.Confidence}%)" + (unsure ? $", could be {string.Join(" or ", longer.Select(n => "#" + n))}" : ""));
-                await Suggest(player, seen.Confidence, unsure, seen.Number, unsure ? $"could also be {string.Join(" or ", longer.Select(n => "#" + n))} with a digit hidden" : "");
-                if (unsure && longer.Count <= MaxCandidates)
-                    foreach (var n in longer) await Suggest(players[n], seen.Confidence, true, seen.Number, $"read as {seen.Number}, maybe a digit was hidden");
+                seenOurs.Add($"#{player.Number} ({seen.Confidence}%)");
+                await Suggest(player, seen.Confidence, false, seen.Number, "");
                 continue;
             }
             unknown.Add(seen);
-            if (longer.Count is > 0 and <= MaxCandidates)
-            {
-                // not on the roster, but it is a roster number with a digit missing (1 read for 19)
-                seenOurs.Add($"#{seen.Number} not on the roster, maybe {string.Join(" or ", longer.Select(n => "#" + n))} ({seen.Confidence}%)");
-                foreach (var n in longer) await Suggest(players[n], seen.Confidence, true, seen.Number, $"read as {seen.Number}, maybe a digit was hidden");
-            }
         }
         if (unknown.Count > 0)
         {
@@ -262,6 +254,15 @@ public static class PlayerTags
         log.LogInformation("Player check of photo {Id} ({Name}) with {Provider}: {Seen}, {Ignored} not on the roster, {Ms} ms",
             photo.Id, photo.Name, answer.Provider, seenOurs.Count == 0 ? "no players" : string.Join(", ", seenOurs), ignored, answer.Ms);
         return new PhotoCheckResult(added, seenOurs, unknown.Select(n => "#" + n.Number).Distinct().ToList(), VisionProvider.Label(answer.Provider), answer.Ms);
+    }
+
+    /// <summary>The admin says this player is in this photo: approves the suggestion, making one if the model never read it.</summary>
+    public static async Task TagByHandAsync(AppDb db, int photoId, Team team, Player player)
+    {
+        var s = await db.PlayerSuggestions.FirstOrDefaultAsync(x => x.PhotoId == photoId && x.PlayerId == player.Id);
+        if (s == null) { s = new PlayerSuggestion { PhotoId = photoId, PlayerId = player.Id, Confidence = 100, Source = "admin" }; db.PlayerSuggestions.Add(s); }
+        s.Unsure = false; s.Note = "";
+        await ApproveAsync(db, s, team, player);
     }
 
     /// <summary>Puts the player's tag on the photo and marks the suggestion approved.</summary>
@@ -286,7 +287,7 @@ public static class PlayerTags
         var players = team.Players.Where(p => p.Id > 0).ToDictionary(p => p.Number);
         if (players.Count == 0) return 0;
         var nums = players.Keys.ToList();
-        var sightings = await db.NumberSightings.Where(x => x.TeamId == team.Id && !x.Dismissed && nums.Contains(x.Number)).ToListAsync();
+        var sightings = await db.NumberSightings.Where(x => x.TeamId == team.Id && !x.Dismissed && !x.Fixed && nums.Contains(x.Number)).ToListAsync();
         if (sightings.Count == 0) return 0;
         var ids = players.Values.Select(p => p.Id).ToList();
         var photoIds = sightings.Select(x => x.PhotoId).Distinct().ToList();

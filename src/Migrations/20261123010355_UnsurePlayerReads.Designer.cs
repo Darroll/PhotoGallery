@@ -11,7 +11,7 @@ using PhotoGallery;
 namespace PhotoGallery.Migrations
 {
     [DbContext(typeof(AppDb))]
-    [Migration("20261123005858_UnsurePlayerReads")]
+    [Migration("20261123010355_UnsurePlayerReads")]
     partial class UnsurePlayerReads
     {
         /// <inheritdoc />
@@ -629,6 +629,9 @@ namespace PhotoGallery.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("Dismissed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("Fixed")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("Number")

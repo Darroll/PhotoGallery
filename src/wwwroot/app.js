@@ -3178,13 +3178,40 @@ function playersManager(g) {
       folderDefaults.push(picker.querySelector('option'));
       return h('div', { class: 'folder-kit' }, h('span', { class: 'folder-kit-name', text: f.title, title: `${f.folder}, ${f.photos} photo${f.photos === 1 ? '' : 's'}` }), picker, note);
     })) : null;
+    // fixing one photo by hand: tap the right roster number (or type one), or say it is not a player
+    const roster = team ? team.players : [];
+    const fixPicker = (photoId, replace, label) => {
+      const note = h('span', { class: 'muted', role: 'status' });
+      const typed = h('input', { type: 'text', inputmode: 'numeric', maxlength: 3, placeholder: '#', 'aria-label': 'Jersey number', class: 'fix-num' });
+      const send = async (number) => {
+        const res = await api(`/api/admin/galleries/${g.id}/photos/${photoId}/player`, { method: 'POST', body: { number, ...replace } });
+        if (res.ok) { if (res.data.tag) toast(`Tagged ${res.data.tag}`); load(); } else note.textContent = aiErr(res);
+      };
+      typed.addEventListener('keydown', e => { if (e.key === 'Enter' && typed.value.trim()) send(typed.value.trim()); });
+      return h('div', { class: 'fix-picker', hidden: true },
+        h('span', { class: 'muted', text: label }),
+        ...roster.map(p => h('button', { class: 'num-chip', text: `#${p.number}`, title: p.name || `#${p.number}`, onclick: () => send(p.number) })),
+        typed, h('button', { text: 'OK', onclick: () => { if (typed.value.trim()) send(typed.value.trim()); } }),
+        replace ? h('button', { text: 'Not a player', title: 'Nobody on the team: remove this reading from this photo only', onclick: () => send('') }) : null,
+        note);
+    };
+    const toggle = (picker) => { const open = picker.hidden; box.querySelectorAll('.fix-picker').forEach(x => { x.hidden = true; }); picker.hidden = !open; if (open) picker.querySelector('.num-chip, input')?.focus(); };
     // numbers read on players in our colours that are not on the roster: add the player, or say it is not ours
     const unknownRows = (d.unknown || []).map(u => {
       const pname = h('input', { type: 'text', maxlength: 30, placeholder: 'Name (optional)', 'aria-label': `Name for #${u.number}` });
       const note = h('span', { class: 'muted', role: 'status' });
-      const add = h('button', { class: 'primary', text: `Add #${u.number} to ${team ? team.name : 'the team'}`, onclick: async () => {
+      // each photo: untick it to leave it out, or tap it to say who it really is
+      const thumbs = u.photoIds.map(pid => {
+        const tick = h('input', { type: 'checkbox', checked: true, 'aria-label': `Photo ${pid} shows #${u.number}` });
+        const picker = fixPicker(pid, { sighting: u.number }, `Not #${u.number}? This photo is:`);
+        const img = h('button', { class: 'thumb-btn', title: 'Tap to tag this photo as someone else', onclick: () => toggle(picker) },
+          h('img', { src: `/img/${pid}/thumb`, alt: `Photo with #${u.number}`, loading: 'lazy', width: 96, height: 72 }));
+        return { pid, tick, picker, el: h('div', { class: 'unknown-thumb' }, img, h('label', { class: 'muted' }, tick, ' this one')) };
+      });
+      const add = h('button', { class: 'primary', text: `Add #${u.number} to ${team ? team.name : 'the team'}`, title: 'Adds the player and tags the ticked photos for review', onclick: async () => {
         add.disabled = true;
-        const res = await api(`/api/admin/teams/${d.teamId}/players`, { method: 'POST', body: { number: u.number, name: pname.value } });
+        const skip = thumbs.filter(t => !t.tick.checked).map(t => t.pid);
+        const res = await api(`/api/admin/teams/${d.teamId}/players`, { method: 'POST', body: { number: u.number, name: pname.value, skip } });
         if (res.ok) { toast(`#${res.data.number} added, ${res.data.suggestions} photo${res.data.suggestions === 1 ? '' : 's'} to review`); load(); } else { add.disabled = false; note.textContent = aiErr(res); }
       } });
       const no = h('button', { text: 'Not ours', title: 'The other team, or a misreading. This number is not offered again for this team.', onclick: async () => {
@@ -3192,8 +3219,9 @@ function playersManager(g) {
         if (res.ok) load(); else note.textContent = aiErr(res);
       } });
       return h('div', { class: 'player-row' },
-        h('div', { class: 'unknown-thumbs' }, u.photoIds.slice(0, 3).map(pid => h('a', { href: `/img/${pid}/view`, target: '_blank', rel: 'noopener' }, h('img', { src: `/img/${pid}/thumb`, alt: `Photo with #${u.number}`, loading: 'lazy', width: 96, height: 72 })))),
-        h('div', {}, h('div', {}, h('strong', { text: `#${u.number}` }), h('span', { class: 'muted', text: ` read on ${u.photos} photo${u.photos === 1 ? '' : 's'}, up to ${u.confidence}% sure` })),
+        h('div', {}, h('div', {}, h('strong', { text: `#${u.number}` }), h('span', { class: 'muted', text: ` read on ${u.photos} photo${u.photos === 1 ? '' : 's'}, up to ${u.confidence}% sure` + (u.photos > thumbs.length ? ` (the ${thumbs.length} surest shown)` : '') })),
+          h('div', { class: 'unknown-thumbs' }, thumbs.map(t => t.el)),
+          ...thumbs.map(t => t.picker),
           h('div', { class: 'row' }, pname, add, no, note)));
     });
     const start = async (body) => {
@@ -3220,13 +3248,20 @@ function playersManager(g) {
       const res = await api('/api/admin/players/review', { method: 'POST', body: approve ? { approve: ids } : { reject: ids } });
       if (res.ok) load(); else msg.textContent = aiErr(res);
     };
-    const rows = [...byPhoto.entries()].map(([pid, list]) => h('div', { class: 'player-row' },
-      h('img', { src: `/img/${pid}/thumb`, alt: list[0].photo, loading: 'lazy', width: 96, height: 72 }),
-      h('div', {}, h('div', { class: 'muted', text: list[0].photo }),
-        list.filter(s => s.unsure).map(s => s.note).filter((n, i, a) => a.indexOf(n) === i).map(n => h('div', { class: 'muted unsure-note', text: `Not sure: ${n}. Approve the right player; the others it could be are rejected.` })),
-        h('div', { class: 'chips' }, list.map(s => h('span', { class: 'tag-chip' + (s.unsure ? ' unsure' : ''), title: `${s.confidence}% sure, read by ${s.source}` + (s.note ? ` (${s.note})` : '') }, `${s.unsure ? 'maybe ' : ''}${s.tag} · ${s.confidence}%`,
-          h('button', { class: 'chip-ok', 'aria-label': `Approve ${s.tag} on ${s.photo}`, title: 'Approve', text: '✓', onclick: () => review([s.id], true) }),
-          h('button', { class: 'chip-x', 'aria-label': `Reject ${s.tag} on ${s.photo}`, title: 'Reject', text: '×', onclick: () => review([s.id], false) })))))));
+    const rows = [...byPhoto.entries()].map(([pid, list]) => {
+      // tap the photo to add a player the model missed; ✎ on a chip to say who it really is
+      const addPicker = fixPicker(pid, null, 'Add a player:');
+      const fixers = list.map(s => fixPicker(pid, { suggestion: s.id }, `Not ${s.tag}? It is:`));
+      return h('div', { class: 'player-row' },
+        h('button', { class: 'thumb-btn', title: 'Tap to add a player the model missed', onclick: () => toggle(addPicker) }, h('img', { src: `/img/${pid}/thumb`, alt: list[0].photo, loading: 'lazy', width: 96, height: 72 })),
+        h('div', {}, h('div', { class: 'muted' }, list[0].photo, ' ', h('a', { href: `/img/${pid}/view`, target: '_blank', rel: 'noopener', text: 'open' })),
+          list.filter(s => s.unsure).map(s => s.note).filter((n, i, a) => a.indexOf(n) === i).map(n => h('div', { class: 'muted unsure-note', text: `Not sure: ${n}.` + (list.filter(s => s.unsure).length > 1 ? ' Approve the right player; the others it could be are rejected.' : '') })),
+          h('div', { class: 'chips' }, list.map((s, i) => h('span', { class: 'tag-chip' + (s.unsure ? ' unsure' : ''), title: `${s.confidence}% sure, read by ${s.source}` + (s.note ? ` (${s.note})` : '') }, `${s.unsure ? 'maybe ' : ''}${s.tag} · ${s.confidence}%`,
+            h('button', { class: 'chip-ok', 'aria-label': `Approve ${s.tag} on ${s.photo}`, title: 'Approve', text: '✓', onclick: () => review([s.id], true) }),
+            h('button', { class: 'chip-fix', 'aria-label': `Change ${s.tag} on ${s.photo}`, title: 'Wrong number: pick the right player', text: '✎', onclick: () => toggle(fixers[i]) }),
+            h('button', { class: 'chip-x', 'aria-label': `Reject ${s.tag} on ${s.photo}`, title: 'Reject', text: '×', onclick: () => review([s.id], false) })))),
+          addPicker, ...fixers));
+    });
     const allIds = d.pending.map(s => s.id);
     box.replaceChildren(
       h('div', { class: 'form1' }, field('Team', teamSel, 'Only this team\'s players are looked for, in its jersey colours.'),

@@ -601,7 +601,7 @@ table.data td:last-child { text-align: right; font-variant-numeric: tabular-nums
 .job-recent li { margin: 2px 0; overflow-wrap: anywhere; }
 .job-gallery + .job-gallery { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 6px; }
 .job-gallery h4 { margin: 4px 0; }
-.unknown-thumbs { display: flex; gap: 4px; flex: none; }
+.unknown-thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .player-row .row input[type=text] { max-width: 180px; }
 .kit-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; max-width: 520px; }
 .kit-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
@@ -620,3 +620,13 @@ table.data td:last-child { text-align: right; font-variant-numeric: tabular-nums
 .folder-kit-name { min-width: 120px; max-width: 200px; padding-top: 6px; overflow-wrap: anywhere; }
 .tag-chip.unsure { border-style: dashed; }
 .unsure-note { font-size: 13px; }
+.player-row > div { min-width: 0; flex: 1; }
+.thumb-btn { padding: 0; border: 2px solid transparent; background: none; cursor: pointer; border-radius: var(--radius-sm); flex: none; line-height: 0; }
+.thumb-btn:hover, .thumb-btn:focus-visible { border-color: var(--accent, var(--fg)); }
+.unknown-thumb { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.unknown-thumb label { display: flex; align-items: center; gap: 4px; }
+.fix-picker { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--card); }
+.fix-picker[hidden] { display: none; }
+.num-chip { min-width: 44px; min-height: 36px; border-radius: 999px; }
+.fix-picker input.fix-num { width: 64px; }
+.player-row .tag-chip .chip-fix:hover, .player-row .tag-chip .chip-fix:focus-visible { color: var(--accent, var(--fg)); }

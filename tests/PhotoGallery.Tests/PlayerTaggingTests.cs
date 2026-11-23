@@ -201,8 +201,10 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             Assert.Equal(new[] { "9", "21", "88" }, unknown.Select(u => u.GetProperty("number").GetString()).ToArray());   // in number order
             Assert.All(unknown, u => Assert.Equal(2, u.GetProperty("photos").GetInt32()));
 
-            var add = await (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/players", new { number = "21", name = "Mia" })).ReadAsync();
-            Assert.Equal(2, add.GetProperty("suggestions").GetInt32());
+            // one of the two photos is unticked: only the other becomes a suggestion
+            var skip = unknown[1].GetProperty("photoIds")[0].GetInt32();
+            var add = await (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/players", new { number = "21", name = "Mia", skip = new[] { skip } })).ReadAsync();
+            Assert.Equal(1, add.GetProperty("suggestions").GetInt32());
             Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/players", new { number = "21" })).StatusCode);
             Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/numbers/dismiss", new { number = "88" })).StatusCode);
             Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/numbers/dismiss", new { number = "9" })).StatusCode);
@@ -210,7 +212,8 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
             Assert.Empty(s.GetProperty("unknown").EnumerateArray());
             var pending = s.GetProperty("pending").EnumerateArray().ToList();
-            Assert.Equal(2, pending.Count);
+            Assert.Equal(1, pending.Count);
+            Assert.NotEqual(skip, pending[0].GetProperty("photoId").GetInt32());
             Assert.All(pending, p => { Assert.Equal("21", p.GetProperty("number").GetString()); Assert.Equal(85, p.GetProperty("confidence").GetInt32()); });
 
             // a dismissed number stays dismissed when the photos are read again
@@ -512,9 +515,7 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
         var hidden = PlayerPrompt.Parse("{\"numbers\":[{\"number\":\"1?\",\"confidence\":70},{\"number\":\"2x\"},{\"number\":\"4\",\"partial\":true},{\"number\":\"??\"},{\"number\":\"00\"}]}");
         Assert.Equal(new[] { ("1?", true), ("2?", true), ("4", true), ("00", false) }, hidden.Select(x => (x.Number, x.Partial)));
         Assert.Equal(new[] { "10", "19" }, PlayerTags.Candidates("1?", true, new[] { "1", "10", "19", "21" }));
-        Assert.Equal(new[] { "1", "10", "19", "21" }, PlayerTags.Candidates("1", true, new[] { "1", "10", "19", "21", "32" }));
-        Assert.Equal(new[] { "19" }, PlayerTags.MissingDigit("1", new[] { "1", "19", "100" }));
-        Assert.Equal(new[] { "00", "10" }, PlayerTags.MissingDigit("0", new[] { "0", "00", "10", "7" }));
+        Assert.Equal(new[] { "1" }, PlayerTags.Candidates("1", true, new[] { "1", "10", "19", "21", "32" }));   // no guessing at hidden digits without a "?"
     }
 
     [Fact]
@@ -526,33 +527,51 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             var admin = await app.AdminAsync();
             Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync("/api/admin/settings/vision", new { providers = new[] { new { kind = "ollama", enabled = true, url = "http://ollama.local:11434", model = "qwen3-vl:8b" } }, autoApproveAt = 50 })).StatusCode);
             var (gid, _, teamId) = await GalleryWithTeamAsync(admin, "Hidden Flow", 1, "0 Zoe\n00 Lily\n7 Ava\n07 Mae\n12 Kim\n19 Emma\n15 Ivy");
-            // 1? (the 9 covered), 07 read clearly, 0 that could be 00 with a digit covered
-            app.Reader.Answers["ollama"] = () => "{\"numbers\": [{\"number\": \"1?\", \"confidence\": 90}, {\"number\": \"07\", \"confidence\": 95}, {\"number\": \"0\", \"confidence\": 92}]}";
+            // 1? (the 9 covered), 07 read clearly, 0 the model says may be partly hidden; a clear 1 not on the roster is not guessed to be 19
+            app.Reader.Answers["ollama"] = () => "{\"numbers\": [{\"number\": \"1?\", \"confidence\": 90}, {\"number\": \"07\", \"confidence\": 95}, {\"number\": \"0\", \"confidence\": 92, \"partial\": true}, {\"number\": \"1\", \"confidence\": 80}]}";
             await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { });
             var s = await WaitAsync(admin, gid);
             var pending = s.GetProperty("pending").EnumerateArray().ToList();
             string[] Nums(IEnumerable<JsonElement> l) => l.Select(p => p.GetProperty("number").GetString()!).Order(StringComparer.Ordinal).ToArray();
             // 07 is clear and approved automatically (not 7); the rest wait, marked unsure
-            Assert.Equal(new[] { "0", "00", "12", "15", "19" }, Nums(pending));
+            Assert.Equal(new[] { "0", "12", "15", "19" }, Nums(pending));
+            Assert.Equal("1", s.GetProperty("unknown").EnumerateArray().Single().GetProperty("number").GetString());
             Assert.All(pending, p => Assert.True(p.GetProperty("unsure").GetBoolean()));
             Assert.Equal(1, s.GetProperty("approved").GetInt32());
             Assert.Contains("partly hidden", pending.First(p => p.GetProperty("number").GetString() == "19").GetProperty("note").GetString());
-            Assert.Contains("#00", pending.First(p => p.GetProperty("number").GetString() == "0").GetProperty("note").GetString());
+            Assert.Contains("may be partly hidden", pending.First(p => p.GetProperty("number").GetString() == "0").GetProperty("note").GetString());
 
-            // picking 19 rejects 12 and 15 from the same reading, and leaves the 0/00 choice waiting
+            // picking 19 rejects 12 and 15 from the same reading, and leaves the 0 waiting
             var id19 = pending.First(p => p.GetProperty("number").GetString() == "19").GetProperty("id").GetInt32();
             var r = await (await admin.PostAsJsonAsync("/api/admin/players/review", new { approve = new[] { id19 } })).ReadAsync();
             Assert.Equal(1, r.GetProperty("approved").GetInt32());
             Assert.Equal(2, r.GetProperty("rejected").GetInt32());
             s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
-            Assert.Equal(new[] { "0", "00" }, Nums(s.GetProperty("pending").EnumerateArray()));
+            Assert.Equal(new[] { "0" }, Nums(s.GetProperty("pending").EnumerateArray()));
 
             // a clear reading later settles the unsure one
-            app.Reader.Answers["ollama"] = () => "{\"numbers\": [{\"number\": \"00\", \"confidence\": 97}]}";
+            app.Reader.Answers["ollama"] = () => "{\"numbers\": [{\"number\": \"0\", \"confidence\": 97}, {\"number\": \"1\", \"confidence\": 80}]}";
             await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { recheck = true });
             s = await WaitAsync(admin, gid);
-            var lily = s.GetProperty("pending").EnumerateArray().First(p => p.GetProperty("number").GetString() == "00");
-            Assert.False(lily.GetProperty("unsure").GetBoolean());
+            var zoe = s.GetProperty("pending").EnumerateArray().Single();
+            Assert.False(zoe.GetProperty("unsure").GetBoolean());
+
+            // fixing one photo by hand: the 0 was really 00, and the 1 not on the roster was really 19 (already tagged) - so "not a player"
+            var pid = zoe.GetProperty("photoId").GetInt32();
+            var fix = await (await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/photos/{pid}/player", new { number = "00", suggestion = zoe.GetProperty("id").GetInt32() })).ReadAsync();
+            Assert.Equal("Hidden Flow FC 00", fix.GetProperty("tag").GetString());
+            Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/photos/{pid}/player", new { sighting = "1" })).StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/photos/{pid}/player", new { number = "44" })).StatusCode);
+            s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
+            Assert.Empty(s.GetProperty("pending").EnumerateArray());
+            Assert.Empty(s.GetProperty("unknown").EnumerateArray());
+            Assert.Equal(3, s.GetProperty("approved").GetInt32());   // 07, 19, 00
+
+            // checking again does not bring the fixed readings back
+            await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { recheck = true });
+            s = await WaitAsync(admin, gid);
+            Assert.Empty(s.GetProperty("pending").EnumerateArray());
+            Assert.Empty(s.GetProperty("unknown").EnumerateArray());
         }
         finally { Serial.Release(); }
     }

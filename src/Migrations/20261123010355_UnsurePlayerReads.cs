@@ -30,6 +30,13 @@ namespace PhotoGallery.Migrations
                 type: "INTEGER",
                 nullable: false,
                 defaultValue: false);
+
+            migrationBuilder.AddColumn<bool>(
+                name: "Fixed",
+                table: "NumberSightings",
+                type: "INTEGER",
+                nullable: false,
+                defaultValue: false);
         }
 
         /// <inheritdoc />
@@ -46,6 +53,10 @@ namespace PhotoGallery.Migrations
             migrationBuilder.DropColumn(
                 name: "Unsure",
                 table: "PlayerSuggestions");
+
+            migrationBuilder.DropColumn(
+                name: "Fixed",
+                table: "NumberSightings");
         }
     }
 }

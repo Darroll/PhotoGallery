@@ -9,11 +9,13 @@ namespace PhotoGallery;
 public static class PlayerApi
 {
     record TeamInput(string? Name, string? Colors, bool? TagWithNames, string? Roster);
+    /// <summary>A fix to one photo: the player really in it (a roster number, or none for "not a player"), replacing a suggestion or a number read wrongly.</summary>
+    record PhotoPlayerInput(string? Number, int? Suggestion, string? Sighting);
     record GalleryTeamInput(int? TeamId, string? Kit, string? Folder = null);
     record CheckInput(int? Limit, bool? Recheck);
     record ReviewInput(List<int>? Approve, List<int>? Reject);
     record TestInput(string? Kind, VisionSettings? Settings);
-    record NewPlayerInput(string? Number, string? Name);
+    record NewPlayerInput(string? Number, string? Name, List<int>? Skip = null);
     record NumberInput(string? Number);
 
     static bool Csrf(HttpContext ctx) => ctx.Request.Headers["X-Requested-With"] == "pg";
@@ -122,6 +124,12 @@ public static class PlayerApi
             if (t.Players.Any(p => p.Number == number)) return Results.Conflict($"#{number} is already on the roster.");
             if (t.Players.Count >= 60) return Results.BadRequest("A team can have up to 60 players.");
             t.Players.Add(new Player { Number = number, Name = name });
+            // photos the admin unticked are not this player: settle them so they are not suggested
+            if (input.Skip is { Count: > 0 } skip)
+            {
+                var ids = skip.Take(500).ToList();
+                foreach (var x in await db.NumberSightings.Where(x => x.TeamId == id && x.Number == number && ids.Contains(x.PhotoId)).ToListAsync()) x.Fixed = true;
+            }
             await db.SaveChangesAsync();
             var added = await PlayerTags.AdoptSightingsAsync(db, t);
             return Results.Ok(new { number, name, suggestions = added });
@@ -167,6 +175,34 @@ public static class PlayerApi
             return Results.NoContent();
         });
 
+        // one photo fixed by hand: tag the right player and/or settle the wrong reading, for this photo only
+        secured.MapPost("/galleries/{id:int}/photos/{photoId:int}/player", async (int id, int photoId, PhotoPlayerInput input, HttpContext ctx, AppDb db) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var g = await db.Galleries.FindAsync(id);
+            if (g?.TeamId == null) return Results.BadRequest("Choose the team for this gallery first.");
+            if (!await db.Photos.AnyAsync(p => p.Id == photoId && p.GalleryId == id)) return Results.NotFound();
+            var team = await db.Teams.Include(t => t.Players).FirstAsync(t => t.Id == g.TeamId);
+            Player? player = null;
+            if (!string.IsNullOrWhiteSpace(input.Number))
+            {
+                var number = PlayerTags.ParseRoster(Cut(input.Number, 4)).FirstOrDefault().Number;
+                if (number == null) return Results.BadRequest("A jersey number is 1 to 3 digits.");
+                player = team.Players.FirstOrDefault(p => p.Number == number);
+                if (player == null) return Results.BadRequest($"#{number} is not on the {team.Name} roster. Add the player on the Teams page first.");
+            }
+            if (input.Suggestion is { } sid)
+            {
+                var wrong = await db.PlayerSuggestions.FirstOrDefaultAsync(x => x.Id == sid && x.PhotoId == photoId);
+                if (wrong != null && wrong.PlayerId != player?.Id && wrong.Status == "pending") { wrong.Status = "rejected"; wrong.ReviewedAt = DateTime.UtcNow; }
+            }
+            if (!string.IsNullOrWhiteSpace(input.Sighting))
+                foreach (var x in await db.NumberSightings.Where(x => x.TeamId == team.Id && x.PhotoId == photoId && x.Number == input.Sighting).ToListAsync()) x.Fixed = true;
+            if (player != null) await PlayerTags.TagByHandAsync(db, photoId, team, player);
+            await db.SaveChangesAsync();
+            return Results.Ok(new { tag = player == null ? null : PlayerTags.TagName(team, player) });
+        });
+
         // where the gallery stands: its team, how many photos were checked, the job's progress, and the suggestions waiting
         secured.MapGet("/galleries/{id:int}/players", async (int id, AppDb db, PlayerTagJobs jobs, SettingsService settings) =>
         {
@@ -187,10 +223,10 @@ public static class PlayerApi
             var teamNames = await db.Teams.ToDictionaryAsync(t => t.Id, t => t);
             var sightings = g.TeamId == null ? new() : await (from x in db.NumberSightings
                                    join p in db.Photos on x.PhotoId equals p.Id
-                                   where p.GalleryId == id && x.TeamId == g.TeamId && !x.Dismissed
+                                   where p.GalleryId == id && x.TeamId == g.TeamId && !x.Dismissed && !x.Fixed
                                    select new { x.Number, x.PhotoId, x.Confidence }).ToListAsync();
             var unknown = sightings.GroupBy(x => x.Number)
-                .Select(x => new { number = x.Key, photos = x.Select(y => y.PhotoId).Distinct().Count(), confidence = x.Max(y => y.Confidence), photoIds = x.OrderByDescending(y => y.Confidence).Select(y => y.PhotoId).Distinct().Take(6) })
+                .Select(x => new { number = x.Key, photos = x.Select(y => y.PhotoId).Distinct().Count(), confidence = x.Max(y => y.Confidence), photoIds = x.OrderByDescending(y => y.Confidence).Select(y => y.PhotoId).Distinct().Take(24) })
                 .OrderBy(x => int.TryParse(x.number, out var n) ? n : int.MaxValue).ThenBy(x => x.number.Length).ThenBy(x => x.number, StringComparer.Ordinal).ToList();   // in number order, like a roster
             var approved = await (from s in db.PlayerSuggestions join p in db.Photos on s.PhotoId equals p.Id where p.GalleryId == id && s.Status == "approved" select s.Id).CountAsync();
             // sub folders (the games of a tournament), each with its own jersey: the gallery's sections first, then any other folder holding photos

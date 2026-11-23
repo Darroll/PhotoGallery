@@ -628,6 +628,9 @@ namespace PhotoGallery.Migrations
                     b.Property<bool>("Dismissed")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("Fixed")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Number")
                         .IsRequired()
                         .HasColumnType("TEXT");
