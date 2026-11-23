@@ -43,7 +43,13 @@ public static class GalleryPeople
     public static async Task<bool> AllowsAsync(AppDb db, Gallery g, ClaimsPrincipal user)
     {
         var email = VerifiedEmail(user);
-        if (email == null) return false;
+        return email != null && await AllowsEmailAsync(db, g, email);
+    }
+
+    /// <summary>True when this (verified, lower-case) email is on the gallery's own list or in a group invited to it.</summary>
+    public static async Task<bool> AllowsEmailAsync(AppDb db, Gallery g, string email)
+    {
+        email = email.Trim().ToLowerInvariant();
         if (Parse(g.AllowedEmails).Contains(email)) return true;
         return await db.GalleryGroups.AnyAsync(gg => gg.GalleryId == g.Id
             && db.GroupMembers.Any(m => m.GroupId == gg.GroupId && m.Email == email));

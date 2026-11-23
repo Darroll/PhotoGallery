@@ -559,6 +559,14 @@ async function viewGallery(app, slug) {
   const playerKey = 'pg.player.' + G.slug;
   let player = null;
   try { const s = localStorage.getItem(playerKey); player = players.find(c => c.tag.toLowerCase() === (s || '').toLowerCase()) || null; } catch { }
+  // a link from a "new photos of #10" email opens the gallery on that player (the tag, or its number when the tag's form changed)
+  const linked = new URLSearchParams(location.search).get('player');
+  if (linked) {
+    const num = (linked.match(/(\d{1,3})$/) || [])[1];
+    const c = players.find(c => c.tag.toLowerCase() === linked.toLowerCase()) || (num ? players.find(c => c.number === num) : null);
+    if (c) { player = c; try { localStorage.setItem(playerKey, c.tag); } catch { } }
+    const u = new URL(location.href); u.searchParams.delete('player'); history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+  }
   G.player = player;
   const ofPlayer = (list) => player ? list.filter(p => hasTag(p, player.tag)) : list;
   const pickPlayer = (c) => {
@@ -581,6 +589,7 @@ async function viewGallery(app, slug) {
         el.style.setProperty('--tag-c', tagColor(c.tag));
         return el;
       }),
+      player ? followButton(player, renderPlayers) : null,
       player && G.allowDownload && G.allowZip && n ? h('button', { class: 'primary player-dl',
         text: phoneSaveSupported() ? `Save all ${n} photos of ${player.label}` : `Download all ${n} photos of ${player.label}`,
         onclick: () => phoneSaveSupported()
@@ -1283,6 +1292,26 @@ function tagEditor(initial, onChange, opts = {}) {
 }
 
 // ---- Players in one photo (the photo viewer) ----
+// Follow a player: when the gallery allows it, a signed-in parent gets an email (at most once a day) when new photos of
+// the chosen player are tagged. G.follow is null when the gallery does not offer it; following lists jersey numbers.
+function followButton(c, redraw) {
+  if (!G.follow) return null;
+  const on = (G.follow.following || []).includes(c.number);
+  const signedIn = me && me.signedIn;
+  if (!signedIn) return me && me.sso ? h('a', { class: 'btn player-follow', href: '/auth/login?next=' + encodeURIComponent(location.pathname),
+    title: `Sign in to get an email when there are new photos of ${c.label}`, text: `Sign in to follow ${c.label}` }) : null;
+  return h('button', { class: 'player-follow' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false',
+    title: on ? `You get an email when there are new photos of ${c.label}. Tap to stop.` : `Get an email when there are new photos of ${c.label}, at most once a day`,
+    text: on ? `✓ Following ${c.label}` : `Follow ${c.label}`,
+    onclick: async () => {
+      const r = await api(`/api/g/${encodeURIComponent(G.slug)}/follow`, { method: 'POST', body: { tag: c.tag, follow: !on } });
+      if (!r.ok) { toast(r.status === 401 ? 'Sign in to follow a player.' : aiErr(r)); return; }
+      G.follow.following = r.data.following || [];
+      toast(on ? `You no longer follow ${c.label}.` : `Following ${c.label}. You will get an email when new photos are added, at most once a day.`);
+      redraw();
+    } });
+}
+
 // Player tags are ordinary tags; G.players lists the gallery's player chips. They show in their own row, apart from the other tags.
 const isPlayerTag = (n) => (G && G.players || []).some(c => c.tag.toLowerCase() === String(n).toLowerCase());
 const playersOn = (p) => (G && G.players || []).filter(c => hasTag(p, c.tag));
@@ -3783,7 +3812,14 @@ function playersManager(g) {
         field('Parents', h('label', {}, h('input', { type: 'checkbox', checked: !!d.allowPlayerTags, onchange: async (e) => {
           const res = await api(`/api/admin/galleries/${g.id}/playertags`, { method: 'PUT', body: { allow: e.target.checked } });
           msg.textContent = res.ok ? (res.data.allow ? 'Saved. Signed-in visitors can say who is in a photo; you approve each tag here.' : 'Saved. Only you tag players.') : aiErr(res);
-        } }), ' Signed-in visitors can suggest player tags'), 'They tap "Tag a player" under a photo. Nothing is tagged until you approve it below. They see jersey numbers only, unless the team puts names in tags.')),
+        } }), ' Signed-in visitors can suggest player tags'), 'They tap "Tag a player" under a photo. Nothing is tagged until you approve it below. They see jersey numbers only, unless the team puts names in tags.'),
+        field('Follow a player', h('label', {}, h('input', { type: 'checkbox', checked: !!d.allowFollow, onchange: async (e) => {
+          const res = await api(`/api/admin/galleries/${g.id}/follow`, { method: 'PUT', body: { allow: e.target.checked } });
+          msg.textContent = res.ok ? (res.data.allow ? 'Saved. Parents can follow a player here and get an email when you approve new photos of them.' : 'Saved. New photos here are not emailed to followers.') : aiErr(res);
+        } }), ' Parents can follow a player and get an email about new photos'),
+          (d.followMail ? 'Signed-in visitors pick a player and tap Follow. They get one email a day at most, listing new photos of that player in this team\'s galleries that allow it. Players are named by number unless the team puts names in tags.'
+            : 'Needs email set up first (Settings, Email), including the site address, because every email links back here.')
+          + (d.followers ? ` ${d.followers} ${d.followers === 1 ? 'person follows' : 'people follow'} players on this team.` : ''))),
       setupHint,
       h('p', { class: 'muted', text: `${d.checked} of ${d.photos} photos checked, ${d.approved} tag${d.approved === 1 ? '' : 's'} approved.` + (d.providers.length ? ` Uses ${d.providers.join(', then ')}.` : '') }),
       h('div', { class: 'row' },
@@ -4292,6 +4328,7 @@ async function viewStats(app) {
   try { const r = await api('/api/license'); if (r.ok) license = r.data; } catch { }
   if (new URLSearchParams(location.search).get('signin') === 'failed') { signinFailed = true; history.replaceState(null, '', location.pathname); }
   const qp = new URLSearchParams(location.search);
+  if (qp.has('unfollowed')) toast('You no longer follow that player. No more emails about them.');
   if (qp.has('subscribed') || qp.has('unsubscribed')) {
     toast(qp.has('unsubscribed') ? 'You have been unsubscribed.' : qp.get('subscribed') === '1' ? 'Subscribed. You will get emails about new galleries and photos.' : 'That link is not valid.');
     history.replaceState(null, '', location.pathname);

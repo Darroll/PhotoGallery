@@ -195,6 +195,7 @@ CaptionApi.Map(app);
 SearchApi.Map(app);
 PlayerApi.Map(app);
 PhotoPlayersApi.Map(app);
+FollowApi.Map(app);
 GroupApi.Map(app);
 
 app.Run();

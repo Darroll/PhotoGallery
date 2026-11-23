@@ -2,6 +2,11 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.3.0 (not released yet)
+
+- **Parents can follow a player.** A new switch in each gallery's Players section, off by default, lets signed-in visitors pick a player's chip and tap **Follow #10**. They then get an email, once a day at most, listing the new photos of each player they follow, with a link that opens the gallery on that player. Only approved tags count, after they have stood for 30 minutes, and only in the team's galleries that allow following and that the visitor can open. Players are named by number unless the team uses names in tags. Every email has a stop link, and the privacy tools export and delete follows. Needs sign-in (SSO) and email alerts with the site address.
+- Updating adds a table and two columns to the database; a copy of the database is saved first. Tags already on photos count as old, so nobody is emailed about them.
+
 ## 2.2.4 (not released yet)
 
 - **Tag suggestions stay with the gallery's team.** The + tag box on a gallery or a photo now suggests ordinary tags plus the player tags of that gallery's team only. A gallery without a team suggests no player tags. Tags already on a photo stay as they are, and the Tags settings page still lists every tag. The database does not change.

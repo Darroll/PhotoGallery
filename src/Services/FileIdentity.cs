@@ -78,7 +78,7 @@ public static class FileIdentity
         var haveTags = (await db.PhotoTags.Where(t => t.PhotoId == target.Id).Select(t => t.TagId).ToListAsync()).ToHashSet();
         var liveTags = (await db.Tags.Where(t => s.TagIds.Contains(t.Id)).Select(t => t.Id).ToListAsync()).ToHashSet();
         foreach (var tagId in s.TagIds)
-            if (liveTags.Contains(tagId) && haveTags.Add(tagId)) db.PhotoTags.Add(new PhotoTag { PhotoId = target.Id, TagId = tagId });
+            if (liveTags.Contains(tagId) && haveTags.Add(tagId)) db.PhotoTags.Add(new PhotoTag { PhotoId = target.Id, TagId = tagId, TaggedAt = DateTime.MinValue });   // a moved file is not a new photo for followers
 
         var haveLikes = (await db.Favorites.Where(f => f.PhotoId == target.Id).Select(f => f.VisitorId).ToListAsync()).ToHashSet();
         foreach (var l in s.Likes)
