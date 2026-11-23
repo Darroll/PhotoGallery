@@ -20,8 +20,13 @@ public static class PhotoDescriptions
     public const string Ai = "ai";
     public const string Admin = "admin";
 
-    /// <summary>How a player is named in a description: her name ("Reagan") when the team uses names in tags, otherwise "#11".</summary>
-    public static string Label(Team t, Player p) => t.TagWithNames && p.Name.Trim().Length > 0 ? p.Name.Trim() : $"#{p.Number}";
+    /// <summary>How a player is named in a description: her name from the roster ("Lilly"), or "#3" when the roster has no name for her.</summary>
+    public static string Label(Team t, Player p) => p.Name.Trim().Length > 0 ? p.Name.Trim() : $"#{p.Number}";
+
+    /// <summary>The roster as the model is told it: "3 = Lilly", "7 = #7", in jersey order.</summary>
+    public static List<string> RosterLines(Team t) => t.Players
+        .OrderBy(p => int.TryParse(p.Number, out var n) ? n : int.MaxValue).ThenBy(p => p.Number.Length)
+        .Select(p => $"{p.Number} = {Label(t, p)}").ToList();
 
     /// <summary>
     /// The other team's name, from the section or gallery title: "OCSS vs Rovers", "vs. Rovers", "Rovers v OCSS",
@@ -49,11 +54,11 @@ public static class PhotoDescriptions
     }
 
     /// <summary>What the model is told about players: the team and the labels. A change means the description is out of date.</summary>
-    /// <summary>"v2" is the prompt's version: a description written by an older prompt is written again.</summary>
+    /// <summary>"v3" is the prompt's version: a description written by an older prompt is written again. The roster is in it, so a name added there rewrites too.</summary>
     public static string Signature(Team? team, IEnumerable<string> labels, string opponent = "") =>
-        team == null ? "" : $"v2|t{team.Id}:{team.Name}|vs:{opponent}|" + string.Join("|", labels);
+        team == null ? "" : $"v3|t{team.Id}:{team.Name}|vs:{opponent}|r:{string.Join(",", RosterLines(team))}|" + string.Join("|", labels);
 
-    public static string Prompt(bool hasTeam, string colors, IReadOnlyList<string> labels, string teamName = "", string opponent = "")
+    public static string Prompt(bool hasTeam, string colors, IReadOnlyList<string> labels, string teamName = "", string opponent = "", IReadOnlyList<string>? roster = null)
     {
         var what = "Describe the scene in one to three sentences, at most 60 words, so parents can find this photo by searching: what is happening " +
                    "(for example a header, a shot, a save, a tackle, a throw-in, a corner kick, a goal celebration, a team huddle), the weather and light " +
@@ -70,10 +75,13 @@ public static class PhotoDescriptions
         var ours = labels.Count == 0 ? ""
             : "These players from our team are in the photo: " + string.Join(", ", labels) + ". Refer to them only by exactly these names " +
               $"(for example \"{labels[0]} heads the ball\"), never as \"player\" with a number, and only to the ones you can see. ";
-        return "This is a photo from one of our team's youth sports games. " + wear + teams + what + ours +
-               $"Call any other player in our team's jersey \"a {(name.Length > 0 ? name + " player" : "teammate")}\" or \"a teammate\". Players in other colors are opponents: mention them only in general words, " +
-               "such as \"an opponent\" or \"a defender\", never by number or name. " +
-               "Do not read out any jersey number yourself, do not name or guess who anyone is, and do not guess where the photo was taken. " + json;
+        var list = roster is { Count: > 0 }
+            ? "Our roster, jersey number = what to call her: " + string.Join(", ", roster) + ". For any other player in our team's jersey whose number you can clearly read, " +
+              "call her exactly as this list says (a name, or \"#\" and the number). If you cannot read her number clearly, or it is not on this list, call her \"a teammate\". "
+            : "Call any other player in our team's jersey \"a teammate\". ";
+        return "This is a photo from one of our team's youth sports games. " + wear + teams + what + ours + list +
+               "Players in other colors are opponents: mention them only in general words, such as \"an opponent\" or \"a defender\", never by number or name, " +
+               "even when their number is on our roster. Do not guess who anyone is from their look, and do not guess where the photo was taken. " + json;
     }
 
     /// <summary>Reads the model's reply: the description from its JSON, or the reply itself when it answered in plain words.</summary>
@@ -173,7 +181,8 @@ public static class PhotoDescriptions
                 if (!kits.TryGetValue(g.Id, out var fk)) kits[g.Id] = fk = PlayerTags.FolderKits(g);
                 colors = PlayerTags.ColorsFor(team, PlayerTags.KitFor(g, r.RelPath, fk));
             }
-            list.Add(new Todo(r.Id, team, colors, labels, on.Select(p => p.Number).ToList(), sig, stale, opponent));
+            // numbers allowed in the text: anyone on our roster (the model may name an untagged teammate it reads); opponents' numbers are taken out
+            list.Add(new Todo(r.Id, team, colors, labels, team == null ? new List<string>() : team.Players.Select(p => p.Number).ToList(), sig, stale, opponent));
         }
         return list.OrderByDescending(x => x.Stale).ThenByDescending(x => x.PhotoId).Take(max).ToList();
     }
@@ -195,7 +204,7 @@ public static class PhotoDescriptions
         {
             var v = await images.GetVariantAsync(photo, "ai", PlayerTags.ImageSize, "jpg", false) ?? throw new VisionException("The photo file could not be read");
             var jpeg = await File.ReadAllBytesAsync(v.path, ct);
-            var prompt = Prompt(todo.Team != null, todo.Colors, todo.Labels, todo.Team?.Name ?? "", todo.Opponent);
+            var prompt = Prompt(todo.Team != null, todo.Colors, todo.Labels, todo.Team?.Name ?? "", todo.Opponent, todo.Team == null ? null : RosterLines(todo.Team));
             foreach (var provider in chain)
             {
                 try

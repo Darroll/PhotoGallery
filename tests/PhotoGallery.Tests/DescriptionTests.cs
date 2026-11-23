@@ -72,7 +72,7 @@ public class DescriptionUnitTests
     public void A_label_is_the_number_unless_the_team_uses_names()
     {
         var p = new Player { Number = "10", Name = "Emma" };
-        Assert.Equal("#10", PhotoDescriptions.Label(new Team { Name = "FC" }, p));
+        Assert.Equal("Emma", PhotoDescriptions.Label(new Team { Name = "FC" }, p));   // known players are named, whatever the tag setting
         Assert.Equal("Emma", PhotoDescriptions.Label(new Team { Name = "FC", TagWithNames = true }, p));
         Assert.Equal("#3", PhotoDescriptions.Label(new Team { Name = "FC", TagWithNames = true }, new Player { Number = "3" }));
     }
@@ -136,9 +136,9 @@ public class DescriptionTests(VisionAppFactory app) : IClassFixture<VisionAppFac
 
             await RoundAsync();
             var p = await PhotoAsync(admin, slug, id);
-            Assert.Equal("#10 wins a header in the rain while an opponent watches.", p.GetProperty("description").GetString());   // the opponent's number is gone
+            Assert.Equal("Emma wins a header in the rain while an opponent watches.", p.GetProperty("description").GetString());   // the opponent's number is gone
             Assert.Equal("ai", p.GetProperty("descriptionSource").GetString());
-            Assert.Contains(app.Reader.TextPrompts, x => x.Contains("in the photo: #10."));
+            Assert.Contains(app.Reader.TextPrompts, x => x.Contains("in the photo: Emma.") && x.Contains("3 = #3, 7 = Ava, 10 = Emma"));
 
             // nothing changed: not asked again
             DateTime? At() => app.WithDbAsync(db => Task.FromResult(db.Photos.First(x => x.Id == id).DescribedAt)).Result;
@@ -149,14 +149,14 @@ public class DescriptionTests(VisionAppFactory app) : IClassFixture<VisionAppFac
             // a player identified: written again with both
             Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/photos/{id}/players", new { add = new[] { "7" } })).StatusCode);
             await RoundAsync();
-            Assert.StartsWith("#7, #10 wins", (await PhotoAsync(admin, slug, id)).GetProperty("description").GetString());
+            Assert.StartsWith("Ava, Emma wins", (await PhotoAsync(admin, slug, id)).GetProperty("description").GetString());
 
             // a number corrected (10 was really 3): written again without #10
             Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/photos/{id}/players", new { remove = new[] { "10" }, add = new[] { "3" } })).StatusCode);
             await RoundAsync();
             var fixedText = (await PhotoAsync(admin, slug, id)).GetProperty("description").GetString()!;
-            Assert.StartsWith("#3, #7 wins", fixedText);
-            Assert.DoesNotContain("#10", fixedText);
+            Assert.StartsWith("#3, Ava wins", fixedText);
+            Assert.DoesNotContain("Emma", fixedText);
 
             // the settings page lists it, marked as a rewrite after a retag
             var activity = await (await admin.GetAsync("/api/admin/settings/vision/descriptions/activity")).ReadAsync();
@@ -200,7 +200,7 @@ public class DescriptionTests(VisionAppFactory app) : IClassFixture<VisionAppFac
             await admin.PostAsJsonAsync($"/api/g/{slug}/photo/{id}/suggest", new { description = "" });
             await RoundAsync();
             p = await PhotoAsync(admin, slug, id);
-            Assert.StartsWith("#7 wins", p.GetProperty("description").GetString());
+            Assert.StartsWith("Ava wins", p.GetProperty("description").GetString());
             Assert.Equal("ai", p.GetProperty("descriptionSource").GetString());
 
             // visitors never see who wrote it
@@ -210,7 +210,7 @@ public class DescriptionTests(VisionAppFactory app) : IClassFixture<VisionAppFac
     }
 
     [Fact]
-    public async Task Names_are_used_only_when_the_team_uses_names_in_tags()
+    public async Task Players_with_a_roster_name_are_named()
     {
         await Serial.WaitAsync();
         try

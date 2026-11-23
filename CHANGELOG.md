@@ -2,6 +2,10 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.7.3 (not released yet)
+
+- **Known players are named, others keep their number.** A player in a description is called by her roster name when the roster has one ("Lilly did a thing") and by her number when it does not ("#3 did a thing"), whether or not the team uses names in tags. Players tagged on the photo are always named this way. The AI also gets the gallery team's roster, so a player in our jersey whose number it reads clearly is named the same way even before she is tagged; a number not on the roster, and any player in the other team's colors, is never named or numbered. Adding or changing a name on the roster rewrites the descriptions.
+
 ## 2.7.2 (not released yet)
 
 - **Descriptions use team and player names.** The AI is told our team's name and calls it that ("Hurricanes"), never "the yellow team". The other team's name comes from the section or gallery title ("Hurricanes vs Rovers", "vs. Rovers", "against Rovers"); without one it is "the opponents". When the team uses names in tags, tagged players are named ("Reagan heads the ball"); otherwise by number ("#11"). A "Player 11" the AI reads off an untagged jersey is taken out. Descriptions written before this update are written again with the new wording.
