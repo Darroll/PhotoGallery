@@ -92,6 +92,8 @@ async function recordLicenseAcceptance() {
 // Tag colours. A tag the admin has not coloured gets one picked from its name, so every tag has a colour and a tag keeps the same one everywhere.
 const tagPalette = ['#e5484d', '#f76b15', '#e0a000', '#30a46c', '#12a594', '#0091ff', '#3e63dd', '#8e4ec6', '#d6409f', '#6e7b8b'];
 let tagColorMap = {};   // lower-case tag name -> colour the admin chose
+// Whether a photo carries this tag (names compare in any case, as on the server).
+function hasTag(p, tag) { const t = String(tag).toLowerCase(); return (p.tags || []).some(x => x.toLowerCase() === t); }
 function learnTagColors(map) { if (map && typeof map === 'object') Object.assign(tagColorMap, map); }
 function tagColor(name) {
   const key = String(name).toLowerCase();
@@ -534,6 +536,37 @@ async function viewGallery(app, slug) {
   const approved = G.photos.filter(p => p.approved || G.admin);
   const rawOnlyCount = approved.filter(p => p.rawOnly).length;
   let selectMode = false, favOnly = false, likedFirst = false;
+
+  // Player filter: a chip per player tagged in this gallery; picking one shows only that player's photos. The pick is
+  // remembered in this browser for the gallery, so a parent coming back finds their child's photos straight away.
+  const players = (G.players || []).filter(c => approved.some(p => hasTag(p, c.tag)));
+  const playerKey = 'pg.player.' + G.slug;
+  let player = null;
+  try { const s = localStorage.getItem(playerKey); player = players.find(c => c.tag.toLowerCase() === (s || '').toLowerCase()) || null; } catch { }
+  G.player = player;
+  const ofPlayer = (list) => player ? list.filter(p => hasTag(p, player.tag)) : list;
+  const pickPlayer = (c) => {
+    player = c && (!player || player.tag !== c.tag) ? c : null;   // tapping the chosen chip again shows everyone
+    G.player = player;
+    try { if (player) localStorage.setItem(playerKey, player.tag); else localStorage.removeItem(playerKey); } catch { }
+    sel.clear();
+    fill();
+  };
+  const playerBar = players.length ? h('div', { class: 'player-bar', role: 'group', 'aria-label': 'Show photos of one player' }) : null;
+  const renderPlayers = () => {
+    if (!playerBar) return;
+    const n = player ? approved.filter(p => p.approved && hasTag(p, player.tag)).length : 0;
+    playerBar.replaceChildren(
+      h('span', { class: 'player-lead muted', text: 'Players' }),
+      h('button', { class: 'player-chip' + (player ? '' : ' on'), 'aria-pressed': player ? 'false' : 'true', text: 'Everyone', onclick: () => pickPlayer(null) }),
+      ...players.map(c => {
+        const on = !!player && player.tag === c.tag;
+        const el = h('button', { class: 'player-chip' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false', title: c.tag, text: c.label, onclick: () => pickPlayer(c) });
+        el.style.setProperty('--tag-c', tagColor(c.tag));
+        return el;
+      }),
+      player && G.allowDownload && G.allowZip && n ? h('button', { class: 'primary player-dl', text: `Download all ${n} photos of ${player.label}`, onclick: () => openDownloadSheet({ scope: 'player' }) }) : null);
+  };
   const tiles = new Map();
 
   const countLabel = h('span', { class: 'muted' });
@@ -609,7 +642,7 @@ async function viewGallery(app, slug) {
 
   // The number on a tab: curated/all (57/305) while the Curated filter hides RAW frames, otherwise just the number of photos.
   // With favorites showing it is the number of favorites in that section.
-  const inTab = (key) => approved.filter(p => p.approved && secKey(p) === key);
+  const inTab = (key) => ofPlayer(approved.filter(p => p.approved && secKey(p) === key));
   const tabCounts = (key) => {
     if (favOnly) { const n = inTab(key).filter(p => favs.has(p.id)).length; return { n, total: n }; }
     const all = inTab(key);
@@ -622,18 +655,20 @@ async function viewGallery(app, slug) {
     const showRaw = !curated.checked;
     let photos = showRaw ? approved : approved.filter(p => !p.rawOnly);
     if (favOnly) photos = approved.filter(p => favs.has(p.id));
+    photos = ofPlayer(photos);
     if (likedFirst && !favOnly) photos = byLikes(photos);
     // With sections only the open tab's photos are on the page; the viewer, slideshow and Select all work on those.
     let tabs = sections, openSec = null, perSection = new Map();
     if (sections.length) {
       sections.forEach(s => perSection.set(s.folder.toLowerCase(), photos.filter(p => secKey(p) === s.folder.toLowerCase())));
-      tabs = favOnly ? sections.filter(s => perSection.get(s.folder.toLowerCase()).length) : sections;   // favorites: only tabs that have one
+      tabs = favOnly || player ? sections.filter(s => perSection.get(s.folder.toLowerCase()).length) : sections;   // favorites or one player: only tabs that have photos
       if (!tabs.some(s => s.folder.toLowerCase() === activeSec)) activeSec = tabs.length ? tabs[0].folder.toLowerCase() : null;
       openSec = tabs.find(s => s.folder.toLowerCase() === activeSec) || null;
       photos = openSec ? perSection.get(activeSec) : [];
     }
     G.list = photos;
-    countLabel.textContent = favOnly ? `${photos.length} favorites` : plural(photos.filter(p => p.approved).length, 'photo');
+    countLabel.textContent = (favOnly ? `${photos.length} favorites` : plural(photos.filter(p => p.approved).length, 'photo')) + (player ? ` of ${player.label}` : '');
+    renderPlayers();
     curatedText.textContent = showRaw ? ' Curated only' : ` Curated only (${rawOnlyCount} unedited RAW hidden)`;
     rawBtn.classList.toggle('hidden', favOnly);
     slideBtn.disabled = !photos.length;
@@ -657,7 +692,7 @@ async function viewGallery(app, slug) {
       tiles.set(p.id, { el: item, heart, check, p });
       return item;
     };
-    if (!sections.length) grid.replaceChildren(...photos.map(makeTile));
+    if (!sections.length) grid.replaceChildren(...(photos.length || !player ? photos.map(makeTile) : [h('p', { class: 'muted', text: favOnly ? `None of your favorites are of ${player.label}.` : `No photos of ${player.label} here yet.` })]));
     else {
       if (secNav) secNav.replaceChildren(...tabs.map(s => {
         const key = s.folder.toLowerCase(), on = key === activeSec;
@@ -665,7 +700,7 @@ async function viewGallery(app, slug) {
           onclick: () => { activeSec = key; try { history.replaceState(history.state, '', location.pathname + location.search + '#s=' + encodeURIComponent(s.folder)); } catch { } fill(); } },
           s.title, h('span', { class: 'sec-count', title: tabCountTitle(key), text: tabCount(key) }));
       }));
-      if (!openSec) grid.replaceChildren(h('p', { class: 'muted', text: 'Nothing to show.' }));
+      if (!openSec) grid.replaceChildren(h('p', { class: 'muted', text: player && !favOnly ? `No photos of ${player.label} here yet.` : 'Nothing to show.' }));
       else {
         const s = openSec;
         const hiddenRaw = curated.checked ? approved.filter(p => p.rawOnly && secKey(p) === activeSec).length : 0;   // unedited RAW frames the Curated filter is hiding here
@@ -697,7 +732,7 @@ async function viewGallery(app, slug) {
   if (rawOnlyCount > 0) tb.append(rawBtn);
   tb.append(h('span', { class: 'grow' }));
   if (G.allowUpload) tb.append(uploadControl(slug));
-  app.append(strip, tb, secNav, favBar, grid, selBar);
+  app.append(strip, tb, playerBar, secNav, favBar, grid, selBar);
   if (external.length) app.append(h('h2', { class: 'ext-head', text: 'Links' }), h('div', { class: 'ext-links' }, external.map(l =>
     h('a', { class: 'ext-card', href: l.url, target: '_blank', rel: 'noopener noreferrer' },
       l.preview && l.preview.image ? h('img', { class: 'ext-img', src: l.preview.image, alt: '', loading: 'lazy' }) : null,
@@ -710,7 +745,9 @@ async function viewGallery(app, slug) {
   G.revealAll = (pid) => {
     const p = pid ? approved.find(x => x.id === pid) : null;
     if (p && sections.length) { activeSec = secKey(p); favOnly = false; fill(); if (G.list.some(x => x.id === pid)) return; }
-    curated.checked = false; favOnly = false; fill();
+    curated.checked = false; favOnly = false;
+    if (player && p && !hasTag(p, player.tag)) { player = null; G.player = null; }
+    fill();
   };
   galleryView = slug;
 }
@@ -884,6 +921,8 @@ function openDownloadSheet(opts = {}) {
   const scopes = [];
   if (photo) scopes.push(['photo', `This photo – ${photo.name}`]);
   if (opts.section && G.allowZip) scopes.push(['section', `${opts.section.title}${zipWord}`]);
+  const pl = G.player, plCount = pl ? G.photos.filter(p => p.approved && hasTag(p, pl.tag)).length : 0;
+  if (pl && plCount && G.allowZip) scopes.push(['player', `All photos of ${pl.label} (${plCount})`]);
   if (G.allowZip && sel.size) scopes.push(['selected', `Selected photos (${sel.size})`]);
   if (G.allowZip && favs.size) scopes.push(['favorites', `My favorites (${favs.size})`]);
   if (G.allowZip) scopes.push(['all', 'Whole gallery' + zipWord]);
@@ -933,6 +972,7 @@ function openDownloadSheet(opts = {}) {
     if (scope === 'photo') { location.href = `/dl/${photo.id}?${q}`; closeSheet(); return; }
     if (rawBox.checked && G.allowRaw) q.set('raw', 'true');
     if (scope === 'section') q.set('section', opts.section.folder);
+    else if (scope === 'player') q.set('player', pl.tag);
     else if (scope !== 'all') {
       const ids = scope === 'selected' ? [...sel] : [...favs];
       if (ids.length > 500) { toast('Choose 500 photos or fewer at a time'); return; }
@@ -947,6 +987,7 @@ function openDownloadSheet(opts = {}) {
   const phoneBody = () => {
     if (scope === 'photo') return { ids: [photo.id] };
     if (scope === 'section') return { section: opts.section.folder };
+    if (scope === 'player') return { player: pl.tag };
     const ids = scope === 'selected' ? [...sel] : scope === 'favorites' ? [...favs] : G.photos.filter(p => p.approved && !p.rawOnly).map(p => p.id);
     return { ids };
   };

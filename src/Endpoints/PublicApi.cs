@@ -10,7 +10,19 @@ public static class PublicApi
     record FavInput(bool On);
     record NameInput(string? Name);
     record LicenseAcceptInput(string? Version);
-    record PhoneSaveInput(List<int>? Ids, string? Section);
+    record PhoneSaveInput(List<int>? Ids, string? Section, string? Player);
+
+    /// <summary>The photos in the list that carry this tag (a player's, from the player filter). Names compare in any case.</summary>
+    static async Task<List<Photo>> WithTagAsync(AppDb db, List<Photo> photos, string tagName)
+    {
+        var name = Tags.Clean(tagName).ToLower();
+        var galleryIds = photos.Select(p => p.GalleryId).Distinct().ToList();
+        var tagged = (await db.PhotoTags.AsNoTracking()
+            .Join(db.Tags.Where(t => t.Name.ToLower() == name), pt => pt.TagId, t => t.Id, (pt, t) => pt.PhotoId)
+            .Join(db.Photos.Where(p => galleryIds.Contains(p.GalleryId)), id => id, p => p.Id, (id, p) => id)
+            .ToListAsync()).ToHashSet();
+        return photos.Where(p => tagged.Contains(p.Id)).ToList();
+    }
 
     public static void Map(WebApplication app)
     {
@@ -116,12 +128,14 @@ public static class PublicApi
 
             var gTags = (await Tags.NamesByGalleryAsync(db, new List<int> { g.Id })).GetValueOrDefault(g.Id) ?? new List<string>();
             var tagColors = await Tags.ColorsAsync(db, gTags.Concat(tagNames.Values.SelectMany(v => v)));
+            var players = await PlayerTags.ChipsAsync(db, tagNames.Values.SelectMany(v => v));
             var locked = g.WatermarkDownload && !admin;
             var previews = settings.LinkPreviews.Enabled;
             if (previews) ExternalLinkPreviews.EnsureInBackground(cfg, GalleryRules.Links(g).Where(l => GalleryRules.CategoryOf(l) == "external").Select(l => l.Url));
             return Results.Ok(new
             {
                 g.Id, g.Slug, g.Title, g.Description, g.Visibility, cover = g.CoverPhotoId, tags = gTags, tagColors,
+                players = players.Select(x => new { tag = x.Tag, label = x.Label, number = x.Number }),
                 g.Location, eventDate = g.EventDate, eventEndDate = g.EventEndDate, coverMode = g.CoverMode, shareUrl = GalleryRules.ShareUrl(g, null, settings.Email.SiteUrl, $"{ctx.Request.Scheme}://{ctx.Request.Host}"), hideRawOnly = g.HideRawOnly, allowLikes = g.AllowLikes, allowComments = g.AllowComments, allowFeedback = g.AllowFeedback, showLikeCounts = g.ShowLikeCounts || admin, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note, preview = previews && GalleryRules.CategoryOf(l) == "external" ? ExternalLinkPreviews.ForPage(cfg, l.Url) : null }), sections = layout.Select(s => new { folder = s.Folder, s.Title, count = sectionCounts.GetValueOrDefault(s.Folder), links = (s.Links ?? new()).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }) }), favorites = favoriteIds, favoriteName, sizes =GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
                 allowDownload = g.AllowDownload,
                 allowOriginal = g.AllowDownload && !locked,
@@ -361,8 +375,9 @@ public static class PublicApi
                 var wanted = input.Ids.Where(n => n > 0).Take(PhoneSaves.MaxPhotos).ToHashSet();
                 photos = photos.Where(p => wanted.Contains(p.Id)).ToList();
             }
-            else if (input.Section == null) return Results.BadRequest("Choose the photos to save");
+            else if (input.Section == null && string.IsNullOrWhiteSpace(input.Player)) return Results.BadRequest("Choose the photos to save");
             if (input.Section != null) photos = photos.Where(p => string.Equals(GalleryRules.SectionOf(g, p.RelPath), input.Section, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (!string.IsNullOrWhiteSpace(input.Player)) photos = await WithTagAsync(db, photos, input.Player);
             if (photos.Count == 0) return Results.NotFound();
             if (photos.Count > PhoneSaves.MaxPhotos) return Results.BadRequest($"Choose {PhoneSaves.MaxPhotos} photos or fewer at a time");
             // more than one photo at once is a bulk download, so it follows the gallery's ZIP switch
@@ -405,7 +420,7 @@ public static class PublicApi
             return Results.File(v.Value.path, "image/jpeg", $"{baseName}.jpg");
         }).RequireRateLimiting("download");
 
-        app.MapGet("/api/g/{slug}/zip", async (string slug, string? size, string? fmt, bool? raw, string? ids, string? section, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity, SettingsService settings) =>
+        app.MapGet("/api/g/{slug}/zip", async (string slug, string? size, string? fmt, bool? raw, string? ids, string? section, string? player, HttpContext ctx, AppDb db, AccessService access, AppConfig cfg, ImageService images, ActivityLog activity, SettingsService settings) =>
         {
             var g = await db.Galleries.FirstOrDefaultAsync(x => x.Slug == slug);
             if (g == null) return Results.NotFound();
@@ -437,15 +452,17 @@ public static class PublicApi
             }
             // one section (sub folder) of the gallery, e.g. a single game; "" is the photos outside any sub folder
             if (section != null) photos = photos.Where(p => string.Equals(GalleryRules.SectionOf(g, p.RelPath), section, StringComparison.OrdinalIgnoreCase)).ToList();
+            // one player's photos (the player filter's "Download all"): those carrying the player's tag
+            if (!string.IsNullOrWhiteSpace(player)) photos = await WithTagAsync(db, photos, player);
             photos = GalleryRules.Sort(photos, g, x => x.TakenAt, x => x.Name, x => x.AddedAt);
             if (photos.Count == 0) return Results.NotFound();
             if (!await access.TryConsumeDownloadAsync(a)) return Results.StatusCode(410);
-            activity.Record(ctx, "zip", g.Id, null, (original ? "original" : $"{px}px {f}") + (includeRaw ? " +RAW" : "") + (string.IsNullOrEmpty(ids) ? "" : $" ({photos.Count} selected)") + (section == null ? "" : $" [{new string(section.Where(c => !char.IsControl(c)).Take(40).ToArray())}]"));
+            activity.Record(ctx, "zip", g.Id, null, (original ? "original" : $"{px}px {f}") + (includeRaw ? " +RAW" : "") + (string.IsNullOrEmpty(ids) ? "" : $" ({photos.Count} selected)") + (section == null ? "" : $" [{new string(section.Where(c => !char.IsControl(c)).Take(40).ToArray())}]") + (string.IsNullOrWhiteSpace(player) ? "" : $" [{Tags.Clean(new string(player.Where(c => !char.IsControl(c)).ToArray()))}]"));
 
             var body = ctx.Features.Get<IHttpBodyControlFeature>();
             if (body != null) body.AllowSynchronousIO = true;
             ctx.Response.ContentType = "application/zip";
-            ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{g.Slug}{(section == null ? "" : "-" + System.Text.RegularExpressions.Regex.Replace(section, "[^A-Za-z0-9]+", "-").Trim('-'))}{(string.IsNullOrEmpty(ids) ? "" : "-selected")}{(original ? "" : "_" + px)}.zip\"";
+            ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{g.Slug}{(section == null ? "" : "-" + System.Text.RegularExpressions.Regex.Replace(section, "[^A-Za-z0-9]+", "-").Trim('-'))}{(string.IsNullOrWhiteSpace(player) ? "" : "-" + System.Text.RegularExpressions.Regex.Replace(Tags.Clean(player), "[^A-Za-z0-9]+", "-").Trim('-'))}{(string.IsNullOrEmpty(ids) ? "" : "-selected")}{(original ? "" : "_" + px)}.zip\"";
 
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             string Unique(string name)

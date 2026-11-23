@@ -307,7 +307,39 @@ public static class PlayerTags
         await db.SaveChangesAsync();
         return added;
     }
+
+    /// <summary>
+    /// The player chips for a gallery's filter: which of these tag names are players' tags, in jersey order. A tag counts
+    /// in either form ("Hurricanes 10" or "Emma 10"), so photos tagged before the team's name setting changed still filter.
+    /// The label is "#10" when every chip is one team's team-and-number tag, otherwise the tag itself.
+    /// </summary>
+    public static async Task<List<PlayerChip>> ChipsAsync(AppDb db, IEnumerable<string> tagNames)
+    {
+        var present = new HashSet<string>(tagNames, StringComparer.OrdinalIgnoreCase);
+        if (present.Count == 0) return new();
+        var teams = await db.Teams.AsNoTracking().Include(t => t.Players).ToListAsync();
+        var found = new Dictionary<string, (Team Team, Player Player, bool Named)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in teams)
+            foreach (var p in t.Players)
+            {
+                var plain = Tags.Clean($"{t.Name} {p.Number}");
+                var named = p.Name.Length > 0 ? Tags.Clean($"{p.Name} {p.Number}") : null;
+                if (present.TryGetValue(plain, out var a)) found.TryAdd(a, (t, p, false));
+                if (named != null && present.TryGetValue(named, out var b)) found.TryAdd(b, (t, p, true));
+            }
+        var shortLabels = found.Values.All(x => !x.Named) && found.Values.Select(x => x.Team.Id).Distinct().Count() == 1;
+        return found
+            .OrderBy(x => x.Value.Team.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => int.TryParse(x.Value.Player.Number, out var n) ? n : int.MaxValue)
+            .ThenBy(x => x.Value.Player.Number.Length)   // 0 before 00, kept apart
+            .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(x => new PlayerChip(x.Key, shortLabels ? "#" + x.Value.Player.Number : x.Key, x.Value.Player.Number))
+            .ToList();
+    }
 }
+
+/// <summary>A player filter chip on a gallery: the tag on the photos, the text on the chip, and the jersey number.</summary>
+public record PlayerChip(string Tag, string Label, string Number);
 
 /// <summary>What checking one photo gave: new suggestions, our players it read (with confidence), numbers not on the roster.</summary>
 public record PhotoCheckResult(int Added, List<string> Seen, List<string> NotOnRoster, string Provider, long Ms);
