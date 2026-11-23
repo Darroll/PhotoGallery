@@ -196,12 +196,13 @@ public static class PlayerApi
             if (!await db.Photos.AnyAsync(p => p.Id == photoId && p.GalleryId == id)) return Results.NotFound();
             var team = await db.Teams.Include(t => t.Players).FirstAsync(t => t.Id == g.TeamId);
             Player? player = null;
+            string? newNumber = null;   // a number not on the roster yet: the photo waits under it until the player is added
             if (!string.IsNullOrWhiteSpace(input.Number))
             {
                 var number = PlayerTags.ParseRoster(Cut(input.Number, 4)).FirstOrDefault().Number;
                 if (number == null) return Results.BadRequest("A jersey number is 1 to 3 digits.");
                 player = team.Players.FirstOrDefault(p => p.Number == number);
-                if (player == null) return Results.BadRequest($"#{number} is not on the {team.Name} roster. Add the player on the Teams page first.");
+                if (player == null) newNumber = number;
             }
             if (input.Suggestion is { } sid)
             {
@@ -211,8 +212,15 @@ public static class PlayerApi
             if (!string.IsNullOrWhiteSpace(input.Sighting))
                 foreach (var x in await db.NumberSightings.Where(x => x.TeamId == team.Id && x.PhotoId == photoId && x.Number == input.Sighting).ToListAsync()) x.Fixed = true;
             if (player != null) await PlayerTags.TagByHandAsync(db, photoId, team, player);
+            if (newNumber != null)
+            {
+                // set by the admin, so it is listed even if the number was dismissed before, and tagged straight away once the player is added
+                var x = await db.NumberSightings.FirstOrDefaultAsync(x => x.TeamId == team.Id && x.PhotoId == photoId && x.Number == newNumber);
+                if (x == null) { x = new NumberSighting { TeamId = team.Id, PhotoId = photoId, Number = newNumber }; db.NumberSightings.Add(x); }
+                x.Confidence = 100; x.Source = PlayerTags.AdminSource; x.Dismissed = false; x.Fixed = false;
+            }
             await db.SaveChangesAsync();
-            return Results.Ok(new { tag = player == null ? null : PlayerTags.TagName(team, player) });
+            return Results.Ok(new { tag = player == null ? null : PlayerTags.TagName(team, player), number = newNumber });
         });
 
         // where the gallery stands: its team, how many photos were checked, the job's progress, and the suggestions waiting

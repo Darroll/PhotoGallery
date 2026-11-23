@@ -657,3 +657,4 @@ table.data td:last-child { text-align: right; font-variant-numeric: tabular-nums
 .unknown-thumb.fixed, .player-row.fixed { position: relative; }
 .fixed-label { font-size: 13px; font-weight: 600; color: var(--ok); }
 .player-row.fixed .chips, .player-row.fixed .fix-picker { opacity: 0.4; pointer-events: none; }
+.num-chip.new { border-style: dashed; }

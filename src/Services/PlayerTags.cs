@@ -256,11 +256,14 @@ public static class PlayerTags
         return new PhotoCheckResult(added, seenOurs, unknown.Select(n => "#" + n.Number).Distinct().ToList(), VisionProvider.Label(answer.Provider), answer.Ms);
     }
 
+    /// <summary>The source of a number the admin set by hand.</summary>
+    public const string AdminSource = "admin";
+
     /// <summary>The admin says this player is in this photo: approves the suggestion, making one if the model never read it.</summary>
     public static async Task TagByHandAsync(AppDb db, int photoId, Team team, Player player)
     {
         var s = await db.PlayerSuggestions.FirstOrDefaultAsync(x => x.PhotoId == photoId && x.PlayerId == player.Id);
-        if (s == null) { s = new PlayerSuggestion { PhotoId = photoId, PlayerId = player.Id, Confidence = 100, Source = "admin" }; db.PlayerSuggestions.Add(s); }
+        if (s == null) { s = new PlayerSuggestion { PhotoId = photoId, PlayerId = player.Id, Confidence = 100, Source = AdminSource }; db.PlayerSuggestions.Add(s); }
         s.Unsure = false; s.Note = "";
         await ApproveAsync(db, s, team, player);
     }
@@ -287,7 +290,7 @@ public static class PlayerTags
         var players = team.Players.Where(p => p.Id > 0).ToDictionary(p => p.Number);
         if (players.Count == 0) return 0;
         var nums = players.Keys.ToList();
-        var sightings = await db.NumberSightings.Where(x => x.TeamId == team.Id && !x.Dismissed && !x.Fixed && nums.Contains(x.Number)).ToListAsync();
+        var sightings = await db.NumberSightings.Where(x => x.TeamId == team.Id && !x.Fixed && (!x.Dismissed || x.Source == AdminSource) && nums.Contains(x.Number)).ToListAsync();
         if (sightings.Count == 0) return 0;
         var ids = players.Values.Select(p => p.Id).ToList();
         var photoIds = sightings.Select(x => x.PhotoId).Distinct().ToList();
@@ -299,8 +302,10 @@ public static class PlayerTags
             var pl = players[x.Number];
             if (known.Add((x.PhotoId, pl.Id)))
             {
-                db.PlayerSuggestions.Add(new PlayerSuggestion { PhotoId = x.PhotoId, PlayerId = pl.Id, Confidence = x.Confidence, Source = x.Source, Status = "pending" });
+                var s = new PlayerSuggestion { PhotoId = x.PhotoId, PlayerId = pl.Id, Confidence = x.Confidence, Source = x.Source, Status = "pending" };
+                db.PlayerSuggestions.Add(s);
                 added++;
+                if (x.Source == AdminSource) await ApproveAsync(db, s, team, pl);   // the admin already said who it is
             }
             db.NumberSightings.Remove(x);
         }

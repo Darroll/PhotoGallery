@@ -614,7 +614,7 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             var fix = await (await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/photos/{pid}/player", new { number = "00", suggestion = zoe.GetProperty("id").GetInt32() })).ReadAsync();
             Assert.Equal("Hidden Flow FC 00", fix.GetProperty("tag").GetString());
             Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/photos/{pid}/player", new { sighting = "1" })).StatusCode);
-            Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/photos/{pid}/player", new { number = "44" })).StatusCode);
+            Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/photos/{pid}/player", new { number = "abc" })).StatusCode);
             s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
             Assert.Empty(s.GetProperty("pending").EnumerateArray());
             Assert.Empty(s.GetProperty("unknown").EnumerateArray());
@@ -625,6 +625,20 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
             s = await WaitAsync(admin, gid);
             Assert.Empty(s.GetProperty("pending").EnumerateArray());
             Assert.Empty(s.GetProperty("unknown").EnumerateArray());
+
+            // a number not on the roster yet (the name is not known): the photo waits under it, then is tagged once the player is added
+            var moved = await (await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/photos/{pid}/player", new { number = "44" })).ReadAsync();
+            Assert.Equal("44", moved.GetProperty("number").GetString());
+            s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
+            var u44 = s.GetProperty("unknown").EnumerateArray().Single();
+            Assert.Equal("44", u44.GetProperty("number").GetString());
+            Assert.Equal(pid, u44.GetProperty("photoIds")[0].GetInt32());
+            var added = await (await admin.PostAsJsonAsync($"/api/admin/teams/{teamId}/players", new { number = "44", name = "Noa" })).ReadAsync();
+            Assert.Equal(1, added.GetProperty("suggestions").GetInt32());
+            s = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
+            Assert.Empty(s.GetProperty("unknown").EnumerateArray());
+            Assert.Empty(s.GetProperty("pending").EnumerateArray());   // set by hand, so tagged straight away
+            Assert.Equal(4, s.GetProperty("approved").GetInt32());
         }
         finally { Serial.Release(); }
     }

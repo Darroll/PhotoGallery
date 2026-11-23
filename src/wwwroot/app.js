@@ -3434,7 +3434,7 @@ function playersManager(g) {
       const typed = h('input', { type: 'text', inputmode: 'numeric', maxlength: 3, placeholder: '#', 'aria-label': 'Jersey number', class: 'fix-num' });
       const send = async (number) => {
         const res = await api(`/api/admin/galleries/${g.id}/photos/${photoId}/player`, { method: 'POST', body: { number, ...replace } });
-        if (res.ok) { if (res.data.tag) toast(`Tagged ${res.data.tag}`); load(); } else note.textContent = aiErr(res);
+        if (res.ok) { if (res.data.tag) toast(`Tagged ${res.data.tag}`); else if (res.data.number) toast(`Listed under #${res.data.number} until you add the player`); load(); } else note.textContent = aiErr(res);
       };
       typed.addEventListener('keydown', e => { if (e.key === 'Enter' && typed.value.trim()) send(typed.value.trim()); });
       return h('div', { class: 'fix-picker', hidden: true },
@@ -3461,7 +3461,7 @@ function playersManager(g) {
         const res = await api(`/api/admin/galleries/${g.id}/photos/${photoId}/player`, { method: 'POST', body: { number, ...replace } });
         if (!res.ok) { note.textContent = aiErr(res); return; }
         closeMenu();
-        done(res.data.tag ? `→ ${res.data.tag}` : 'Not a player');
+        done(res.data.tag ? `→ ${res.data.tag}` : res.data.number ? `→ #${res.data.number}, not on the roster yet` : 'Not a player');
       };
       typed.addEventListener('keydown', ev => {
         if (ev.key === 'Enter' && typed.value.trim()) send(typed.value.trim().replace(/^#/, ''));
@@ -3472,6 +3472,9 @@ function playersManager(g) {
       menu = h('div', { class: 'fix-menu', role: 'menu' },
         h('div', { class: 'fix-menu-title', text: title }),
         h('div', { class: 'fix-menu-nums' }, nums.map(p => h('button', { class: 'num-chip', role: 'menuitem', text: `#${p.number}`, title: p.name || `#${p.number}`, onclick: () => send(p.number) }))),
+        // numbers seen that are not on the roster yet: the photo waits under that number until the player is added
+        (d.unknown || []).some(x => x.number !== read) ? h('div', { class: 'fix-menu-nums' }, h('span', { class: 'muted', text: 'Not on the roster yet:' }),
+          (d.unknown || []).filter(x => x.number !== read).map(x => h('button', { class: 'num-chip new', role: 'menuitem', text: `#${x.number}`, title: `Put this photo with the other #${x.number} photos until you add the player`, onclick: () => send(x.number) }))) : null,
         typed,
         h('div', { class: 'row' },
           approve ? h('button', { class: 'primary', role: 'menuitem', text: 'Approve', onclick: async () => { closeMenu(); await approve(); } }) : null,
@@ -3522,7 +3525,7 @@ function playersManager(g) {
           const res = await api(`/api/admin/galleries/${g.id}/photos/${t.pid}/player`, { method: 'POST', body: { number: to, sighting: u.number } });
           if (!res.ok) { note.textContent = aiErr(res); move.disabled = false; return; }
         }
-        toast(`${picked.length} photo${picked.length === 1 ? '' : 's'} tagged as #${to}`); load();
+        toast(`${picked.length} photo${picked.length === 1 ? '' : 's'} moved to #${to}`); load();
       } });
       moveTo.addEventListener('keydown', e => { if (e.key === 'Enter') move.click(); });
       const no = h('button', { text: 'Not ours', title: 'The other team, or a misreading. This number is not offered again for this team.', onclick: async () => {
