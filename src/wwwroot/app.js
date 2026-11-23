@@ -869,7 +869,8 @@ function openShareSheet(section) {
 // ---------- save to phone ----------
 // Phones that can share files (iPhone and Android browsers) can put photos straight into the photo app through the
 // share sheet ("Save image"), which is much easier than a ZIP. Only offered on touch devices that support it.
-const PHONE_BATCH = 15;
+// Android Chrome shares at most 10 files and 50 MB at a time, so a batch stays under both.
+const PHONE_BATCH = 10, PHONE_BATCH_BYTES = 45 * 1024 * 1024;
 function phoneSaveSupported() {
   try {
     return matchMedia('(pointer: coarse)').matches && !!navigator.canShare &&
@@ -905,22 +906,32 @@ async function startPhoneSave(body, box, opts = {}) {
     const name = blob.type === 'image/jpeg' && !/\.jpe?g$/i.test(p.name) ? p.name.replace(/\.[^.]+$/, '') + '.jpg' : p.name;
     return new File([blob], name, { type: blob.type || 'image/jpeg' });
   };
+  // A batch is up to PHONE_BATCH photos and PHONE_BATCH_BYTES; a photo that would go over the size is kept for the next batch.
+  let carry = null;
+  const range = () => photos.length > 1 ? `Photos ${next + 1} to ${next + files.length} of ${photos.length}` : 'The photo';
   const prepare = async () => {
-    const batch = photos.slice(next, next + PHONE_BATCH);
     saveBtn.disabled = true;
     saveBtn.textContent = 'Getting photos ready…';
-    status.textContent = photos.length > PHONE_BATCH ? `Getting photos ${next + 1} to ${next + batch.length} of ${photos.length} ready…` : `Getting ${plural(batch.length, 'photo')} ready…`;
+    status.textContent = photos.length > 1 ? `Getting photos ready from ${next + 1} of ${photos.length}…` : 'Getting the photo ready…';
+    files = [];
+    let bytes = 0;
     try {
-      files = [];
-      for (const p of batch) { files.push(await fileFor(p)); bar.value = next + files.length; }
+      for (let i = next; i < photos.length && files.length < PHONE_BATCH; i++) {
+        const f = carry || await fileFor(photos[i]);
+        carry = null;
+        if (files.length && bytes + f.size > PHONE_BATCH_BYTES) { carry = f; break; }
+        files.push(f); bytes += f.size; bar.value = next + files.length;
+      }
+      // the phone has the last word on what it will share: drop photos from the end until it agrees
+      while (files.length > 1 && navigator.canShare && !navigator.canShare({ files })) { carry = files.pop(); }
     } catch (e) {
       status.textContent = e.message === 'expired' ? 'This save has expired. Close and start again.' : 'A photo could not be fetched. Check your connection and try again.';
       saveBtn.textContent = 'Try again'; saveBtn.disabled = false; saveBtn.onclick = prepare;
       return;
     }
-    status.textContent = photos.length > PHONE_BATCH
-      ? `Photos ${next + 1} to ${next + batch.length} of ${photos.length} are ready. Tap the button, then choose "Save images" (or "Save to Photos").`
-      : 'Ready. Tap the button, then choose "Save images" (or "Save to Photos").';
+    status.textContent = photos.length > 1
+      ? `${range()} are ready. Tap the button, then choose "Save images" (or "Save to Photos").`
+      : 'Ready. Tap the button, then choose "Save image" (or "Save to Photos").';
     saveBtn.textContent = files.length === 1 ? 'Save the photo' : `Save ${files.length} photos`;
     saveBtn.disabled = false;
     saveBtn.onclick = share;
@@ -929,14 +940,19 @@ async function startPhoneSave(body, box, opts = {}) {
     if (first && navigator.userActivation && navigator.userActivation.isActive) { first = false; share(); }
     first = false;
   };
+  let sharing = false;
   const share = async () => {
+    if (sharing) return;   // a second tap while the share sheet is opening would make the phone refuse both
+    sharing = true;
     try {
       await navigator.share({ files });
     } catch (e) {
-      if (e && e.name === 'AbortError') { status.textContent = 'Not saved yet. Tap the button to try again.'; return; }
-      status.textContent = 'Your phone would not open the share sheet for these photos.' + (zipBtn ? ' You can download them as a ZIP instead.' : '');
+      const name = e && e.name;
+      if (name === 'AbortError') status.textContent = 'Not saved yet. Tap the button to try again.';
+      else if (name === 'NotAllowedError') status.textContent = 'Tap the button to open the share sheet.';   // the phone wants a fresh tap
+      else status.textContent = `Your phone would not open the share sheet for these photos (${name || 'unknown error'}).` + (zipBtn ? ' You can download them as a ZIP instead.' : '');
       return;
-    }
+    } finally { sharing = false; }
     next += files.length; files = null;
     if (next >= photos.length) { closeSheet(); toast(photos.length === 1 ? 'Saved to your phone' : `${plural(photos.length, 'photo')} saved to your phone`); if (opts.onDone) opts.onDone(); return; }
     prepare();

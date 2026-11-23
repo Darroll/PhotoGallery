@@ -406,14 +406,18 @@ public static class PublicApi
 
             var baseName = Path.GetFileNameWithoutExtension(p.Name);
             var wmLock = g.WatermarkDownload && !a.Admin;
+            var px = PhoneSaves.PhoneSize(GalleryRules.Sizes(g, cfg));
             if (!wmLock && !p.RawOnly && PhoneSaves.PhoneReady(p.Name))
             {
                 var path = cfg.ResolvePhoto(p, p.RelPath);
                 if (path == null || !File.Exists(path)) return Results.NotFound();
-                activity.Record(ctx, "download", g.Id, p.Id, "phone original");
-                return Results.File(path, ImageService.ContentType(Path.GetExtension(path).TrimStart('.')), p.Name);
+                // a very large original goes as a JPEG copy when the gallery offers a size, so the phone can share it
+                if (new FileInfo(path).Length <= PhoneSaves.MaxOriginalBytes || px == null)
+                {
+                    activity.Record(ctx, "download", g.Id, p.Id, "phone original");
+                    return Results.File(path, ImageService.ContentType(Path.GetExtension(path).TrimStart('.')), p.Name);
+                }
             }
-            var px = PhoneSaves.PhoneSize(GalleryRules.Sizes(g, cfg));
             if (px == null) return Results.BadRequest("This gallery offers no size to save");
             var v = await images.GetVariantAsync(p, "phone", px.Value, "jpg", wmLock && images.WatermarkAvailable);
             if (v == null) return Results.NotFound();
