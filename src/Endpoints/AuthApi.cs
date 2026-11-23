@@ -26,7 +26,9 @@ public static class AuthApi
                 name = signedIn ? ctx.User.Identity?.Name : null,
                 admin = AccessService.IsAdmin(ctx),
                 likes = await Likes.Mine(db, ActivityLog.ReadVisitorId(ctx), Likes.IdentityKey(ctx)).Select(f => f.PhotoId).Distinct().CountAsync(),
-                preferences = prefs
+                preferences = prefs,
+                // players can be followed somewhere, so the header links to the players list
+                players = await db.Galleries.AnyAsync(g => g.TeamId != null && (g.AllowFollow || (!g.FollowOff && db.Teams.Any(t => t.Id == g.TeamId && t.AllowFollow))))
             };
         });
 

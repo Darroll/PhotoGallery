@@ -252,6 +252,8 @@ async function route(force = false) {
   if (parts[0] === 'license') return viewLicense(app);
   if (parts[0] === 'privacy') return viewPrivacy(app);
   if (parts[0] === 'search') return viewSearch(app);
+  if (parts[0] === 'players') return viewPlayers(app);
+  if (parts[0] === 'player' && parts[1] && parts[2]) return viewPlayer(app, Number(parts[1]), decodeURIComponent(parts[2]));
   if (parts[0] === 'likes') return viewLikes(app);
   if (parts[0] === 'expired') document.title = 'Link unavailable - ' + site.title;
   if (parts[0] === 'expired') return app.append(h('div', { class: 'center' }, h('h1', { text: 'Link unavailable' }), h('p', { class: 'sub', text: 'This share link has expired or was revoked.' })));
@@ -266,7 +268,7 @@ document.addEventListener('click', (e) => {
   const a = e.target.closest && e.target.closest('a[href]');
   if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || a.target === '_blank' || a.hasAttribute('download')) return;
   const href = a.getAttribute('href');
-  if (href === '/' || /^\/(g|admin|expired|license|privacy|search|likes)(\/|$)/.test(href)) {
+  if (href === '/' || /^\/(g|admin|expired|license|privacy|search|likes|players?)(\/|$)/.test(href)) {
     e.preventDefault();
     if (dirtyGuard && !dirtyGuard()) return;
     go(href);
@@ -326,6 +328,67 @@ async function viewLikes(app) {
   }
 }
 
+// ---------- players (follow a player across galleries) ----------
+// Every player who can be followed, by team, with how many of their photos this visitor can see. A chip opens the player's
+// page; Follow sits beside it. `compact` is the strip on the home page.
+async function playersList(compact) {
+  const r = await api('/api/players');
+  if (!r.ok || !r.data.teams.length) return null;
+  const d = r.data;
+  const box = h('div', { class: compact ? 'players-home' : 'players-list' });
+  const draw = () => box.replaceChildren(...d.teams.map(t => h('section', { class: 'players-team' },
+    h(compact ? 'h3' : 'h2', { text: t.name }),
+    h('div', { class: 'players-chips' }, t.players.map(p => {
+      const chip = h('a', { class: 'player-chip' + (p.following ? ' on' : ''), href: playerPage(t.id, p.number),
+        title: `${p.name}: ${plural(p.photos, 'photo')}` + (p.following ? ', you follow this player' : ''), text: (p.following ? '★ ' : '') + p.label });
+      chip.style.setProperty('--tag-c', tagColor(p.tag));
+      if (compact || !d.canFollow) return chip;
+      return h('span', { class: 'players-item' }, chip, h('span', { class: 'muted', text: plural(p.photos, 'photo') }),
+        followToggle(p.name, p.following, (on) => api(`/api/player/${t.id}/${encodeURIComponent(p.number)}/follow`, { method: 'POST', body: { follow: on } }),
+          (on) => { p.following = on; draw(); }, { small: true }));
+    })))));
+  draw();
+  return box;
+}
+
+async function viewPlayers(app) {
+  document.title = 'Players - ' + site.title;
+  app.append(h('h1', { text: 'Players' }),
+    h('p', { class: 'muted', text: 'Tap a player to see their photos from every gallery. Follow a player to get an email when new photos of them are added, at most once a day.' }));
+  const list = await playersList(false);
+  app.append(list || h('p', { text: 'No players can be followed yet.' }));
+}
+
+// One player's page: their photos from every gallery of the team where following is on, newest gallery first.
+async function viewPlayer(app, teamId, number) {
+  const r = await api(`/api/player/${teamId}/${encodeURIComponent(number)}`);
+  if (!r.ok) {
+    document.title = 'Player - ' + site.title;
+    return app.append(h('div', { class: 'center' }, h('h1', { text: 'Player not found' }), h('p', { class: 'sub' }, 'This player\'s page is not available. ', h('a', { href: '/players', text: 'See all players' }))));
+  }
+  const d = r.data;
+  document.title = d.name + ' - ' + site.title;
+  const followBox = h('span');
+  const drawFollow = () => followBox.replaceChildren(d.canFollow
+    ? followToggle(d.name, d.following, (on) => api(`/api/player/${d.teamId}/${encodeURIComponent(d.number)}/follow`, { method: 'POST', body: { follow: on } }),
+      (on) => { d.following = on; drawFollow(); }) || '' : '');
+  drawFollow();
+  app.append(h('p', { class: 'muted' }, h('a', { href: '/players', text: '← All players' })),
+    h('div', { class: 'row player-head' }, h('h1', { text: d.label }), h('span', { class: 'muted', text: d.team }), h('span', { class: 'grow' }), followBox),
+    h('p', { class: 'muted', text: d.count ? `${plural(d.count, 'photo')} in ${d.groups.length} galler${d.groups.length === 1 ? 'y' : 'ies'}.` : 'No photos of this player that you can see yet.' }));
+  for (const grp of d.groups) {
+    const href = `/g/${encodeURIComponent(grp.slug)}?player=${encodeURIComponent(d.tag)}`;
+    app.append(h('section', { class: 'likes-group' },
+      h('div', { class: 'row likes-head' },
+        h('h2', {}, h('a', { href, text: grp.title })),
+        h('span', { class: 'muted', text: [eventLine(grp), plural(grp.count, 'photo')].filter(Boolean).join(' · ') }), h('span', { class: 'grow' }),
+        h('a', { class: 'btn', href, text: 'Open gallery' })),
+      h('div', { class: 'likes-grid' }, grp.photos.map(p =>
+        h('a', { class: 'like-ph', href: `/g/${encodeURIComponent(grp.slug)}/p/${p.id}`, title: p.name },
+          h('img', { src: `/img/${p.id}/thumb`, alt: p.name, loading: 'lazy' }))))));
+  }
+}
+
 function renderHeader() {
   const top = $('#top'), m = me || {};
   const next = encodeURIComponent(location.pathname + location.search);
@@ -333,6 +396,7 @@ function renderHeader() {
     h('a', { class: 'brand', href: '/', text: site.title }),
     h('nav', {},
       signinFailed ? h('span', { class: 'chip warn', text: 'Sign-in failed' }) : null,
+      m.players ? h('a', { href: '/players', text: 'Players', title: 'Every player, with their photos from all galleries. Follow one to get an email about new photos.' }) : null,
       m.likes > 0 ? h('a', { href: '/likes', text: '♥ My likes' }) : null,
       m.admin || !m.sso ? h('a', { href: '/admin', text: 'Admin' }) : null,
       m.sso && m.signedIn ? h('span', { class: 'who', text: m.name || 'Signed in' }) : null,
@@ -437,6 +501,13 @@ async function viewHome(app) {
   if (colors.ok) learnTagColors(colors.data);
   app.append(h('h1', { text: site.title }), h('p', { class: 'sub', text: me && me.admin ? 'All galleries, including ones visitors cannot see' : 'Public galleries' }));
   app.append(searchForm({}));
+  // players who can be followed: a chip each, opening the player's photos from every gallery
+  if (me && me.players) {
+    const strip = await playersList(true);
+    if (strip) app.append(h('details', { class: 'players-strip', open: true, 'data-remember': 'home-players' },
+      h('summary', {}, h('span', { class: 'section-title', text: 'Players' }), h('span', { class: 'muted', text: ' · tap one for their photos from every gallery' })),
+      strip, h('p', {}, h('a', { href: '/players', text: 'All players and Follow →' }))));
+  }
   if (!r.ok || !r.data.length) return app.append(h('p', { class: 'muted', text: 'No public galleries yet. Private galleries are reached through their share link.' }));
   app.append(h('div', { class: 'cards' }, r.data.map(g =>
     h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
@@ -590,6 +661,8 @@ async function viewGallery(app, slug) {
         return el;
       }),
       player ? followButton(player, renderPlayers) : null,
+      player && G.follow && player.teamId ? h('a', { class: 'btn player-all', href: playerPage(player.teamId, player.number),
+        title: `Photos of ${player.label} from every gallery`, text: `All galleries of ${player.label} →` }) : null,
       player && G.allowDownload && G.allowZip && n ? h('button', { class: 'primary player-dl',
         text: phoneSaveSupported() ? `Save all ${n} photos of ${player.label}` : `Download all ${n} photos of ${player.label}`,
         onclick: () => phoneSaveSupported()
@@ -1296,21 +1369,29 @@ function tagEditor(initial, onChange, opts = {}) {
 // the chosen player are tagged. G.follow is null when the gallery does not offer it; following lists jersey numbers.
 function followButton(c, redraw) {
   if (!G.follow) return null;
-  const on = (G.follow.following || []).includes(c.number);
-  const signedIn = me && me.signedIn;
-  if (!signedIn) return me && me.sso ? h('a', { class: 'btn player-follow', href: '/auth/login?next=' + encodeURIComponent(location.pathname),
-    title: `Sign in to get an email when there are new photos of ${c.label}`, text: `Sign in to follow ${c.label}` }) : null;
-  return h('button', { class: 'player-follow' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false',
-    title: on ? `You get an email when there are new photos of ${c.label}. Tap to stop.` : `Get an email when there are new photos of ${c.label}, at most once a day`,
-    text: on ? `✓ Following ${c.label}` : `Follow ${c.label}`,
-    onclick: async () => {
-      const r = await api(`/api/g/${encodeURIComponent(G.slug)}/follow`, { method: 'POST', body: { tag: c.tag, follow: !on } });
+  return followToggle(c.label, (G.follow.following || []).includes(c.number), async (on) => {
+    const r = await api(`/api/g/${encodeURIComponent(G.slug)}/follow`, { method: 'POST', body: { tag: c.tag, follow: on } });
+    if (r.ok) G.follow.following = r.data.following || [];
+    return r;
+  }, redraw);
+}
+// The Follow button wherever a player shows (a gallery, a player's page, the players list). `send(on)` saves the choice and
+// returns the reply; `after(on)` redraws. Without sign-in it offers to sign in and come back here.
+function followToggle(label, on, send, after, opts = {}) {
+  if (!(me && me.signedIn)) return me && me.sso ? h('a', { class: 'btn player-follow' + (opts.small ? ' small' : ''), href: '/auth/login?next=' + encodeURIComponent(location.pathname + location.search),
+    title: `Sign in to get an email when there are new photos of ${label}`, text: opts.small ? 'Sign in to follow' : `Sign in to follow ${label}` }) : null;
+  return h('button', { class: 'player-follow' + (on ? ' on' : '') + (opts.small ? ' small' : ''), 'aria-pressed': on ? 'true' : 'false',
+    title: on ? `You get an email when there are new photos of ${label}. Tap to stop.` : `Get an email when there are new photos of ${label}, at most once a day`,
+    text: opts.small ? (on ? '✓ Following' : 'Follow') : on ? `✓ Following ${label}` : `Follow ${label}`,
+    onclick: async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const r = await send(!on);
       if (!r.ok) { toast(r.status === 401 ? 'Sign in to follow a player.' : aiErr(r)); return; }
-      G.follow.following = r.data.following || [];
-      toast(on ? `You no longer follow ${c.label}.` : `Following ${c.label}. You will get an email when new photos are added, at most once a day.`);
-      redraw();
+      toast(on ? `You no longer follow ${label}.` : `Following ${label}. You will get an email when new photos are added, at most once a day.`);
+      after(!on);
     } });
 }
+const playerPage = (teamId, number) => `/player/${teamId}/${encodeURIComponent(number)}`;
 
 // Player tags are ordinary tags; G.players lists the gallery's player chips. They show in their own row, apart from the other tags.
 const isPlayerTag = (n) => (G && G.players || []).some(c => c.tag.toLowerCase() === String(n).toLowerCase());
@@ -1324,7 +1405,7 @@ function learnPlayerChips(chips) {
   G.players = G.players || [];
   const short = G.players.every(c => c.label.startsWith('#'));
   for (const c of chips || []) if (!G.players.some(x => x.tag.toLowerCase() === c.tag.toLowerCase()))
-    G.players.push({ tag: c.tag, label: short ? '#' + c.number : c.tag, number: c.number });
+    G.players.push({ tag: c.tag, label: short ? '#' + c.number : c.tag, number: c.number, teamId: c.teamId });
   G.players.sort((a, b) => (parseInt(a.number, 10) - parseInt(b.number, 10)) || (a.number.length - b.number.length));
 }
 
@@ -1357,7 +1438,13 @@ function photoPlayersRow(p, redraw) {
     api(playersPath(p)).then(d => { if (d.ok && d.data.pending && d.data.pending.length) { pendingByPhoto.set(p.id, d.data.pending); redraw(); } });
   }
   if (!on.length && !can) return null;
-  const chip = (c) => { const el = h('span', { class: 'lb-player', text: c.label, title: c.tag }); el.style.setProperty('--tag-c', tagColor(c.tag)); return el; };
+  // where players can be followed, a chip opens the player's page (their photos from every gallery, and Follow)
+  const chip = (c) => {
+    const el = G.follow && c.teamId
+      ? h('a', { class: 'lb-player', href: playerPage(c.teamId, c.number), text: c.label, title: `${c.tag}: photos from every gallery, and Follow` })
+      : h('span', { class: 'lb-player', text: c.label, title: c.tag });
+    el.style.setProperty('--tag-c', tagColor(c.tag)); return el;
+  };
   const waiting = (pending || []).filter(s => !on.some(c => c.number === s.number)).map(s => h('span', { class: 'lb-player waiting', title: playerSourceText(s) },
     h('span', { text: '#' + s.number + (s.source && s.source.startsWith('parent ') ? ' ?' : '') }),
     h('button', { type: 'button', class: 'lb-player-ok', title: 'Approve: #' + s.number + ' is in this photo', 'aria-label': 'Approve #' + s.number, text: '✓',
@@ -3050,7 +3137,14 @@ async function teamsPanel() {
         field('Name', name, 'Used in tags, such as "Hurricanes U12 10".'),
         field('Jerseys', colors, 'Each jersey the team wears: a name (Home, Away), the shirt colour and the number colour. Each gallery picks the jersey worn that day. Other teams may use the same colours.'),
         field('Roster', roster, 'One player per line: the number, then a name if you like. Only these numbers are tagged.'),
-        field('Names in tags', h('label', {}, names, ' Tag photos with the player\'s name ("Emma 10")'), 'Off keeps children\'s names off the site: tags use the team and number.'));
+        field('Names in tags', h('label', {}, names, ' Tag photos with the player\'s name ("Emma 10")'), 'Off keeps children\'s names off the site: tags use the team and number.'),
+        t ? field('Follow a player', h('label', {}, h('input', { type: 'checkbox', checked: !!t.allowFollow, onchange: async (e) => {
+          const res = await api(`/api/admin/teams/${t.id}/follow`, { method: 'PUT', body: { allow: e.target.checked } });
+          if (!res.ok) { msg.textContent = aiErr(res); return; }
+          t.allowFollow = res.data.allow;
+          toast(t.allowFollow ? `Parents can follow ${t.name} players in all the team's galleries.` : `Following is off for ${t.name}, except in galleries switched on by hand.`);
+        } }), ' Parents can follow players on this team, in all its galleries'),
+          'Each player gets a page with their photos from every gallery of the team. Signed-in parents can follow a player from that page, from a gallery, from a photo, or from Players at the top of the site, and get one email a day at most about new photos. A gallery can still turn it off (or on) in its Players section. Needs email set up.') : null);
       const actions = h('div', { class: 'row' }, save, del, msg);
       if (!t) return h('div', { class: 'group-card' }, h('b', { text: 'Add a team' }), body, actions);
       const count = `${t.players.length} player${t.players.length === 1 ? '' : 's'}, ${t.galleries} galler${t.galleries === 1 ? 'y' : 'ies'}`;
@@ -3813,11 +3907,15 @@ function playersManager(g) {
           const res = await api(`/api/admin/galleries/${g.id}/playertags`, { method: 'PUT', body: { allow: e.target.checked } });
           msg.textContent = res.ok ? (res.data.allow ? 'Saved. Signed-in visitors can say who is in a photo; you approve each tag here.' : 'Saved. Only you tag players.') : aiErr(res);
         } }), ' Signed-in visitors can suggest player tags'), 'They tap "Tag a player" under a photo. Nothing is tagged until you approve it below. They see jersey numbers only, unless the team puts names in tags.'),
-        field('Follow a player', h('label', {}, h('input', { type: 'checkbox', checked: !!d.allowFollow, onchange: async (e) => {
-          const res = await api(`/api/admin/galleries/${g.id}/follow`, { method: 'PUT', body: { allow: e.target.checked } });
-          msg.textContent = res.ok ? (res.data.allow ? 'Saved. Parents can follow a player here and get an email when you approve new photos of them.' : 'Saved. New photos here are not emailed to followers.') : aiErr(res);
-        } }), ' Parents can follow a player and get an email about new photos'),
-          (d.followMail ? 'Signed-in visitors pick a player and tap Follow. They get one email a day at most, listing new photos of that player in this team\'s galleries that allow it. Players are named by number unless the team puts names in tags.'
+        field('Follow a player', h('select', { 'aria-label': 'Follow a player', onchange: async (e) => {
+          const allow = e.target.value === 'team' ? null : e.target.value === 'on';
+          const res = await api(`/api/admin/galleries/${g.id}/follow`, { method: 'PUT', body: { allow } });
+          msg.textContent = res.ok ? (res.data.on ? 'Saved. Parents can follow a player here and get an email when you approve new photos of them.' : 'Saved. New photos here are not emailed to followers and stay off the players\' pages.') : aiErr(res);
+        } },
+          h('option', { value: 'team', selected: d.allowFollow == null, text: `Same as the team (${d.teamFollow ? 'on' : 'off'})` }),
+          h('option', { value: 'on', selected: d.allowFollow === true, text: 'On in this gallery' }),
+          h('option', { value: 'off', selected: d.allowFollow === false, text: 'Off in this gallery' })),
+          (d.followMail ? 'Parents can follow a player and get one email a day at most about new photos of them. Each player also gets a page with their photos from every gallery of the team where this is on. Switch it on for all of a team\'s galleries in Settings, Teams. Players are named by number unless the team puts names in tags.'
             : 'Needs email set up first (Settings, Email), including the site address, because every email links back here.')
           + (d.followers ? ` ${d.followers} ${d.followers === 1 ? 'person follows' : 'people follow'} players on this team.` : ''))),
       setupHint,

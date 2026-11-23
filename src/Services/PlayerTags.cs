@@ -16,6 +16,8 @@ public class Team
     public string Colors { get; set; } = "";
     /// <summary>Tag photos with the player's name ("Emma 10") instead of the team and number ("Hurricanes 10"). Off by default: names of children stay off the site unless chosen.</summary>
     public bool TagWithNames { get; set; }
+    /// <summary>Parents may follow this team's players in all its galleries (a gallery can still say otherwise, see <see cref="Gallery.FollowSetting"/>). Off by default.</summary>
+    public bool AllowFollow { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public List<Player> Players { get; set; } = new();
 }
@@ -374,13 +376,13 @@ public static class PlayerTags
             .ThenBy(x => int.TryParse(x.Value.Player.Number, out var n) ? n : int.MaxValue)
             .ThenBy(x => x.Value.Player.Number.Length)   // 0 before 00, kept apart
             .ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(x => new PlayerChip(x.Key, shortLabels ? "#" + x.Value.Player.Number : x.Key, x.Value.Player.Number))
+            .Select(x => new PlayerChip(x.Key, shortLabels ? "#" + x.Value.Player.Number : x.Key, x.Value.Player.Number, x.Value.Team.Id))
             .ToList();
     }
 }
 
 /// <summary>A player filter chip on a gallery: the tag on the photos, the text on the chip, and the jersey number.</summary>
-public record PlayerChip(string Tag, string Label, string Number);
+public record PlayerChip(string Tag, string Label, string Number, int TeamId);
 
 /// <summary>What checking one photo gave: new suggestions, our players it read (with confidence), numbers not on the roster.</summary>
 public record PhotoCheckResult(int Added, List<string> Seen, List<string> NotOnRoster, string Provider, long Ms);

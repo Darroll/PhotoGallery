@@ -174,4 +174,94 @@ public class FollowTests(UserFactory app) : IClassFixture<UserFactory>
         }
         finally { Serial.Release(); }
     }
+    [Fact]
+    public async Task The_team_switch_turns_following_on_in_all_its_galleries_and_a_player_page_spans_them()
+    {
+        await Serial.WaitAsync();
+        try
+        {
+            var admin = await app.AdminAsync();
+            await EmailOnAsync(admin);
+            var (gid, slug, photos) = await TeamGalleryAsync(admin, "Span Cup", 1);
+            var teamId = await app.WithDbAsync(db => db.Galleries.Where(g => g.Id == gid).Select(g => g.TeamId!.Value).FirstAsync());
+            async Task<int> Another(string title, int visibility, bool? allow = null)
+            {
+                var r = await (await admin.PostAsJsonAsync("/api/admin/galleries", new { title, folder = app.NewFolder(1), visibility })).ReadAsync();
+                var id = r.GetProperty("gallery").GetProperty("id").GetInt32();
+                await admin.PutAsJsonAsync($"/api/admin/galleries/{id}/team", new { teamId });
+                if (allow != null) await admin.PutAsJsonAsync($"/api/admin/galleries/{id}/follow", new { allow });
+                await Tag(admin, await app.WithDbAsync(db => db.Photos.Where(x => x.GalleryId == id).Select(x => x.Id).FirstAsync()), "10");
+                return id;
+            }
+            await Another("Span League", 0);
+            var closed = await Another("Span Closed", 0, allow: false);
+            await Another("Span Unlisted", 1);
+            await Another("Span Protected", 2);
+            await Tag(admin, photos[0], "10");
+            var anon = app.NewClient();
+
+            // off until the team (or a gallery) switches it on: no player page, nothing to follow
+            Assert.Equal(HttpStatusCode.NotFound, (await anon.GetAsync($"/api/player/{teamId}/10")).StatusCode);
+            Assert.Equal(JsonValueKind.Null, (await (await anon.GetAsync($"/api/g/{slug}")).ReadAsync()).GetProperty("follow").ValueKind);
+
+            var on = await (await admin.PutAsJsonAsync($"/api/admin/teams/{teamId}/follow", new { allow = true })).ReadAsync();
+            Assert.True(on.GetProperty("allow").GetBoolean());
+            var settings = await (await admin.GetAsync($"/api/admin/galleries/{gid}/players")).ReadAsync();
+            Assert.Equal(JsonValueKind.Null, settings.GetProperty("allowFollow").ValueKind);   // follows the team
+            Assert.True(settings.GetProperty("teamFollow").GetBoolean());
+            var gallery = await (await anon.GetAsync($"/api/g/{slug}")).ReadAsync();
+            Assert.Equal(teamId, gallery.GetProperty("follow").GetProperty("teamId").GetInt32());
+            Assert.Equal(teamId, gallery.GetProperty("players").EnumerateArray().Single().GetProperty("teamId").GetInt32());
+
+            // the player's page: public galleries where following counts; not the one switched off, not unlisted or locked ones
+            var page = await (await anon.GetAsync($"/api/player/{teamId}/10")).ReadAsync();
+            Assert.Equal(2, page.GetProperty("count").GetInt32());
+            Assert.Equal(new[] { "Span Cup", "Span League" }, page.GetProperty("groups").EnumerateArray().Select(g => g.GetProperty("title").GetString()).OrderBy(x => x).ToArray());
+            Assert.Equal("#10", page.GetProperty("label").GetString());
+            Assert.Equal("Span Cup FC 10", page.GetProperty("tag").GetString());
+            Assert.False(page.GetProperty("following").GetBoolean());
+            Assert.Equal(4, (await (await admin.GetAsync($"/api/player/{teamId}/10")).ReadAsync()).GetProperty("groups").GetArrayLength());   // the admin sees every gallery where it is on
+            Assert.Equal(HttpStatusCode.NotFound, (await anon.GetAsync($"/api/player/{teamId}/99")).StatusCode);
+
+            // the players list shows the player (with the photos this visitor can see), and the header knows there is one
+            var list = await (await anon.GetAsync("/api/players")).ReadAsync();
+            var team = list.GetProperty("teams").EnumerateArray().Single(t => t.GetProperty("id").GetInt32() == teamId);
+            var ten = team.GetProperty("players").EnumerateArray().Single();
+            Assert.Equal("10", ten.GetProperty("number").GetString());
+            Assert.Equal(2, ten.GetProperty("photos").GetInt32());
+            Assert.True((await (await anon.GetAsync("/api/me")).ReadAsync()).GetProperty("players").GetBoolean());
+
+            // follow from the player's page; the gallery and the list see it
+            Assert.Equal(HttpStatusCode.Unauthorized, (await anon.PostAsJsonAsync($"/api/player/{teamId}/10/follow", new { follow = true })).StatusCode);
+            const string mail = "parent-span@example.test";
+            var parent = app.AsUser("parent-span-1", mail);
+            Assert.Equal(HttpStatusCode.OK, (await parent.PostAsJsonAsync($"/api/player/{teamId}/10/follow", new { follow = true })).StatusCode);
+            Assert.True((await (await parent.GetAsync($"/api/player/{teamId}/10")).ReadAsync()).GetProperty("following").GetBoolean());
+            Assert.Equal("10", (await (await parent.GetAsync($"/api/g/{slug}")).ReadAsync()).GetProperty("follow").GetProperty("following").EnumerateArray().Single().GetString());
+            Assert.True((await (await parent.GetAsync("/api/players")).ReadAsync()).GetProperty("teams").EnumerateArray()
+                .Single(t => t.GetProperty("id").GetInt32() == teamId).GetProperty("players").EnumerateArray().Single().GetProperty("following").GetBoolean());
+
+            // new photos in every gallery the team switch covers are mailed, with a link to the player's page
+            await app.WithDbAsync(db => db.PhotoTags.Where(pt => db.Photos.Any(p => p.Id == pt.PhotoId && db.Galleries.Any(g => g.Id == p.GalleryId && g.TeamId == teamId)))
+                .ExecuteUpdateAsync(u => u.SetProperty(pt => pt.TaggedAt, DateTime.UtcNow.AddMinutes(1))));   // as if tagged after following
+            await SendAsync(TimeSpan.FromMinutes(32));
+            var m = Assert.Single(await MailToAsync(mail));
+            Assert.Contains("in Span Cup\n", m.Body);
+            Assert.Contains("in Span League\n", m.Body);
+            Assert.DoesNotContain("Span Closed", m.Body);
+            Assert.Contains($"http://localhost/player/{teamId}/10", m.Body);
+
+            Assert.Equal(HttpStatusCode.OK, (await parent.PostAsJsonAsync($"/api/player/{teamId}/10/follow", new { follow = false })).StatusCode);
+            Assert.False(await app.WithDbAsync(db => db.PlayerFollows.AnyAsync(x => x.Sub == "parent-span-1")));
+
+            // with the team switch off, a gallery switched on by hand still counts, alone
+            await admin.PutAsJsonAsync($"/api/admin/teams/{teamId}/follow", new { allow = false });
+            Assert.Equal(JsonValueKind.Null, (await (await anon.GetAsync($"/api/g/{slug}")).ReadAsync()).GetProperty("follow").ValueKind);
+            var only = await (await admin.PutAsJsonAsync($"/api/admin/galleries/{closed}/follow", new { allow = true })).ReadAsync();
+            Assert.True(only.GetProperty("on").GetBoolean());
+            page = await (await anon.GetAsync($"/api/player/{teamId}/10")).ReadAsync();
+            Assert.Equal("Span Closed", page.GetProperty("groups").EnumerateArray().Single().GetProperty("title").GetString());
+        }
+        finally { Serial.Release(); }
+    }
 }

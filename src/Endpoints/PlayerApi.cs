@@ -24,7 +24,7 @@ public static class PlayerApi
 
     static object TeamOut(Team t, int galleries) => new
     {
-        t.Id, t.Name, t.Colors, t.TagWithNames, galleries,
+        t.Id, t.Name, t.Colors, t.TagWithNames, t.AllowFollow, galleries,
         kits = PlayerTags.Kits(t.Colors).Select(k => { var (shirt, number) = PlayerTags.SplitJersey(k.Description); return new { name = k.Name, description = k.Description, shirt, number }; }),
         players = t.Players.OrderBy(p => p.Number.Length).ThenBy(p => p.Number, StringComparer.Ordinal).Select(p => new { p.Id, p.Number, p.Name }),
         roster = string.Join("\n", t.Players.OrderBy(p => p.Number.Length).ThenBy(p => p.Number, StringComparer.Ordinal).Select(p => p.Name.Length > 0 ? $"{p.Number} {p.Name}" : p.Number)),
@@ -255,7 +255,7 @@ public static class PlayerApi
                 .Select(x => new { folder = x.Folder, title = x.Title, photos = photoFolders[x.Folder], kit = folderKits.GetValueOrDefault(x.Folder, "") }).ToList();
             return Results.Ok(new
             {
-                teamId = g.TeamId, teamKit = g.TeamKit, folders, autoTag = g.AutoTag, allowPlayerTags = g.AllowPlayerTags, allowFollow = g.AllowFollow, followMail = PlayerFollows.Available(settings),
+                teamId = g.TeamId, teamKit = g.TeamKit, folders, autoTag = g.AutoTag, allowPlayerTags = g.AllowPlayerTags, allowFollow = g.FollowSetting, teamFollow = team?.AllowFollow ?? false, followMail = PlayerFollows.Available(settings),
                 followers = team == null ? 0 : await db.PlayerFollows.Where(f => db.Players.Any(p => p.Id == f.PlayerId && p.TeamId == team.Id)).Select(f => f.Sub).Distinct().CountAsync(),
                 autoTagDefault = settings.Vision.AutoCheckNew, teamPlayers = team?.Players.Count ?? 0,
                 photos = total, @checked = checkedCount, approved,

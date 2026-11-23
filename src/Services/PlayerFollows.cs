@@ -21,7 +21,8 @@ public class PlayerFollow
 }
 
 /// <summary>
-/// Follow a player: a parent picks a player in a gallery that allows it and gets one email a day at most, listing the new
+/// Follow a player: a parent picks a player (in a gallery, or on the player's own page that spans the team's galleries) where
+/// following is on, for the whole team or one gallery, and gets one email a day at most, listing the new
 /// photos of that player in the team's galleries that allow following and that the parent can open. A tag counts once it is
 /// live (approved), and only after it has stood for a while, so a review session ends before the email goes out. Players
 /// are named the way the team's tags name them: by number, unless the team puts names in tags.
@@ -38,11 +39,51 @@ public static class PlayerFollows
     /// <summary>Emails can be sent: a mail relay and the site address (every email links back) are set up.</summary>
     public static bool Available(SettingsService settings) => settings.Email.Ready && settings.Email.SiteUrl.Length > 0;
 
+    /// <summary>Following counts in this gallery: it has this team, and its own switch says so, or it follows the team's switch and that is on.</summary>
+    public static bool FollowOn(Gallery g, Team? t) => t != null && g.TeamId == t.Id && (g.FollowSetting ?? t.AllowFollow);
+
     /// <summary>The gallery offers "Follow" on its player chips.</summary>
-    public static bool Offered(Gallery g, SettingsService settings) => g.TeamId != null && g.AllowFollow && Available(settings);
+    public static bool Offered(Gallery g, Team? t, SettingsService settings) => FollowOn(g, t) && Available(settings);
+
+    /// <summary>
+    /// The team's galleries where following counts, as this visitor may see them on a page that spans galleries (a player's
+    /// page, the players list): public galleries, and protected or specific-people galleries the visitor has already opened.
+    /// Unlisted galleries are left out, as in search, because anyone could then find them. The admin sees every one.
+    /// </summary>
+    public static async Task<List<Gallery>> VisibleGalleriesAsync(AppDb db, HttpContext ctx, AccessService access, Team t)
+    {
+        var admin = AccessService.IsAdmin(ctx);
+        var list = new List<Gallery>();
+        foreach (var g in await db.Galleries.AsNoTracking().Where(g => g.TeamId == t.Id).ToListAsync())
+        {
+            if (!FollowOn(g, t) || GalleryRules.IsExpired(g) && !admin) continue;
+            if (!admin && g.Visibility == Visibility.Unlisted) continue;
+            if (!(await access.CheckAsync(ctx, g)).Allowed) continue;
+            list.Add(g);
+        }
+        return list;
+    }
+
+    /// <summary>The ids of approved photos in these galleries tagged with any of the player's tags (the hidden cover and RAW-only frames left out), with their gallery.</summary>
+    public static async Task<List<Photo>> PhotosOfAsync(AppDb db, Team t, Player p, List<Gallery> galleries)
+    {
+        if (galleries.Count == 0) return new();
+        var names = PlayerTags.TagNames(t, p).Select(n => n.ToLower()).ToList();
+        var tagIds = await db.Tags.Where(x => names.Contains(x.Name.ToLower())).Select(x => x.Id).ToListAsync();
+        if (tagIds.Count == 0) return new();
+        var gids = galleries.Select(g => g.Id).ToList();
+        var hidden = galleries.Select(GalleryRules.HiddenCoverId).Where(x => x != 0).ToList();
+        var photos = await db.Photos.AsNoTracking()
+            .Where(x => x.Approved && gids.Contains(x.GalleryId) && !hidden.Contains(x.Id) && db.PhotoTags.Any(pt => pt.PhotoId == x.Id && tagIds.Contains(pt.TagId)))
+            .ToListAsync();
+        return photos.Where(x => !x.RawOnly).ToList();
+    }
 
     /// <summary>How the player is named in emails: "#10 (Hurricanes)", or "Emma 10" when the team puts names in tags.</summary>
     public static string Label(Team t, Player p) => t.TagWithNames && p.Name.Length > 0 ? $"{p.Name} {p.Number}" : $"#{p.Number} ({t.Name})";
+
+    /// <summary>The player's own page, with their photos from all the team's galleries where following is on.</summary>
+    public static string PagePath(Team t, Player p) => $"/player/{t.Id}/{Uri.EscapeDataString(p.Number)}";
 
     /// <summary>The team's player carrying this tag (either form, "Team 10" or "Emma 10"), or null.</summary>
     public static Player? PlayerOf(Team team, string? tag)
@@ -75,7 +116,9 @@ public static class PlayerFollows
 
         var teams = await db.Teams.AsNoTracking().Include(t => t.Players).ToListAsync();
         var players = teams.SelectMany(t => t.Players.Select(p => (Team: t, Player: p))).ToDictionary(x => x.Player.Id);
-        var galleries = await db.Galleries.AsNoTracking().Where(g => g.AllowFollow && g.TeamId != null).ToListAsync();
+        var teamById = teams.ToDictionary(t => t.Id);
+        var galleries = (await db.Galleries.AsNoTracking().Where(g => g.TeamId != null && !g.FollowOff).ToListAsync())
+            .Where(g => FollowOn(g, teamById.GetValueOrDefault(g.TeamId!.Value))).ToList();
         if (galleries.Count == 0) return;
         var galleryIds = galleries.Select(g => g.Id).ToList();
         var byId = galleries.ToDictionary(g => g.Id);
@@ -114,6 +157,7 @@ public static class PlayerFollows
                     if (n == 0) continue;
                     lines.Add($"  {n} new photo{(n == 1 ? "" : "s")} in {g.Title}\n  {url}/g/{g.Slug}?player={Uri.EscapeDataString(PlayerTags.TagName(tp.Team, tp.Player))}");
                 }
+                if (lines.Count > 1) lines.Add($"  Every photo of {label}:\n  {url}{PagePath(tp.Team, tp.Player)}");
                 if (lines.Count > 0) { sections.Add($"{label}:\n" + string.Join("\n", lines)); labels.Add(label); }
                 stops.Add($"To stop following {label}, open:\n{url}/follow/stop/{f.Token}");
             }

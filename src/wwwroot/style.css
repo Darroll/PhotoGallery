@@ -649,7 +649,21 @@ table.data td:last-child { text-align: right; font-variant-numeric: tabular-nums
 .player-dl { margin-left: auto; }
 .player-follow { min-height: 40px; padding: 8px 14px; border-radius: 999px; font-size: 15px; }
 .player-follow.on { border-color: var(--accent); color: var(--accent); }
-@media (max-width: 600px) { .player-dl, .player-follow { margin-left: 0; width: 100%; } }
+.player-follow.small { min-height: 32px; padding: 4px 12px; font-size: 14px; width: auto; }
+.player-all { min-height: 40px; padding: 8px 14px; border-radius: 999px; font-size: 15px; }
+@media (max-width: 600px) { .player-dl, .player-follow:not(.small), .player-all { margin-left: 0; width: 100%; text-align: center; } }
+/* players across galleries: the list, the home strip and a player's page */
+a.player-chip { text-decoration: none; display: inline-flex; align-items: center; }
+a.lb-player { text-decoration: none; color: inherit; cursor: pointer; }
+a.lb-player:hover { text-decoration: underline; }
+.players-team { margin: 12px 0 20px; }
+.players-team h2, .players-team h3 { margin: 0 0 8px; }
+.players-chips { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+.players-item { display: inline-flex; align-items: center; gap: 8px; padding-right: 6px; }
+.players-strip { margin: 12px 0 20px; }
+.players-strip > summary { cursor: pointer; }
+.player-head { align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.player-head h1 { margin: 0; }
 /* right-click menu on a photo in the tagging review */
 .fix-menu { position: fixed; z-index: 1001; display: flex; flex-direction: column; gap: 8px; width: min(360px, calc(100vw - 16px)); padding: 10px; background: var(--card, #111); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: 0 12px 40px rgb(0 0 0 / 0.45); }
 .fix-menu-title { font-weight: 600; }

@@ -2,6 +2,13 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.4.0 (not released yet)
+
+- **Follow players across galleries.** Settings, Teams has a new switch for each team, **Parents can follow players on this team, in all its galleries**, off by default. Each gallery's Players section now has three choices for following: **Same as the team** (the default), **On in this gallery** or **Off in this gallery**. Galleries that had following switched on stay on.
+- **A page for each player.** Every player who can be followed has a page with their photos from every gallery of the team where following is on, newest gallery first, with **Follow** at the top. Visitors see public galleries plus the password and specific-people galleries they have already opened. Unlisted galleries are left out, as in search, so the page never reveals them (the admin sees every gallery).
+- **Follow from nearly anywhere.** **Players** in the site header and a players strip on the home page list every player by team, and each opens the player's page. The list at /players has a Follow button beside each player. In a gallery, picking a player's chip shows **All galleries of #10 →** next to Follow. In the photo viewer, the player chips under a photo open that player's page. Emails about new photos in more than one gallery also link to the player's page.
+- Updating adds two columns to the database; a copy of the database is saved first.
+
 ## 2.3.0 (not released yet)
 
 - **Parents can follow a player.** A new switch in each gallery's Players section, off by default, lets signed-in visitors pick a player's chip and tap **Follow #10**. They then get an email, once a day at most, listing the new photos of each player they follow, with a link that opens the gallery on that player. Only approved tags count, after they have stood for 30 minutes, and only in the team's galleries that allow following and that the visitor can open. Players are named by number unless the team uses names in tags. Every email has a stop link, and the privacy tools export and delete follows. Needs sign-in (SSO) and email alerts with the site address.

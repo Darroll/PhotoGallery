@@ -76,8 +76,17 @@ public class Gallery
     public bool? AutoTag { get; set; }
     /// <summary>Signed-in visitors (parents) may suggest which players are in a photo. Their suggestions wait for the admin's review. Off by default.</summary>
     public bool AllowPlayerTags { get; set; }
-    /// <summary>Signed-in visitors (parents) may follow a player here and get an email when new photos of that player are tagged. Off by default.</summary>
+    /// <summary>Signed-in visitors (parents) may follow a player here and get an email when new photos of that player are tagged, whatever the team's switch says. See <see cref="FollowSetting"/>.</summary>
     public bool AllowFollow { get; set; }
+    /// <summary>Following is off here even when the team's switch (<see cref="Team.AllowFollow"/>) is on.</summary>
+    public bool FollowOff { get; set; }
+    /// <summary>Following in this gallery: true (on here), false (off here) or null (the team's switch decides).</summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public bool? FollowSetting
+    {
+        get => AllowFollow ? true : FollowOff ? false : null;
+        set { AllowFollow = value == true; FollowOff = value == false; }
+    }
     public List<Photo> Photos { get; set; } = new();
     public List<ShareLink> Links { get; set; } = new();
 }

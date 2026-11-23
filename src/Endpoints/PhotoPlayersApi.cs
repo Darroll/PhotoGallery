@@ -21,7 +21,7 @@ public static class PhotoPlayersApi
     /// <summary>A roster number as typed (1 to 3 digits, kept as written), or null.</summary>
     static string? Num(string? s) { var t = (s ?? "").Trim().TrimStart('#'); return System.Text.RegularExpressions.Regex.IsMatch(t, "^[0-9]{1,3}$") ? t : null; }
 
-    static object Chip(Team t, Player p, bool admin) => new { number = p.Number, tag = PlayerTags.TagName(t, p), label = admin && p.Name.Length > 0 ? $"#{p.Number} {p.Name}" : t.TagWithNames && p.Name.Length > 0 ? $"{p.Name} {p.Number}" : $"#{p.Number}" };
+    static object Chip(Team t, Player p, bool admin) => new { number = p.Number, teamId = t.Id, tag = PlayerTags.TagName(t, p), label = admin && p.Name.Length > 0 ? $"#{p.Number} {p.Name}" : t.TagWithNames && p.Name.Length > 0 ? $"{p.Name} {p.Number}" : $"#{p.Number}" };
 
     public static void Map(WebApplication app)
     {
