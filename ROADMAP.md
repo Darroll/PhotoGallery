@@ -123,7 +123,7 @@ Everything to do with comments, finished together. Steps 11 and 12 must never sh
 | 25 | Admin audit log (who changed what) | M | Med | 12 |
 | 26 | Accessibility pass on every page and theme | L | Med | 21 |
 | 27 | Other install routes (Q4) | M | Med | 22 |
-| 28 | "Later / ideas" (map, memories, photo of the week, keepsake page, phone-app install, translations), chosen one at a time | M to L each | varies | |
+| 28 | "Later / ideas" (map, memories, photo of the week, keepsake page, translations), chosen one at a time | M to L each | varies | |
 
 ### Group I: Team parents first (planned 2026-11-22)
 
@@ -138,7 +138,6 @@ The main use is photos of a youth soccer team plus a link to the game film, shar
 | 32 | [x] **Gallery presets** (built, not yet released): save a gallery's settings (access, downloads, curated only, team and jersey, player checks, follow a player, tags, groups) under a name; a new gallery picks a preset, or the default one, so a weekly gallery takes one step (with #21) | S | Low | Pixieset |
 | 33 | **Short visitor guide**: a dismissible "how to find and save your photos" card on a gallery | S | Low | Pixieset |
 | 34 | [x] **Seasons and a team filter on the home page** (built, not yet released): galleries grouped by season, newest first with earlier seasons folded (Fall/Spring, August to July, or calendar year, worked out from the event date; a gallery can name its own season, and a preset can carry it), and team chips that show one team's galleries, also in search and the admin list. Not the declined multi-folder library | M | Med | SmugMug, Pixieset, Piwigo |
-| 36 | **Install on a phone like an app** (moved up from Later / ideas) | M | Low | Pixieset, Immich |
 | 37 | [x] **Team branding** (built, not yet released): each team gets a logo and a main and second color on the Teams page, shared by all its seasons. Its galleries wear them (accent color, header stripe, logo by the title), the home page shows logos on cards and team chips, and one team can dress every page including the favicon. No CSS | S to M | Low | Pixieset, ShootProof |
 | 38 | **Upload from the admin page / Lightroom publish**: needs a write path, the library is a read-only mount today | M / L | High | All pro hosts, Piwigo |
 | 39 | **Find me by face**: opt-in, processed only on this server, admin-controlled. Faces of minors are biometric data, so this needs its own privacy design and a decision before work starts | XL | High | Pic-Time, Immich |
@@ -146,7 +145,6 @@ The main use is photos of a youth soccer team plus a link to the game film, shar
 After Group I, the rest of the comparison, roughly in this order (all new unless marked):
 
 - Expiry reminder email to visitors before a gallery auto-expires (S)
-- Download PIN separate from the viewing password, for galleries where only families should download (S)
 - Layout choices per gallery: justified rows, masonry, square, spacing (M)
 - [x] Search by description (built in 2.7.0, not yet released): the AI describes each photo's scene, naming only our own tagged players, and rewrites it when the photo is retagged
 - Map of where photos were taken (already in Later / ideas)
@@ -285,7 +283,6 @@ If time is short, the smallest set that delivers the vision is **#1, #4, #6, #7,
 - [ ] "Memories" or "on this day" page
 - [ ] Photo-of-the-week on the home page
 - [ ] Download a gallery's likes and comments as a small keepsake page
-- [ ] Install on a phone like an app (home-screen icon, works offline for already-viewed photos) *proposed* (moved up: Group I #36)
 - [ ] Translations, for relatives who read another language *proposed*
 
 ## Open questions
@@ -304,6 +301,13 @@ Answers go here as they are decided.
 - **Q11. Decided:** Keycloak only; the setup wizard gets a guided SSO step.
 - **Q12. Decided:** the admin may reply, flat, marked as the photographer.
 - **Q13. Decided:** commenters may edit or delete their own comment for 15 minutes; the log keeps the earlier text.
+
+## Maybe, but not right now
+
+Ideas Darroll looked at and set aside on 2026-11-23. Not planned; bring one back only if he asks.
+
+- Install on a phone like an app (home-screen icon, works offline for already-viewed photos), was Group I #36 (M)
+- Download PIN separate from the viewing password, for galleries where only families should download (S)
 
 ## Decided not to do (for now)
 - Report of files skipped by the scanner: put off.
