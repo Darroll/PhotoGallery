@@ -1816,8 +1816,10 @@ function openLightbox(index, play, mode = 'push') {
   };
   // The details open in a panel beside the photo (under it on a phone) and follow the photo as you move through the gallery.
   let panelKind = 'info';
+  // whether the panel was open (and which one) is remembered, so it opens again on the next photo, gallery or visit
   const setDetails = (open, kind = panelKind) => {
     panelKind = kind;
+    try { localStorage.setItem('pg-lb-panel', open ? kind : ''); } catch { }
     details.classList.toggle('hidden', !open); root.classList.toggle('has-details', open);
     infoA.el.classList.toggle('open', open && kind === 'info'); cmtA.el.classList.toggle('open', open && kind === 'comments');
     resetZoom(); lb.drawDetails();
@@ -1917,6 +1919,8 @@ function openLightbox(index, play, mode = 'push') {
   stage.addEventListener('wheel', (e) => { e.preventDefault(); const [cx, cy] = centre(e); zoomAt(z.s * (e.deltaY < 0 ? 1.18 : 1 / 1.18), cx, cy, false); }, { passive: false });
 
   show(index, false); if (play) { start(); } wake();
+  let remembered = ''; try { remembered = localStorage.getItem('pg-lb-panel') || ''; } catch { }
+  if (remembered) setDetails(true, remembered === 'comments' && G.allowComments ? 'comments' : 'info');
 }
 function closeLightbox() {
   const root = $('#lightbox');

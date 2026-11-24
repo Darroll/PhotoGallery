@@ -2,6 +2,10 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.8.1 (not released yet)
+
+- **The viewer remembers the Details panel.** If you had Details (or Comments) open, it stays open as you move between photos and opens again the next time you view a photo, in any gallery, until you close it with its **Close** button.
+
 ## 2.8.0 (not released yet)
 
 - **A cleaner photo viewer.** The description no longer sits over the photo: it, the players, the tags, and the caption and alt text each have their own section in the viewer's **Details**, folded by default. The viewer remembers which sections you opened, so they are open again next time. Only a caption you wrote shows over the photo.
