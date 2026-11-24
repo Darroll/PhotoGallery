@@ -17,15 +17,27 @@ public record VisionAnswer(List<SeenNumber> Numbers, string Provider, string Mod
 /// <summary>Sends a photo and a question to one AI provider. An interface so tests can stand in for real models.</summary>
 public interface IVisionReader
 {
-    /// <summary>Asks one provider. Throws when the provider cannot be reached or answers with something unreadable.</summary>
+    /// <summary>Asks one provider for jersey numbers. Throws when the provider cannot be reached or answers with something unreadable.</summary>
     Task<VisionAnswer> AskAsync(VisionProvider provider, byte[] jpeg, string prompt, CancellationToken ct);
+
+    /// <summary>Asks one provider and returns its reply as written (JSON, by the prompt's request), for questions other than numbers.</summary>
+    Task<VisionText> AskTextAsync(VisionProvider provider, byte[] jpeg, string prompt, CancellationToken ct);
 }
+
+/// <summary>A provider's reply as written, with which provider and model and how long it took.</summary>
+public record VisionText(string Text, string Provider, string Model, long Ms);
 
 public class VisionReader : IVisionReader
 {
     static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };   // each request has its own limit, set per provider
 
     public async Task<VisionAnswer> AskAsync(VisionProvider p, byte[] jpeg, string prompt, CancellationToken ct)
+    {
+        var t = await AskTextAsync(p, jpeg, prompt, ct);
+        return new VisionAnswer(PlayerPrompt.Parse(t.Text), t.Provider, t.Model, t.Ms);
+    }
+
+    public async Task<VisionText> AskTextAsync(VisionProvider p, byte[] jpeg, string prompt, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -45,10 +57,10 @@ public class VisionReader : IVisionReader
         {
             throw new VisionException($"No answer within {Seconds(p.TimeoutSeconds)} (Timeout per photo, in Settings, Automatic tagging)");
         }
-        return new VisionAnswer(PlayerPrompt.Parse(text), p.Kind, p.Model, sw.ElapsedMilliseconds);
+        return new VisionText(text, p.Kind, p.Model, sw.ElapsedMilliseconds);
     }
 
-    /// <summary>The longest answer asked of Ollama. A list of numbers takes well under 200 tokens.</summary>
+    /// <summary>The longest answer asked of Ollama. A list of numbers takes well under 200 tokens, a scene description under 150.</summary>
     const int MaxAnswerTokens = 1024;
 
     static async Task<string> OllamaAsync(VisionProvider p, byte[] jpeg, string prompt, CancellationToken ct)
@@ -60,7 +72,7 @@ public class VisionReader : IVisionReader
             images = new[] { Convert.ToBase64String(jpeg) },
             stream = false,
             format = "json",
-            think = false,                                       // qwen3-vl thinks by default and can ramble for minutes; reading a number needs none
+            think = false,                                       // qwen3-vl thinks by default and can ramble for minutes; reading a number or describing a scene needs none
             keep_alive = "30m",                                  // stay loaded between photos instead of reloading after Ollama's default 5 idle minutes
             options = new { temperature = 0, num_predict = MaxAnswerTokens }, // a list of numbers is short; stops a model that starts repeating itself
         };
@@ -75,7 +87,7 @@ public class VisionReader : IVisionReader
         var thinking = root.TryGetProperty("thinking", out var th) ? th.GetString() ?? "" : "";
         var cut = root.TryGetProperty("done_reason", out var dr) && dr.GetString() == "length";
         if (cut && text.Trim().Length == 0 && thinking.Trim().Length > 0)
-            throw new VisionException($"The model spent its whole answer thinking and never wrote the numbers. Use a model that answers straight away, such as qwen3-vl:8b-instruct, in Settings, Automatic tagging.");
+            throw new VisionException($"The model spent its whole answer thinking and never wrote its answer. Use a model that answers straight away, such as qwen3-vl:8b-instruct, in Settings, Automatic tagging.");
         var why = cut ? $"it stopped at the {MaxAnswerTokens}-token limit" : "it answered without JSON";
         var seen = text.Trim().Length > 0 ? $" It wrote: \"{Short(text)}\"" : thinking.Trim().Length > 0 ? $" It was still thinking: \"{Short(thinking)}\"" : " Its answer was empty.";
         throw new VisionException($"The answer had no JSON in it: {why}.{seen}");

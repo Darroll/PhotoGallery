@@ -15,7 +15,7 @@ partial class AppDbModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261123174035_LinkSameNamedPlayers";
+    public override string LastMigrationId => "20261123232405_DescriptionNotes";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -746,6 +746,28 @@ partial class AppDbModelSnapshot : ModelSnapshot
 
                 b.Property<bool>("CommentsOff")
                     .HasColumnType("INTEGER");
+
+                b.Property<DateTime?>("DescribedAt")
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("Description")
+                    .IsRequired()
+                    .HasColumnType("TEXT");
+
+                b.Property<int>("DescriptionAttempts")
+                    .HasColumnType("INTEGER");
+
+                b.Property<string>("DescriptionNotes")
+                    .IsRequired()
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("DescriptionPlayers")
+                    .IsRequired()
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("DescriptionSource")
+                    .IsRequired()
+                    .HasColumnType("TEXT");
 
                 b.Property<string>("Fingerprint")
                     .IsRequired()

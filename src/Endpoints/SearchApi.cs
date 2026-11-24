@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 namespace PhotoGallery;
 
 /// <summary>
-/// Search across public galleries: titles, file names, captions, alt text, tags, locations and dates.
+/// Search across public galleries: titles, file names, captions, alt text, scene descriptions, tags, locations and dates.
 /// Protected, unlisted and expired galleries are never searched. The admin manages the tags.
 /// </summary>
 public static class SearchApi
@@ -70,11 +70,13 @@ public static class SearchApi
 
             var coverOnly = galleries.Select(GalleryRules.HiddenCoverId).Where(x => x != 0).ToList();
             var photos = await db.Photos.AsNoTracking().Where(p => p.Approved && ids.Contains(p.GalleryId) && !coverOnly.Contains(p.Id))
-                .Select(p => new { p.Id, p.GalleryId, p.RelPath, p.Name, p.Caption, p.AltText, p.TakenAt }).ToListAsync();
+                .Select(p => new { p.Id, p.GalleryId, p.RelPath, p.Name, p.Caption, p.AltText, p.Description, p.TakenAt }).ToListAsync();
             var tags = await Tags.NamesByPhotoAsync(db, photos.Select(p => p.Id).ToList());
             var galleryTags = await Tags.NamesByGalleryAsync(db, ids);
 
             bool Hit(string? s) => term.Length == 0 || (s ?? "").Contains(term, StringComparison.OrdinalIgnoreCase);
+            // photos also match word by word, so "header in the rain" finds a description that says it in other words
+            var words = TextSearch.Words(term);
 
             var hits = !withPhotos ? new List<object>() : photos.Where(p =>
             {
@@ -87,13 +89,14 @@ public static class SearchApi
                 if (start != null && p.TakenAt < start) return false;
                 if (end != null && p.TakenAt >= end) return false;
                 if (term.Length == 0) return true;
-                return Hit(p.Name) || Hit(p.Caption) || Hit(p.AltText) || Hit(g.Title) || photoTags.Concat(inherited).Any(x => Hit(x));
+                return Hit(p.Name) || Hit(p.Caption) || Hit(p.AltText) || Hit(p.Description) || Hit(g.Title) || photoTags.Concat(inherited).Any(x => Hit(x))
+                    || TextSearch.Matches(words, new[] { p.Name, p.Caption, p.AltText, p.Description, g.Title }.Concat(photoTags).Concat(inherited));
             })
             .OrderByDescending(p => p.TakenAt).Take(60)
             .Select(p => (object)new
             {
                 id = p.Id, galleryId = p.GalleryId, slug = byId[p.GalleryId].Slug, gallery = byId[p.GalleryId].Title,
-                name = p.Name, caption = p.Caption, altText = p.AltText, takenAt = p.TakenAt,
+                name = p.Name, caption = p.Caption, altText = p.AltText, description = p.Description, takenAt = p.TakenAt,
                 tags = tags.TryGetValue(p.Id, out var photoTagNames) ? photoTagNames : new List<string>()
             }).ToList();
 

@@ -148,7 +148,7 @@ After Group I, the rest of the comparison, roughly in this order (all new unless
 - Expiry reminder email to visitors before a gallery auto-expires (S)
 - Download PIN separate from the viewing password, for galleries where only families should download (S)
 - Layout choices per gallery: justified rows, masonry, square, spacing (M)
-- Search by description with a local model, "goal celebration", "team photo" (L)
+- [x] Search by description (built in 2.7.0, not yet released): the AI describes each photo's scene, naming only our own tagged players, and rewrites it when the photo is retagged
 - Map of where photos were taken (already in Later / ideas)
 - Slideshow with background music (S to M)
 - Translations (already in Later / ideas)

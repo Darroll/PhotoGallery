@@ -48,6 +48,42 @@ public static class PlayerApi
             return Results.Ok(settings.SetVision(input).Public());
         });
 
+        // scene descriptions for search: how far along they are
+        secured.MapGet("/settings/vision/descriptions", async (AppDb db) => Results.Ok(await PhotoDescriptions.CountsAsync(db)));
+
+        // what the description writer is doing: the photo now, how many wait, and the latest results (refreshed by the settings page)
+        secured.MapGet("/settings/vision/descriptions/activity", async (AppDb db, SettingsService settings, DescriptionService svc, PlayerTagJobs jobs) =>
+        {
+            var vision = settings.Vision;
+            var waiting = vision.DescribePhotos ? (await PhotoDescriptions.PendingAsync(db, vision, jobs, int.MaxValue)).Count : 0;
+            var recent = svc.Recent;
+            var ids = recent.Select(r => r.GalleryId).Append(0).Distinct().ToList();
+            var galleries = await db.Galleries.AsNoTracking().Where(g => ids.Contains(g.Id)).Select(g => new { g.Id, g.Slug, g.Title }).ToDictionaryAsync(g => g.Id);
+            var current = svc.CurrentPhotoId is { } cid ? await db.Photos.AsNoTracking().Where(p => p.Id == cid).Select(p => new { p.Id, p.Name, gallery = p.Gallery!.Title }).FirstOrDefaultAsync() : null;
+            return Results.Ok(new
+            {
+                on = vision.DescribePhotos, ready = vision.Chain.Count > 0,
+                playerCheckRunning = jobs.All().Any(s => s.Running && !s.Waiting),
+                current = current == null ? null : new { current.Id, current.Name, current.gallery, since = svc.CurrentSince },
+                waiting, nextRoundAt = svc.NextRoundAt, backingOff = svc.BackingOff,
+                counts = await PhotoDescriptions.CountsAsync(db),
+                recent = recent.Select(r => new
+                {
+                    r.PhotoId, r.Photo, r.Ok, r.Text, r.Retag, r.Provider, r.Ms, r.At,
+                    slug = galleries.TryGetValue(r.GalleryId, out var g) ? g.Slug : null, gallery = galleries.TryGetValue(r.GalleryId, out var g2) ? g2.Title : null,
+                }),
+            });
+        });
+
+        // gives the photos whose description failed a few times new tries
+        secured.MapPost("/settings/vision/descriptions/retry", async (HttpContext ctx, AppDb db) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var n = await db.Photos.Where(p => p.DescriptionSource != PhotoDescriptions.Admin && p.DescriptionAttempts >= PhotoDescriptions.MaxAttempts)
+                .ExecuteUpdateAsync(u => u.SetProperty(p => p.DescriptionAttempts, 0));
+            return Results.Ok(new { photos = n });
+        });
+
         // Sends one photo (or a plain test picture) to a single provider with the settings as typed, without saving them.
         secured.MapPost("/settings/vision/test", async (TestInput input, HttpContext ctx, SettingsService settings, AppDb db, ImageService images, IVisionReader reader) =>
         {

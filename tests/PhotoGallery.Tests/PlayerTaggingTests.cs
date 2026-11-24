@@ -28,6 +28,18 @@ public class FakeVisionReader : IVisionReader
         if (!Answers.TryGetValue(provider.Kind, out var answer)) throw new VisionException(provider.Kind + " is down");
         return new VisionAnswer(PlayerPrompt.Parse(answer()), provider.Kind, provider.Model, 1);
     }
+
+    /// <summary>Answers for questions other than numbers (scene descriptions), per provider kind; the function sees the prompt.</summary>
+    public ConcurrentDictionary<string, Func<string, string>> TextAnswers { get; } = new();
+    public ConcurrentQueue<string> TextPrompts { get; } = new();
+
+    public Task<VisionText> AskTextAsync(VisionProvider provider, byte[] jpeg, string prompt, CancellationToken ct)
+    {
+        TextPrompts.Enqueue(prompt);
+        Assert.True(jpeg.Length > 100 && jpeg[0] == 0xFF && jpeg[1] == 0xD8, "a JPEG is sent");
+        if (!TextAnswers.TryGetValue(provider.Kind, out var answer)) throw new VisionException(provider.Kind + " is down");
+        return Task.FromResult(new VisionText(answer(prompt), provider.Kind, provider.Model, 1));
+    }
 }
 
 public class VisionAppFactory : UserFactory

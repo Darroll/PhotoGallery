@@ -124,7 +124,7 @@ public static class PublicApi
             var favoriteName = vid == "" ? "" : await db.FavoriteOwners.AsNoTracking().Where(o => o.GalleryId == g.Id && o.VisitorId == vid).Select(o => o.Name).FirstOrDefaultAsync() ?? "";
             var hiddenCover = GalleryRules.HiddenCoverId(g);
             var photos = await db.Photos.Where(p => p.GalleryId == g.Id && p.Id != hiddenCover && (p.Approved || admin))
-                .Select(p => new { p.Id, p.RelPath, w = p.Width, h = p.Height, p.Name, raw = p.RawRelPath != null, rawOnly = p.RawRelPath != null && p.RawRelPath == p.RelPath, taken = p.TakenAt, added = p.AddedAt, p.Approved, p.Caption, p.AltText, p.CommentsOff })
+                .Select(p => new { p.Id, p.RelPath, w = p.Width, h = p.Height, p.Name, raw = p.RawRelPath != null, rawOnly = p.RawRelPath != null && p.RawRelPath == p.RelPath, taken = p.TakenAt, added = p.AddedAt, p.Approved, p.Caption, p.AltText, p.CommentsOff, p.Description, p.DescriptionSource, p.DescriptionNotes })
                 .ToListAsync();
             photos = GalleryRules.Sort(photos, g, x => x.taken, x => x.Name, x => x.added);
 
@@ -133,7 +133,7 @@ public static class PublicApi
             var commentCounts = g.AllowComments ? await Comments.CountsAsync(db, g.Id) : new Dictionary<int, int>();
             var layout = GalleryRules.Layout(g, photos.Select(x => GalleryRules.SectionOf(g, x.RelPath)));
             var sectionCounts = photos.GroupBy(x => GalleryRules.SectionOf(g, x.RelPath), StringComparer.OrdinalIgnoreCase).ToDictionary(x => x.Key, x => x.Count(), StringComparer.OrdinalIgnoreCase);
-            var shaped = photos.Select(x => new { x.Id, section = layout.Count == 0 ? "" : GalleryRules.SectionOf(g, x.RelPath), x.w, x.h, x.Name, x.raw, x.rawOnly, x.taken, x.added, x.Approved, x.Caption, x.AltText, likes = likeCounts.GetValueOrDefault(x.Id), comments = commentCounts.GetValueOrDefault(x.Id), commentsOff = x.CommentsOff,
+            var shaped = photos.Select(x => new { x.Id, section = layout.Count == 0 ? "" : GalleryRules.SectionOf(g, x.RelPath), x.w, x.h, x.Name, x.raw, x.rawOnly, x.taken, x.added, x.Approved, x.Caption, x.AltText, description = x.Description, descriptionSource = admin ? x.DescriptionSource : null, descriptionNotes = admin ? x.DescriptionNotes : null, likes = likeCounts.GetValueOrDefault(x.Id), comments = commentCounts.GetValueOrDefault(x.Id), commentsOff = x.CommentsOff,
                 tags = tagNames.TryGetValue(x.Id, out var t) ? t : new List<string>() }).ToList();
 
             var gTags = (await Tags.NamesByGalleryAsync(db, new List<int> { g.Id })).GetValueOrDefault(g.Id) ?? new List<string>();

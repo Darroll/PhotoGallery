@@ -2,6 +2,36 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.8.1
+
+- **The viewer remembers the Details panel.** If you had Details (or Comments) open, it stays open as you move between photos and opens again the next time you view a photo, in any gallery, until you close it with its **Close** button.
+
+## 2.8.0 (not released yet)
+
+- **A cleaner photo viewer.** The description no longer sits over the photo: it, the players, the tags, and the caption and alt text each have their own section in the viewer's **Details**, folded by default. The viewer remembers which sections you opened, so they are open again next time. Only a caption you wrote shows over the photo.
+- **Edit the description from the photo.** As the photographer, open **Details**, **Description** to change the text and **Save**, or **Let the AI write it** to clear it and have the AI write a new one.
+- **Your edits are kept as facts.** What you write becomes notes for the AI. It stays exactly as written until the players on the photo change; then the AI writes it again from your notes, keeping your facts ("warm-ups", "pre-match gathering") and only changing who is named, so it won't turn warm-ups into "the game is paused". **Let the AI write it** drops your notes too.
+
+## 2.7.3 (not released yet)
+
+- **Known players are named, others keep their number.** A player in a description is called by her roster name when the roster has one ("Lilly did a thing") and by her number when it does not ("#3 did a thing"), whether or not the team uses names in tags. Players tagged on the photo are always named this way. The AI also gets the gallery team's roster, so a player in our jersey whose number it reads clearly is named the same way even before she is tagged; a number not on the roster, and any player in the other team's colors, is never named or numbered. Adding or changing a name on the roster rewrites the descriptions.
+
+## 2.7.2 (not released yet)
+
+- **Descriptions use team and player names.** The AI is told our team's name and calls it that ("Hurricanes"), never "the yellow team". The other team's name comes from the section or gallery title ("Hurricanes vs Rovers", "vs. Rovers", "against Rovers"); without one it is "the opponents". When the team uses names in tags, tagged players are named ("Reagan heads the ball"); otherwise by number ("#11"). A "Player 11" the AI reads off an untagged jersey is taken out. Descriptions written before this update are written again with the new wording.
+
+## 2.7.1 (not released yet)
+
+- **Descriptions show as captions.** A photo without a caption of its own shows its scene description under it in the viewer, and uses it as alt text when it has none. Captions you write still come first, and descriptions are kept apart from them so a retag can rewrite the AI's text without touching yours.
+- **Watch descriptions being written.** Settings, **Automatic tagging** has a **Descriptions** panel: the photo being described now, how many are waiting (or why it is waiting: switched off, no provider, a player check running, backing off after failures), and the latest 20 results with their text, time, whether a retag caused them, and any errors. It refreshes every few seconds while it works.
+
+## 2.7.0 (not released yet)
+
+- **Search by what is happening in a photo.** Switch on **Describe each photo so parents can search for it** in Settings, **Automatic tagging**, and the AI writes a sentence or two about each photo's scene: the action (a header, a save, a corner kick, a celebration), the weather and light, and the setting. Parents then find photos in their own words: "header in the rain" finds "#10 wins a header as rain pours down". Every word that matters must appear, in any order (small words like "the" are left out), and "headers" also finds "header". Site search covers descriptions, results show them under the photo, and each gallery with descriptions or captions has a **Search this gallery** box that works together with the player chips.
+- **Only our own players are named.** The AI is told which of the gallery team's players are tagged on the photo and may name only them, the way parents already see them: by number ("#10"), or by name and number ("Emma (#10)") when the team uses names in tags. Other players in our jersey are "a teammate", and opponents are described only in general words ("a defender in red"), never by number or name; a number the AI reads anyway that is not one of our tagged players is taken out. In a gallery that checks new photos for players, a photo is described after its player check, so it is written once with the players.
+- **Retagging rewrites the description.** When a photo's players change (a player identified, a number corrected, a tag removed, the gallery's team changed, or the team switched to or from names), the AI's description is written again with the new players, usually within a minute. A description you write or edit yourself (**Edit** in the photo's info panel) is never replaced; clear it to have the AI write a new one. The settings page shows how many photos have a description and can retry photos that failed three times. Descriptions use the same providers, in the same order, as player tagging, one photo at a time and never while a player check runs. A cloud provider bills for each photo.
+- Updating adds five columns to the photos table; a copy of the database is saved first. Descriptions are off until you switch them on.
+
 ## 2.6.2 (not released yet)
 
 - **The roster is one row per player.** On Settings, **Teams**, each season's roster is a list of rows: the jersey number, the name, and on the right the other teams a player with that name is on, such as "also #11 on East Ridge (Fall 2026)" (seasons of the same team are not listed; to unlink two girls, change the name on one roster). The number box takes any number, or offers the numbers the AI found in this team's photos, with how many photos each was found in. Numbers found but not on the roster yet are shown as buttons under the roster that add a row with that number. A number used twice, or a name without a number, is marked before saving. Pasting a whole roster ("10 Emma" per line) into a number box still fills one row per line.

@@ -94,6 +94,18 @@ const tagPalette = ['#e5484d', '#f76b15', '#e0a000', '#30a46c', '#12a594', '#009
 let tagColorMap = {};   // lower-case tag name -> colour the admin chose
 // Whether a photo carries this tag (names compare in any case, as on the server).
 function hasTag(p, tag) { const t = String(tag).toLowerCase(); return (p.tags || []).some(x => x.toLowerCase() === t); }
+// Word search, the same rules as TextSearch on the server: every word that matters, each at the start of a word, in any
+// field and any order ("header in the rain" finds "Emma (#10) wins a header as rain pours down"). Small words are left out.
+const SMALL_WORDS = new Set('a an the in on at of with and or is are to for by from into her his their its photo photos picture pictures pic pics'.split(' '));
+function searchWords(q) {
+  return [...new Set(String(q || '').toLowerCase().split(/[^\p{L}\p{N}#]+/u).filter(w => w.replace(/#/g, '') && !SMALL_WORDS.has(w)))].slice(0, 12);
+}
+function wordsMatch(words, fields) {
+  if (!words.length) return true;
+  const text = fields.filter(Boolean).join(' \n ').toLowerCase();
+  const starts = (w) => new RegExp('(?<![\\p{L}\\p{N}])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'u').test(text);
+  return words.every(w => starts(w) || (w.length > 3 && w.endsWith('s') && starts(w.slice(0, -1))));
+}
 function learnTagColors(map) { if (map && typeof map === 'object') Object.assign(tagColorMap, map); }
 function tagColor(name) {
   const key = String(name).toLowerCase();
@@ -467,8 +479,9 @@ async function viewSearch(app) {
       h('div', { class: 'meta' }, h('b', { text: x.title }), h('span', { class: 'muted', text: x.gallery }), eventLines(x))))));
   if (photos.length) app.append(h('h2', { text: 'Photos' }), h('div', { class: 'photo-cards' }, photos.map(p =>
     h('a', { class: 'photo-card', href: `/g/${encodeURIComponent(p.slug)}/p/${p.id}` },
-      h('img', { loading: 'lazy', src: `/img/${p.id}/thumb`, alt: p.altText || p.name }),
+      h('img', { loading: 'lazy', src: `/img/${p.id}/thumb`, alt: p.altText || p.description || p.name }),
       h('div', { class: 'pc-name', text: p.caption || p.name, title: p.name }),
+      p.description ? h('div', { class: 'pc-desc muted', text: p.description, title: p.description }) : null,
       h('div', { class: 'muted', text: [p.gallery, p.takenAt ? new Date(p.takenAt + (/Z$/.test(p.takenAt) ? '' : 'Z')).toLocaleDateString() : ''].filter(Boolean).join(' \u00B7 ') }),
       tagLine(p.tags, photoTagEdit(p))))));
 }
@@ -653,7 +666,15 @@ async function viewGallery(app, slug) {
     const u = new URL(location.href); u.searchParams.delete('player'); history.replaceState(history.state, '', u.pathname + u.search + u.hash);
   }
   G.player = player;
-  const ofPlayer = (list) => player ? list.filter(p => hasTag(p, player.tag)) : list;
+  // Search box: finds photos by what is happening in them (the scene descriptions), their caption and their tags.
+  let words = [];
+  const ofQuery = (list) => words.length ? list.filter(p => wordsMatch(words, [p.description, p.caption, p.altText, ...(p.tags || []), ...playersOn(p).map(c => c.label)])) : list;
+  const searchable = approved.some(p => p.description || p.caption);
+  const gq = h('input', { type: 'search', placeholder: 'Search this gallery, like "header in the rain"', maxlength: 80, 'aria-label': 'Search this gallery' });
+  let gqTimer = null;
+  gq.addEventListener('input', () => { clearTimeout(gqTimer); gqTimer = setTimeout(() => { words = searchWords(gq.value); sel.clear(); fill(); }, 200); });
+  const searchBar = searchable ? h('div', { class: 'g-search' }, gq) : null;
+  const ofPlayer = (list) => ofQuery(player ? list.filter(p => hasTag(p, player.tag)) : list);
   const pickPlayer = (c) => {
     player = c && (!player || player.tag !== c.tag) ? c : null;   // tapping the chosen chip again shows everyone
     G.player = player;
@@ -716,7 +737,7 @@ async function viewGallery(app, slug) {
     strip.replaceChildren(h('h2', { class: 'vid-head', text: 'Most liked' }),
       h('div', { class: 'strip' }, top.map(p =>
         h('button', { class: 'strip-ph', title: `${p.name} · ${plural(p.likes, 'like')}`, onclick: () => { const i = G.list.findIndex(x => x.id === p.id); if (i >= 0) openLightbox(i, false); } },
-          h('img', { src: photoUrl(p, 'thumb'), alt: p.altText || p.name, loading: 'lazy' }),
+          h('img', { src: photoUrl(p, 'thumb'), alt: p.altText || p.description || p.name, loading: 'lazy' }),
           h('span', { class: 'strip-n', text: '♥ ' + p.likes })))));
   };
 
@@ -782,13 +803,13 @@ async function viewGallery(app, slug) {
     let tabs = sections, openSec = null, perSection = new Map();
     if (sections.length) {
       sections.forEach(s => perSection.set(s.folder.toLowerCase(), photos.filter(p => secKey(p) === s.folder.toLowerCase())));
-      tabs = favOnly || player ? sections.filter(s => perSection.get(s.folder.toLowerCase()).length) : sections;   // favorites or one player: only tabs that have photos
+      tabs = favOnly || player || words.length ? sections.filter(s => perSection.get(s.folder.toLowerCase()).length) : sections;   // favorites or one player: only tabs that have photos
       if (!tabs.some(s => s.folder.toLowerCase() === activeSec)) activeSec = tabs.length ? tabs[0].folder.toLowerCase() : null;
       openSec = tabs.find(s => s.folder.toLowerCase() === activeSec) || null;
       photos = openSec ? perSection.get(activeSec) : [];
     }
     G.list = photos;
-    countLabel.textContent = (favOnly ? `${photos.length} favorites` : plural(photos.filter(p => p.approved).length, 'photo')) + (player ? ` of ${player.label}` : '');
+    countLabel.textContent = (favOnly ? `${photos.length} favorites` : plural(photos.filter(p => p.approved).length, 'photo')) + (player ? ` of ${player.label}` : '') + (words.length ? ' found' : '');
     renderPlayers();
     curatedText.textContent = showRaw ? ' Curated only' : ` Curated only (${rawOnlyCount} unedited RAW hidden)`;
     rawBtn.classList.toggle('hidden', favOnly);
@@ -806,7 +827,7 @@ async function viewGallery(app, slug) {
       const item = h('div', { class: 'ph' + (p.approved ? '' : ' pending'), title: p.name, tabindex: 0,
         onclick: () => { if (selectMode) toggleSel(p); else openLightbox(i, false); },
         onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); if (selectMode) toggleSel(p); else openLightbox(i, false); } } },
-        h('img', { loading: 'lazy', src: photoUrl(p, 'thumb'), alt: p.altText || p.name }),
+        h('img', { loading: 'lazy', src: photoUrl(p, 'thumb'), alt: p.altText || p.description || p.name }),
         p.approved ? null : h('span', { class: 'badge', text: 'pending' }),
         p.rawOnly ? h('span', { class: 'badge', text: 'RAW' }) : null,
         selectMode ? check : null, heart);
@@ -815,7 +836,8 @@ async function viewGallery(app, slug) {
       if (canPick) holdToPick(item, () => { if (selectMode) return false; selectMode = true; sel.add(p.id); fill(); return true; });
       return item;
     };
-    if (!sections.length) grid.replaceChildren(...(photos.length || !player ? photos.map(makeTile) : [h('p', { class: 'muted', text: favOnly ? `None of your favorites are of ${player.label}.` : `No photos of ${player.label} here yet.` })]));
+    const none = words.length ? `No photos match "${gq.value.trim()}"${player ? ` for ${player.label}` : ''}.` : !player ? 'Nothing to show.' : favOnly ? `None of your favorites are of ${player.label}.` : `No photos of ${player.label} here yet.`;
+    if (!sections.length) grid.replaceChildren(...(photos.length || (!player && !words.length) ? photos.map(makeTile) : [h('p', { class: 'muted', text: none })]));
     else {
       if (secNav) secNav.replaceChildren(...tabs.map(s => {
         const key = s.folder.toLowerCase(), on = key === activeSec;
@@ -823,7 +845,7 @@ async function viewGallery(app, slug) {
           onclick: () => { activeSec = key; try { history.replaceState(history.state, '', location.pathname + location.search + '#s=' + encodeURIComponent(s.folder)); } catch { } fill(); } },
           s.title, h('span', { class: 'sec-count', title: tabCountTitle(key), text: tabCount(key) }));
       }));
-      if (!openSec) grid.replaceChildren(h('p', { class: 'muted', text: player && !favOnly ? `No photos of ${player.label} here yet.` : 'Nothing to show.' }));
+      if (!openSec) grid.replaceChildren(h('p', { class: 'muted', text: none }));
       else {
         const s = openSec;
         const hiddenRaw = curated.checked ? approved.filter(p => p.rawOnly && secKey(p) === activeSec).length : 0;   // unedited RAW frames the Curated filter is hiding here
@@ -855,7 +877,7 @@ async function viewGallery(app, slug) {
   if (rawOnlyCount > 0) tb.append(rawBtn);
   tb.append(h('span', { class: 'grow' }));
   if (G.allowUpload) tb.append(uploadControl(slug));
-  app.append(strip, tb, playerBar, secNav, favBar, grid, selBar);
+  app.append(strip, tb, playerBar, searchBar, secNav, favBar, grid, selBar);
   if (external.length) app.append(h('h2', { class: 'ext-head', text: 'Links' }), h('div', { class: 'ext-links' }, external.map(l =>
     h('a', { class: 'ext-card', href: l.url, target: '_blank', rel: 'noopener noreferrer' },
       l.preview && l.preview.image ? h('img', { class: 'ext-img', src: l.preview.image, alt: '', loading: 'lazy' }) : null,
@@ -1301,8 +1323,9 @@ async function photoDetails(photo) {
   const d = r.data;
   const table = (fields) => h('table', { class: 'info-table' }, Object.entries(fields).map(([k, v]) => h('tr', {}, h('th', { text: k }), h('td', { text: String(v) }))));
   const version = (v) => h('div', { class: 'info-version' }, h('h4', { text: `${v.role}: ${v.file}` }),
-    Object.entries(v.groups).map(([g, fields]) => h('details', { open: g === 'File' || g === 'EXIF' }, h('summary', { text: g }), table(fields))));
-  return [captionBlock(photo),
+    Object.entries(v.groups).map(([g, fields]) => h('details', {}, h('summary', { text: g }), table(fields))));
+  // every section starts folded; the ones a visitor opens or closes stay that way for the next photo and the next visit
+  return [...photoSections(photo),
     ...(d.versions.length ? d.versions.map(version) : [h('p', { class: 'muted', text: 'No details could be read for this photo.' })]),
     h('p', { class: 'muted', text: 'Where the photo was taken is not shown to visitors.' })];
 }
@@ -1533,12 +1556,52 @@ async function playersSheet(p, redraw) {
   document.body.append(sheet);
 }
 
-function captionBlock(photo) {
-  return h('div', { class: 'info-caption' }, h('h4', { text: 'Caption and description' }),
-    h('p', { text: photo.caption || 'No caption yet.' }),
-    h('p', { class: 'muted', text: photo.altText ? `Alt text: ${photo.altText}` : 'No alt text yet.' }),
-    h('div', {}, h('span', { class: 'muted', text: 'Tags' }), tagLine(photo.tags, { ...photoTagEdit(photo), onSaved: (t) => { photo.tags = t; if (lb && lb.drawCaption) lb.drawCaption(); } }) || h('span', { class: 'muted', text: ': none yet.' })),
-    h('button', { text: me && me.admin ? 'Edit' : 'Suggest a change', onclick: () => captionSheet(photo) }));
+// The folded sections at the top of a photo's details: its description (the admin edits it in place), its players
+// (tag, follow), its other tags, and its caption and alt text.
+function photoSections(photo) {
+  const isAdmin = !!(me && me.admin);
+  const sec = (title, body) => h('details', { class: 'info-sec' }, h('summary', { text: title }), body);
+
+  const descBox = h('div', { class: 'info-desc' });
+  const drawDesc = () => {
+    const notes = (photo.descriptionNotes || '').trim();
+    const who = !isAdmin ? ''
+      : photo.descriptionSource === 'admin' ? 'Written by you. If players are tagged later, the AI rewrites it and keeps your facts.'
+      : photo.descriptionSource === 'ai' && notes ? 'Rewritten by AI from your notes after a retag, keeping your facts.'
+      : photo.descriptionSource === 'ai' ? 'Written by AI. Edit it to add facts the AI should keep (like "warm-ups").' : '';
+    if (!isAdmin) { descBox.replaceChildren(h('p', { text: photo.description || 'No description yet.' })); return; }
+    const ta = h('textarea', { rows: 4, maxlength: 400, 'aria-label': 'Description' }); ta.value = photo.description || '';
+    const msg = h('span', { class: 'muted', role: 'status' });
+    const save = async (text) => {
+      const r = await api(`/api/g/${encodeURIComponent(G.slug)}/photo/${photo.id}/suggest`, { method: 'POST', body: { description: text } });
+      if (!r.ok || !r.data || !r.data.applied) { msg.textContent = 'Could not save. Try again.'; return; }
+      photo.description = r.data.description; photo.descriptionSource = r.data.descriptionSource; photo.descriptionNotes = r.data.descriptionNotes;
+      drawDesc(); toast(text ? 'Saved' : 'The AI will write a new description shortly');
+    };
+    descBox.replaceChildren(ta,
+      h('div', { class: 'row' },
+        h('button', { class: 'primary', text: 'Save', onclick: () => save(ta.value.trim()) }),
+        photo.descriptionSource === 'admin' || photo.description ? h('button', { text: 'Let the AI write it', title: 'Clear it and your notes; the AI writes a new one from scratch within a minute or so', onclick: () => save('') }) : null,
+        msg),
+      who ? h('p', { class: 'muted', text: who }) : null,
+      photo.descriptionSource === 'ai' && notes && notes !== photo.description ? h('p', { class: 'muted', text: `Your notes: ${notes}` }) : null);
+  };
+  drawDesc();
+
+  const playersBox = h('div');
+  const drawPlayers = () => { playersBox.replaceChildren(photoPlayersRow(photo, () => { if (playersBox.isConnected) drawPlayers(); }) || h('p', { class: 'muted', text: 'No players tagged.' })); };
+  drawPlayers();
+
+  const tagsBox = h('div');
+  const drawTags = () => tagsBox.replaceChildren(tagLine(photo.tags, { ...photoTagEdit(photo), hide: isPlayerTag, onSaved: (t) => { photo.tags = t; drawTags(); drawPlayers(); } }) || h('p', { class: 'muted', text: 'No tags.' }));
+  drawTags();
+
+  const capBox = h('div', {},
+    h('p', { text: photo.caption || 'No caption.' }),
+    h('p', { class: 'muted', text: photo.altText ? `Alt text: ${photo.altText}` : 'No alt text.' }),
+    h('button', { text: isAdmin ? 'Edit' : 'Suggest a change', onclick: () => captionSheet(photo) }));
+
+  return [sec('Description', descBox), sec('Players', playersBox), sec('Tags', tagsBox), sec('Caption and alt text', capBox)];
 }
 
 // Edit (the photographer) or suggest (a signed-in visitor, who the photographer then reviews like a merge).
@@ -1549,16 +1612,17 @@ function captionSheet(photo) {
   const alt = h('textarea', { rows: 3, maxlength: 300, 'aria-label': 'Alt text' });
   alt.value = photo.altText || '';
   const tags = isAdmin ? tagEditor(photo.tags || [], null, { gallery: G && G.id }) : null;
+  const desc = null;   // the description is edited in place, in the viewer's Details
   const msg = h('span', { class: 'muted' });
   const note = isAdmin ? 'Your changes apply straight away.'
     : signedIn ? 'Your suggestion goes to the photographer, who approves it before it appears.'
     : me && me.sso ? 'Sign in to suggest a change.' : 'Only the photographer can change this.';
   const submit = async () => {
-    const r = await api(`/api/g/${encodeURIComponent(G.slug)}/photo/${photo.id}/suggest`, { method: 'POST', body: { caption: caption.value, alt: alt.value } });
+    const r = await api(`/api/g/${encodeURIComponent(G.slug)}/photo/${photo.id}/suggest`, { method: 'POST', body: { caption: caption.value, alt: alt.value, description: desc ? desc.value : null } });
     if (r.status === 401) { msg.textContent = 'Sign in to suggest a change.'; return; }
     if (!r.ok) { msg.textContent = 'Could not save. Try again.'; return; }
     if (tags) { const tr = await api(`/api/admin/photos/${photo.id}/tags`, { method: 'PUT', body: { names: tags.names() } }); if (tr.ok) photo.tags = tr.data; }
-    if (r.data && r.data.applied) { photo.caption = r.data.caption; photo.altText = r.data.alt; closeSheet(); toast('Saved'); return; }
+    if (r.data && r.data.applied) { photo.caption = r.data.caption; photo.altText = r.data.alt; closeSheet(); toast('Saved'); if (lb && lb.drawCaption) lb.drawCaption(); if (lb && lb.drawDetails) lb.drawDetails(); return; }
     msg.textContent = r.data && r.data.suggested ? 'Thanks. The photographer will review it.' : 'Nothing new to suggest.';
   };
   const sheet = h('div', { id: 'sheet', class: 'sheet-backdrop', onclick: (e) => { if (e.target.id === 'sheet') closeSheet(); } },
@@ -1566,6 +1630,7 @@ function captionSheet(photo) {
       h('div', { class: 'sheet-grab' }), h('h3', { text: isAdmin ? 'Edit caption' : 'Suggest a caption' }),
       h('label', { class: 'sheet-field' }, 'Caption', caption),
       h('label', { class: 'sheet-field' }, 'Alt text (describes the photo for screen readers)', alt),
+      desc ? h('label', { class: 'sheet-field' }, photo.descriptionSource === 'ai' ? 'Scene description, for search (written by AI; your edit stays as you write it, and clearing it has the AI write a new one)' : 'Scene description, for search (clear it to have the AI write one)', desc) : null,
       tags ? h('div', { class: 'sheet-field' }, h('span', { text: 'Tags' }), tags) : null,
       h('p', { class: 'muted', text: note }), msg,
       h('div', { class: 'row sheet-actions' }, h('button', { class: 'primary', text: isAdmin ? 'Save' : 'Send suggestion', onclick: submit }), h('button', { text: 'Close', onclick: closeSheet }))));
@@ -1695,13 +1760,11 @@ function openLightbox(index, play, mode = 'push') {
   };
   const centre = (e) => { const r = stage.getBoundingClientRect(); return [e.clientX - r.left - r.width / 2, e.clientY - r.top - r.height / 2]; };
 
-  // the caption, the players and the other tags under the photo; the admin also gets a + to add tags without leaving the viewer
+  // only a caption you wrote sits under the photo; the description, players and tags are in Details, to keep the photo clear
   lb.drawCaption = () => {
     const p = cur(); if (!p) return;
-    const players = photoPlayersRow(p, () => { if (cur() === p) lb.drawCaption(); });
-    const tags = tagLine(p.tags, { ...photoTagEdit(p), hide: isPlayerTag });
-    captionEl.replaceChildren(...[p.caption ? h('div', { text: p.caption }) : null, players, tags].filter(Boolean));
-    captionEl.classList.toggle('hidden', !p.caption && !tags && !players);
+    captionEl.replaceChildren(...(p.caption ? [h('div', { text: p.caption })] : []));
+    captionEl.classList.toggle('hidden', !p.caption);
   };
   const show = (i, updateUrl = true) => {
     lb.i = (i + list.length) % list.length;
@@ -1711,7 +1774,7 @@ function openLightbox(index, play, mode = 'push') {
     img.src = photoUrl(p, viewKind());
     if (p.id !== lb.lastSeen) { lb.lastSeen = p.id; fetch(`/api/g/${encodeURIComponent(G.slug)}/viewed/${p.id}`, { method: 'POST', headers: { 'X-Requested-With': 'pg' }, credentials: 'same-origin', keepalive: true }).catch(() => {}); }
     title.textContent = p.name;
-    lb.drawCaption(); img.alt = p.altText || p.name;
+    lb.drawCaption(); img.alt = p.altText || p.description || p.name;
     document.title = photoTitle(p); counter.textContent = `${lb.i + 1} / ${list.length}`;
     lb.sync(); lb.drawDetails();
     const n = list[(lb.i + 1) % list.length]; new Image().src = photoUrl(n, viewKind());   // preload
@@ -1753,8 +1816,10 @@ function openLightbox(index, play, mode = 'push') {
   };
   // The details open in a panel beside the photo (under it on a phone) and follow the photo as you move through the gallery.
   let panelKind = 'info';
+  // whether the panel was open (and which one) is remembered, so it opens again on the next photo, gallery or visit
   const setDetails = (open, kind = panelKind) => {
     panelKind = kind;
+    try { localStorage.setItem('pg-lb-panel', open ? kind : ''); } catch { }
     details.classList.toggle('hidden', !open); root.classList.toggle('has-details', open);
     infoA.el.classList.toggle('open', open && kind === 'info'); cmtA.el.classList.toggle('open', open && kind === 'comments');
     resetZoom(); lb.drawDetails();
@@ -1854,6 +1919,8 @@ function openLightbox(index, play, mode = 'push') {
   stage.addEventListener('wheel', (e) => { e.preventDefault(); const [cx, cy] = centre(e); zoomAt(z.s * (e.deltaY < 0 ? 1.18 : 1 / 1.18), cx, cy, false); }, { passive: false });
 
   show(index, false); if (play) { start(); } wake();
+  let remembered = ''; try { remembered = localStorage.getItem('pg-lb-panel') || ''; } catch { }
+  if (remembered) setDetails(true, remembered === 'comments' && G.allowComments ? 'comments' : 'info');
 }
 function closeLightbox() {
   const root = $('#lightbox');
@@ -3105,13 +3172,23 @@ async function visionPanel() {
   const list = h('div', { class: 'vision-list' });
   const auto = h('input', { type: 'number', min: 0, max: 100, value: r.data.autoApproveAt, 'aria-label': 'Approve automatically at this confidence' });
   const autoNew = h('input', { type: 'checkbox', checked: !!r.data.autoCheckNew });
+  const describe = h('input', { type: 'checkbox', checked: !!r.data.describePhotos });
+  const descStatus = h('span', { class: 'muted', role: 'status' });
+  const loadDescStatus = async () => {
+    const c = await api('/api/admin/settings/vision/descriptions');
+    if (!c.ok) return;
+    const d = c.data;
+    descStatus.replaceChildren(`${d.described} of ${d.total} photos have a description` + (d.byHand ? ` (${d.byHand} written by you)` : '') + '.',
+      d.failed ? h('span', {}, ` ${plural(d.failed, 'photo')} failed three times. `, h('button', { text: 'Try them again', onclick: async () => { await api('/api/admin/settings/vision/descriptions/retry', { method: 'POST' }); loadDescStatus(); } })) : '');
+  };
+  loadDescStatus();
   const msg = h('span', { class: 'muted', role: 'status' });
   const hints = {
     ollama: 'Runs on your own computer, so photos stay on your network. Install a vision model first, for example: ollama pull qwen3-vl:8b-instruct (needs about 8 GB of graphics memory; qwen3-vl:4b-instruct for less). Use an instruct model: the thinking versions (plain qwen3-vl:8b) spend their answer reasoning and leave no room for the numbers.',
     anthropic: 'Needs an API key from console.anthropic.com, billed per photo. A Claude Pro or Max subscription cannot be used here: Anthropic only allows API keys in other apps.',
     openai: 'Needs an API key from platform.openai.com, billed per photo. A ChatGPT subscription cannot be used here yet. Type a model that can see images.',
   };
-  const collect = () => ({ autoApproveAt: Number(auto.value) || 0, autoCheckNew: autoNew.checked, providers: rows.map(p => ({ kind: p.kind, enabled: p.enabled, url: p.url, model: p.model, apiKey: p.apiKey, sendPhotosAgreed: p.sendPhotosAgreed, timeoutSeconds: p.timeoutSeconds })) });
+  const collect = () => ({ autoApproveAt: Number(auto.value) || 0, autoCheckNew: autoNew.checked, describePhotos: describe.checked, providers: rows.map(p => ({ kind: p.kind, enabled: p.enabled, url: p.url, model: p.model, apiKey: p.apiKey, sendPhotosAgreed: p.sendPhotosAgreed, timeoutSeconds: p.timeoutSeconds })) });
   const draw = () => {
     list.replaceChildren(...rows.map((p, i) => {
       const on = h('input', { type: 'checkbox', checked: p.enabled, onchange: (e) => { p.enabled = e.target.checked; } });
@@ -3150,15 +3227,17 @@ async function visionPanel() {
   const save = h('button', { class: 'primary', text: 'Save', onclick: async () => {
     const s = await api('/api/admin/settings/vision', { method: 'PUT', body: collect() });
     if (!s.ok) { msg.textContent = aiErr(s); return; }
-    rows = s.data.providers.map(p => ({ ...p, apiKey: '' })); draw();
+    rows = s.data.providers.map(p => ({ ...p, apiKey: '' })); draw(); loadDescStatus();
     const ready = rows.filter(p => p.ready).map(p => p.label);
     msg.textContent = ready.length === 0 ? 'Saved. No provider is ready yet, so nothing will be checked.' : ready.length === 1 ? `Saved. Only ${ready[0]} will be used; there is no fallback.` : `Saved. Tried in this order: ${ready.join(', then ')}.`;
   } });
-  return h('div', {}, taggingActivity(), h('div', { class: 'panel' }, h('h3', { text: 'Automatic tagging' }),
+  return h('div', {}, taggingActivity(), descriptionActivity(), h('div', { class: 'panel' }, h('h3', { text: 'Automatic tagging' }),
     h('p', { class: 'muted', text: 'An AI model looks at each photo and reads the jersey numbers of your team\'s players, so parents can find their child. Providers are tried from the top. Only providers that are switched on and fully set up are used, so if you set up just one, nothing else is ever tried. Photos are checked when you press a button in a gallery\'s Players section, or by themselves when new photos arrive if you switch that on below.' }),
     list,
     h('div', { class: 'form1' }, field('Approve automatically', h('label', {}, auto, ' % sure or more'), '0 (recommended) means every suggestion waits for you to check it. Tags are only added after you approve them.'),
-      field('New photos', h('label', {}, autoNew, ' Check new photos automatically'), 'When a scan or upload adds photos to a gallery that has a team, they are checked in the background. Each gallery can change this in its Players section; galleries left on "Use the main setting" follow this box. Suggestions still wait for your review unless you approve automatically above.')),
+      field('New photos', h('label', {}, autoNew, ' Check new photos automatically'), 'When a scan or upload adds photos to a gallery that has a team, they are checked in the background. Each gallery can change this in its Players section; galleries left on "Use the main setting" follow this box. Suggestions still wait for your review unless you approve automatically above.'),
+      field('Descriptions', h('div', {}, h('label', {}, describe, ' Describe each photo so parents can search for it'), h('div', {}, descStatus)),
+        'The first ready provider writes a sentence or two about what is happening (a header in the rain, a save, a celebration), so a search finds it. It names your own team\'s players: tagged players, and untagged ones whose number it can read on your jersey, by their roster name (or #number when the roster has no name), calls the teams by their names (the opponent from a title like \"Hurricanes vs Rovers\"), and describes opponents only in general words. When a photo\'s players change, its description is written again. Descriptions you write or edit yourself are never replaced. A cloud provider bills for each photo.')),
     h('div', { class: 'row' }, save, msg)));
 }
 
@@ -3181,6 +3260,42 @@ function taggingActivity() {
       playerJobView(job, async () => { await api(`/api/admin/galleries/${job.galleryId}/players/stop`, { method: 'POST' }); load(); }, { recentCount: 5 }))));
     if (r.data.some(x => x.job.running)) timer = setTimeout(load, 2000);
     else timer = setTimeout(load, 15000);
+  };
+  load();
+  return panel;
+}
+
+// Photo descriptions as they are written: the photo being described, how many wait, and the latest results with their
+// text (or why they failed). Refreshes every 3 seconds while something is being written, otherwise every 15.
+function descriptionActivity() {
+  const box = h('div', { 'aria-live': 'polite' });
+  const panel = h('div', { class: 'panel' }, h('h3', { text: 'Descriptions' }), box);
+  let timer = null, started = false;
+  const when = (t) => new Date(t + (/Z$/.test(t) ? '' : 'Z')).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  const load = async () => {
+    clearTimeout(timer);
+    if (started && !panel.isConnected) return;
+    started = true;
+    const r = await api('/api/admin/settings/vision/descriptions/activity');
+    if (!r.ok) { box.replaceChildren(h('p', { class: 'err', text: 'Could not load the descriptions activity.' })); timer = setTimeout(load, 15000); return; }
+    const d = r.data, c = d.counts;
+    const state = !d.on ? 'Switched off. Tick "Describe each photo" below and save to start.'
+      : !d.ready ? 'No provider is ready, so nothing is being described.'
+      : d.current ? `Describing ${d.current.name} (${d.current.gallery})…`
+      : d.playerCheckRunning ? 'Waiting: a player check is running, and it goes first.'
+      : d.waiting && d.backingOff ? `The last tries failed, so it waits before trying again${d.nextRoundAt ? ' (next at ' + when(d.nextRoundAt) + ')' : ''}. Saving these settings tries again straight away.`
+      : d.waiting ? `${plural(d.waiting, 'photo')} waiting${d.nextRoundAt ? ', next round at ' + when(d.nextRoundAt) : ''}.`
+      : 'All caught up.';
+    box.replaceChildren(
+      h('p', { text: state }),
+      h('p', { class: 'muted', text: `${c.described} of ${c.total} photos have a description` + (c.byHand ? `, ${c.byHand} written by you` : '') + (d.on && d.waiting ? `; ${d.waiting} waiting` : '') + (c.failed ? `; ${c.failed} failed three times` : '') + '.' }),
+      d.recent.length ? h('ul', { class: 'desc-log' }, d.recent.slice(0, 20).map(e => h('li', { class: e.ok ? '' : 'failed' },
+        h('img', { src: `/img/${e.photoId}/thumb`, alt: '', loading: 'lazy' }),
+        h('div', {},
+          h('div', {}, e.slug ? h('a', { href: `/g/${encodeURIComponent(e.slug)}/p/${e.photoId}`, text: e.photo }) : e.photo,
+            h('span', { class: 'muted', text: ` · ${e.gallery || ''} · ${when(e.at)}` + (e.retag ? ' · rewritten after a retag' : '') + (e.ok && e.ms ? ` · ${(e.ms / 1000).toFixed(1)} s` : '') })),
+          h('div', { text: e.text }))))) : h('p', { class: 'muted', text: d.on ? 'Nothing written since the app started.' : '' }));
+    timer = setTimeout(load, d.current || (d.on && d.ready && d.waiting && !d.backingOff) ? 3000 : 15000);
   };
   load();
   return panel;
@@ -3865,7 +3980,7 @@ function playerJobView(job, onStop, { recentCount = 8 } = {}) {
   const recent = (job.recent || []).slice(0, recentCount);
   if (recent.length) out.append(h('details', { class: 'job-recent', open: job.running },
     h('summary', { text: `Latest photos (${recent.length}${(job.recent || []).length > recent.length ? ' of ' + job.recent.length : ''})` }),
-    h('ul', {}, recent.map(e => h('li', { class: e.ok ? '' : 'err' },
+    h('ul', {}, recent.map(e => h('li', { class: e.ok ? '' : 'failed' },
       h('a', { href: `/img/${e.photoId}/view`, target: '_blank', rel: 'noopener', text: e.photo }), ': ', e.result,
       h('span', { class: 'muted', text: ` (${e.provider || 'no provider'}, ${(e.ms / 1000).toFixed(1)} s)` }))))));
   return out;

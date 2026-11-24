@@ -121,6 +121,21 @@ public class Photo
     public DateTime? PlayersCheckedAt { get; set; }
     /// <summary>Player checks tried on this photo; after a few failures it is skipped unless checked again on purpose.</summary>
     public int PlayerCheckAttempts { get; set; }
+    /// <summary>
+    /// What is happening in the photo, in a sentence or two, so parents can search for it ("a header in the rain"). Written by
+    /// a vision model (<see cref="DescriptionSource"/> "ai") or by you ("admin"). It names only our own team's players tagged
+    /// on the photo; see <see cref="PhotoDescriptions"/>.
+    /// </summary>
+    public string Description { get; set; } = "";
+    /// <summary>"ai" (a vision model wrote it and rewrites it when the photo's players change), "admin" (you wrote it; rewritten from your notes only when the players change), or "".</summary>
+    public string DescriptionSource { get; set; } = "";
+    /// <summary>The team and players the model was told about when it wrote <see cref="Description"/>. A different set now means the photo was retagged and the description is written again.</summary>
+    public string DescriptionPlayers { get; set; } = "";
+    /// <summary>The last description you wrote by hand. Every rewrite keeps its facts ("warm-ups", "pre-match gathering"); cleared when you hand it back to the model.</summary>
+    public string DescriptionNotes { get; set; } = "";
+    /// <summary>Failed tries at writing the description since the last one that worked; after a few it waits until the photo changes or you ask again.</summary>
+    public int DescriptionAttempts { get; set; }
+    public DateTime? DescribedAt { get; set; }
     public bool RawOnly => RawRelPath != null && RawRelPath == RelPath;
 }
 
