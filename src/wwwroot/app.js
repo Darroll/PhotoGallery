@@ -3410,10 +3410,12 @@ function descriptionActivity() {
       : d.playerCheckRunning ? 'Waiting: a player check is running, and it goes first.'
       : d.waiting && d.backingOff ? `The last tries failed, so it waits before trying again${d.nextRoundAt ? ' (next at ' + when(d.nextRoundAt) + ')' : ''}. Saving these settings tries again straight away.`
       : d.waiting ? `${plural(d.waiting, 'photo')} waiting${d.nextRoundAt ? ', next round at ' + when(d.nextRoundAt) : ''}.`
+      : c.total - c.described - (c.missingFailed || 0) > 0 ? `${plural(c.total - c.described - (c.missingFailed || 0), 'photo')} without a description and none waiting. Saving these settings looks again.`
       : 'All caught up.';
     box.replaceChildren(
       h('p', { text: state }),
       h('p', { class: 'muted', text: `${c.described} of ${c.total} photos have a description` + (c.byHand ? `, ${c.byHand} written by you` : '') + (d.on && d.waiting ? `; ${d.waiting} waiting` : '') + (c.failed ? `; ${c.failed} failed three times` : '') + '.' }),
+      c.withRaw ? h('p', { class: 'muted', text: `A RAW file and the picture exported from it (IMG_1234.CR3 and IMG_1234.png) are one photo: counted once, with one description and one set of tags. ${c.withRaw} photos have both.` }) : '',
       d.recent.length ? h('ul', { class: 'desc-log' }, d.recent.slice(0, 20).map(e => h('li', { class: e.ok ? '' : 'failed' },
         h('img', { src: `/img/${e.photoId}/thumb`, alt: '', loading: 'lazy' }),
         h('div', {},
