@@ -2,7 +2,7 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
-## 2.8.1 (not released yet)
+## 2.8.1
 
 - **The viewer remembers the Details panel.** If you had Details (or Comments) open, it stays open as you move between photos and opens again the next time you view a photo, in any gallery, until you close it with its **Close** button.
 
