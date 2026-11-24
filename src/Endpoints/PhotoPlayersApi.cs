@@ -25,7 +25,7 @@ public static class PhotoPlayersApi
 
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/g/{slug}/photo/{id:int}/players", async (string slug, int id, HttpContext ctx, AppDb db, AccessService access) =>
+        app.MapGet("/api/g/{slug}/photo/{id:int}/players", async (string slug, int id, HttpContext ctx, AppDb db, AccessService access, PlayerTagJobs jobs) =>
         {
             var p = await db.Photos.Include(x => x.Gallery).FirstOrDefaultAsync(x => x.Id == id && x.Gallery!.Slug == slug);
             if (p?.Gallery == null) return Results.NotFound();
@@ -47,6 +47,8 @@ public static class PhotoPlayersApi
                 players = on.Select(x => Chip(team, x, admin)),
                 roster,
                 pending = pending?.Select(s => new { s.Id, number = s.Number, s.Confidence, s.Source, s.Unsure, s.Note }),
+                // admin: this photo is being checked again right now (the viewer refreshes when it ends)
+                checking = admin && jobs.Status(g.Id) is { Running: true } js && js.PhotoId == id,
                 tags = admin ? (await Tags.NamesByPhotoAsync(db, new List<int> { id })).GetValueOrDefault(id) ?? new() : null,   // so the viewer can refresh after a review
             });
         });

@@ -1395,6 +1395,7 @@ async function commentsPanel(photo, changed) {
   return out;
 }
 
+let openPlayersOnce = false;
 async function photoDetails(photo) {
   const r = await api(`/api/g/${encodeURIComponent(G.slug)}/photo/${photo.id}/info`);
   if (!r.ok) return null;
@@ -1554,8 +1555,17 @@ function photoPlayersRow(p, redraw) {
           onclick: (e) => { e.stopPropagation(); toggleFollow(c, following, redraw); } })
       : h('span', { class: 'lb-player', text: c.label, title: c.tag });
     el.style.setProperty('--tag-c', tagColor(c.tag));
-    return el;
+    if (!isAdmin) return el;
+    // the admin removes a wrong tag right here, one player at a time
+    return h('span', { class: 'lb-player-tagged' }, el, h('button', { type: 'button', class: 'lb-player-no', title: `Remove ${c.label}: not in this photo`, 'aria-label': `Remove ${c.label}`, text: '×',
+      onclick: async (e) => {
+        e.stopPropagation();
+        const r = await api(`/api/admin/photos/${p.id}/players`, { method: 'POST', body: { remove: [c.number] } });
+        if (!r.ok) { toast(typeof r.data === 'string' ? r.data : 'Could not save. Try again.'); return; }
+        p.tags = r.data.tags; learnPlayerChips(r.data.players); redraw(); toast(`Removed ${c.label}`);
+      } }));
   };
+  const checking = isAdmin && recheckingPhotos.has(p.id) ? h('span', { class: 'muted', text: 'Checking again…' }) : null;
   const waiting = (pending || []).filter(s => !on.some(c => c.number === s.number)).map(s => h('span', { class: 'lb-player waiting', title: playerSourceText(s) },
     h('span', { text: '#' + s.number + (s.source && s.source.startsWith('parent ') ? ' ?' : '') }),
     h('button', { type: 'button', class: 'lb-player-ok', title: 'Approve: #' + s.number + ' is in this photo', 'aria-label': 'Approve #' + s.number, text: '✓',
@@ -1565,7 +1575,33 @@ function photoPlayersRow(p, redraw) {
   const add = can ? h('button', { type: 'button', class: 'lb-player-add', text: isAdmin ? (on.length ? '+' : '+ Tag players') : 'Tag a player',
     title: isAdmin ? 'Tag or untag players in this photo' : 'Say who is in this photo', onclick: (e) => { e.stopPropagation(); playersSheet(p, redraw); } }) : null;
   return h('div', { class: 'lb-players', role: 'group', 'aria-label': 'Players in this photo' },
-    on.length || waiting.length ? h('span', { class: 'lb-players-lead', text: 'Players' }) : null, ...on.map(chip), ...waiting, add);
+    on.length || waiting.length ? h('span', { class: 'lb-players-lead', text: 'Players' }) : null, ...on.map(chip), ...waiting, add, checking);
+}
+
+// The admin sent one photo back through automatic tagging: follow it until the check ends, then show the new suggestions.
+const recheckingPhotos = new Set();
+async function recheckPhoto(p, redraw) {
+  const r = await api(`/api/admin/photos/${p.id}/players/recheck`, { method: 'POST' });
+  if (!r.ok) { toast(typeof r.data === 'string' ? r.data : 'Could not start the check. Try again.'); return false; }
+  recheckingPhotos.add(p.id);
+  toast('Checking this photo again');
+  if (redraw) redraw();
+  const started = Date.now();
+  const poll = async () => {
+    const d = await api(playersPath(p));
+    if (d.ok && d.data.checking && Date.now() - started < 5 * 60000) { setTimeout(poll, 3000); return; }
+    recheckingPhotos.delete(p.id);
+    if (d.ok) {
+      if (d.data.tags) p.tags = d.data.tags;
+      learnPlayerChips(d.data.players);
+      pendingByPhoto.set(p.id, d.data.pending || []);
+      const n = (d.data.pending || []).length;
+      toast(n ? `Check done: ${n} suggestion${n === 1 ? '' : 's'} to review` : 'Check done: nothing new found');
+    }
+    if (redraw) redraw();
+  };
+  setTimeout(poll, 3000);
+  return true;
 }
 
 // Tag several players at once. The admin's choice applies straight away (a number not on the roster waits under that number
@@ -1626,8 +1662,11 @@ async function playersSheet(p, redraw) {
       pendingList,
       h('p', { class: 'muted', text: note }), msg,
       h('div', { class: 'row sheet-actions' },
-        isAdmin || d.data.signedIn ? h('button', { class: 'primary', text: isAdmin ? 'Save' : 'Send', onclick: submit })
-          : me && me.sso ? h('a', { class: 'btn primary', href: '/auth/login?next=' + encodeURIComponent(location.pathname), text: 'Sign in' }) : null,
+        isAdmin || d.data.signedIn ? h('button', { class: 'primary', text: isAdmin ? 'Save' : 'Send', onclick: submit }) : null,
+        isAdmin ? h('button', { text: d.data.checking || recheckingPhotos.has(p.id) ? 'Checking…' : '↻ Check again', disabled: !!d.data.checking || recheckingPhotos.has(p.id),
+          title: 'Send just this photo through automatic tagging again (and rewrite its AI description). Tags you set stay; earlier AI suggestions still waiting are replaced.',
+          onclick: async () => { if (await recheckPhoto(p, redraw)) closeSheet(); } })
+          : !d.data.signedIn && me && me.sso ? h('a', { class: 'btn primary', href: '/auth/login?next=' + encodeURIComponent(location.pathname), text: 'Sign in' }) : null,
         h('button', { text: 'Close', onclick: closeSheet }))));
   sheet._key = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); closeSheet(); } else if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') { e.preventDefault(); submit(); } };
   document.addEventListener('keydown', sheet._key, true);
@@ -1638,7 +1677,13 @@ async function playersSheet(p, redraw) {
 // (tag, follow), its other tags, and its caption and alt text.
 function photoSections(photo) {
   const isAdmin = !!(me && me.admin);
-  const sec = (title, body) => h('details', { class: 'info-sec' }, h('summary', { text: title }), body);
+  // opened from the gallery's Players review ("open"): the Players section starts unfolded
+  const openPl = openPlayersOnce; openPlayersOnce = false;
+  const sec = (title, body) => {
+    const d = h('details', { class: 'info-sec' }, h('summary', { text: title }), body);
+    if (title === 'Players' && openPl) { d.open = true; d._pgOpen = true; }   // not folded back by the remembered state
+    return d;
+  };
 
   const descBox = h('div', { class: 'info-desc' });
   const drawDesc = () => {
@@ -1998,7 +2043,9 @@ function openLightbox(index, play, mode = 'push') {
 
   show(index, false); if (play) { start(); } wake();
   let remembered = ''; try { remembered = localStorage.getItem('pg-lb-panel') || ''; } catch { }
-  if (remembered) setDetails(true, remembered === 'comments' && G.allowComments ? 'comments' : 'info');
+  // /g/<slug>/p/<id>#players (the "open" link in the gallery's Players review): Details open on the photo's players
+  if (location.hash === '#players' && me && me.admin) { openPlayersOnce = true; setDetails(true, 'info'); }
+  else if (remembered) setDetails(true, remembered === 'comments' && G.allowComments ? 'comments' : 'info');
 }
 function closeLightbox() {
   const root = $('#lightbox');
@@ -4288,7 +4335,7 @@ function playersManager(g) {
           approve ? h('button', { class: 'primary', role: 'menuitem', text: 'Approve', onclick: async () => { closeMenu(); await approve(); } }) : null,
           reject ? h('button', { role: 'menuitem', text: 'Reject', onclick: async () => { closeMenu(); await reject(); } }) : null,
           replace ? h('button', { role: 'menuitem', text: 'Not a player', title: 'Nobody on the team: remove this reading from this photo only', onclick: () => send('') }) : null,
-          h('a', { class: 'btn', role: 'menuitem', href: `/img/${photoId}/view`, target: '_blank', rel: 'noopener', text: 'Open large', onclick: closeMenu })),
+          h('a', { class: 'btn', role: 'menuitem', href: `/g/${encodeURIComponent(g.slug)}/p/${photoId}#players`, target: '_blank', rel: 'noopener', text: 'Open', title: 'Open this photo in the gallery in a new tab, with its details and players', onclick: closeMenu })),
         note);
       menu.addEventListener('keydown', ev => { if (ev.key === 'Escape') closeMenu(); });
       document.body.append(menu);
@@ -4407,29 +4454,74 @@ function playersManager(g) {
       const addPicker = fixPicker(pid, null, 'Add a player:');
       const fixers = list.map(s => fixPicker(pid, { suggestion: s.id }, `Not ${s.tag}? It is:`));
       const one = list.length === 1 ? list[0] : null;
-      const quick = async (ids, ok) => { const res = await api('/api/admin/players/review', { method: 'POST', body: ok ? { approve: ids } : { reject: ids } }); if (res.ok) { markDone(card, ok ? 'Approved' : 'Rejected'); selected.delete(pid); syncSel(); } else msg.textContent = aiErr(res); };
-      const menuFor = (sg) => ({ title: `${sg.unsure ? 'Maybe ' : ''}${sg.tag}. It is really:`, read: sg.number, replace: { suggestion: sg.id }, approve: () => quick([sg.id], true), reject: () => quick([sg.id], false), done: (t) => markDone(card, t) });
+      // each suggestion is settled on its own: its chip fades with what happened, and the card only fades once none are left
+      const open = new Set(list.map(s => s.id));
+      const settle = (sg, text) => {
+        if (!open.delete(sg.id)) return;
+        const chip = chipEls.get(sg.id);
+        if (chip) { chip.classList.add('settled'); chip.querySelectorAll('button').forEach(b => { b.disabled = true; }); chip.append(h('span', { class: 'chip-result', text })); }
+        if (!open.size) { markDone(card, 'Done'); selected.delete(pid); syncSel(); }
+      };
+      const quick = async (sg, ok) => {
+        const res = await api('/api/admin/players/review', { method: 'POST', body: ok ? { approve: [sg.id] } : { reject: [sg.id] } });
+        if (!res.ok) { msg.textContent = aiErr(res); return; }
+        settle(sg, ok ? 'approved' : 'rejected');
+        // one partly hidden number is one player: approving it rejects the other players it could have been
+        if (ok && sg.unsure) list.filter(o => o.unsure && o.readAs === sg.readAs && o.id !== sg.id).forEach(o => settle(o, 'rejected'));
+      };
+      const menuFor = (sg) => ({ title: `${sg.unsure ? 'Maybe ' : ''}${sg.tag}. It is really:`, read: sg.number, replace: { suggestion: sg.id }, approve: () => quick(sg, true), reject: () => quick(sg, false), done: (t) => settle(sg, t) });
       const pendingTags = new Set(list.map(s => s.tag.toLowerCase()));
-      const onPhoto = ((d.photoTags || {})[pid] || []).filter(t => !pendingTags.has(t.toLowerCase()));
+      const tagsHere = ((d.photoTags || {})[pid] || []).filter(t => !pendingTags.has(t.toLowerCase()));
+      // players already tagged (by you, or approved automatically) get an × to untag them; other tags stay plain
+      const tagNamesOf = (p) => [`${team.name} ${p.number}`, p.name ? `${p.name} ${p.number}` : ''].filter(Boolean).map(x => x.toLowerCase());
+      const taggedPlayers = team ? roster.filter(p => tagNamesOf(p).some(n => tagsHere.some(t => t.toLowerCase() === n))) : [];
+      const playerTagSet = new Set(taggedPlayers.flatMap(tagNamesOf));
+      const onPhoto = tagsHere.filter(t => !playerTagSet.has(t.toLowerCase()));
+      const untag = async (p, el) => {
+        const res = await api(`/api/admin/photos/${pid}/players`, { method: 'POST', body: { remove: [p.number] } });
+        if (!res.ok) { msg.textContent = aiErr(res); return; }
+        el.classList.add('settled'); el.querySelectorAll('button').forEach(b => { b.disabled = true; }); el.append(h('span', { class: 'chip-result', text: 'removed' }));
+      };
+      const taggedChips = taggedPlayers.map(p => {
+        const el = h('span', { class: 'tag-chip tagged', title: p.name ? `#${p.number} ${p.name}: tagged` : `#${p.number}: tagged` }, `✓ #${p.number}${p.name ? ' ' + p.name : ''}`);
+        el.style.setProperty('--tag-c', tagColor(tagsHere.find(t => tagNamesOf(p).includes(t.toLowerCase())) || ''));
+        el.append(h('button', { class: 'chip-x', 'aria-label': `Remove #${p.number} from ${list[0].photo}`, title: 'Not in this photo: remove the tag', text: '×', onclick: () => untag(p, el) }));
+        return el;
+      });
+      const chipEls = new Map();
+      const rerun = h('button', { class: 'chip-rerun', text: '↻ Check again', title: 'Send just this photo through automatic tagging again (and rewrite its AI description). Tags you set stay.', onclick: async () => {
+        rerun.disabled = true;
+        const res = await api(`/api/admin/photos/${pid}/players/recheck`, { method: 'POST' });
+        if (res.ok) { toast('Checking this photo again'); load(); } else { rerun.disabled = false; msg.textContent = aiErr(res); }
+      } });
       const img = photoPreview.attach(h('button', { class: 'review-img', title: 'Click to select, Shift-click to select a run, right-click to fix', 'aria-label': `Select ${list[0].photo}`,
         onclick: (e) => { photoPreview.hide(); pick(pid, e); } },
         h('img', { src: `/img/${pid}/thumb`, alt: list[0].photo, loading: 'lazy' }),
         h('input', { type: 'checkbox', class: 'review-tick', tabindex: '-1', 'aria-hidden': 'true' })), pid, `${list[0].photo}: ${list.map(s => (s.unsure ? 'maybe ' : '') + s.tag).join(', ')}`);
       // with one suggestion the menu fixes it; with several it adds a player (right-click a chip to fix that one)
-      img.addEventListener('contextmenu', e => fixMenu(e, pid, one ? menuFor(one) : { title: 'Add a player to this photo:', replace: null, done: (t) => markDone(card, t) }));
+      img.addEventListener('contextmenu', e => fixMenu(e, pid, one ? menuFor(one) : { title: 'Add a player to this photo:', replace: null, done: (t) => toast(`Added ${t.replace(/^→ /, '')}`) }));
       const card = h('div', { class: 'review-card' }, img,
         h('div', { class: 'review-body' },
-          h('div', { class: 'muted review-name' }, list[0].photo, ' ', h('a', { href: `/img/${pid}/view`, target: '_blank', rel: 'noopener', text: 'open' })),
-          onPhoto.length ? h('div', { class: 'review-tags', title: 'Already tagged' }, onPhoto.map(t => tagPill(t))) : null,
+          h('div', { class: 'muted review-name' }, list[0].photo, ' ', h('a', { href: `/g/${encodeURIComponent(g.slug)}/p/${pid}#players`, target: '_blank', rel: 'noopener', text: 'open', title: 'Open this photo in the gallery in a new tab, with its details and players' })),
+          taggedChips.length ? h('div', { class: 'chips', 'aria-label': 'Players tagged' }, taggedChips) : null,
+          onPhoto.length ? h('div', { class: 'review-tags', title: 'Other tags' }, onPhoto.map(t => tagPill(t))) : null,
           list.filter(s => s.unsure).map(s => s.note).filter((n, i, a) => a.indexOf(n) === i).map(n => h('div', { class: 'muted unsure-note', text: `Not sure: ${n}.` + (list.filter(s => s.unsure).length > 1 ? ' Approve the right player; the others are rejected.' : '') })),
           h('div', { class: 'chips' }, list.map((s, i) => h('span', { class: 'tag-chip' + (s.unsure ? ' unsure' : '') + (s.source && s.source.startsWith('parent ') ? ' parent' : ''), title: `${s.confidence}% sure, ${s.source && s.source.startsWith('parent ') ? 'suggested ' + sourceText(s) : 'read by ' + s.source}` + (s.note ? ` (${s.note})` : '') },
             `${s.unsure ? 'maybe ' : ''}${s.tag} · ${sourceText(s)}`,
-            h('button', { class: 'chip-ok', 'aria-label': `Approve ${s.tag} on ${s.photo}`, title: 'Approve', text: '✓', onclick: () => quick([s.id], true) }),
+            h('button', { class: 'chip-ok', 'aria-label': `Approve ${s.tag} on ${s.photo}`, title: 'Approve', text: '✓', onclick: () => quick(s, true) }),
             h('button', { class: 'chip-fix', 'aria-label': `Change ${s.tag} on ${s.photo}`, title: 'Wrong number: pick the right player', text: '✎', onclick: () => toggle(fixers[i]) }),
-            h('button', { class: 'chip-x', 'aria-label': `Reject ${s.tag} on ${s.photo}`, title: 'Reject', text: '×', onclick: () => quick([s.id], false) }))),
+            h('button', { class: 'chip-x', 'aria-label': `Reject ${s.tag} on ${s.photo}`, title: 'Reject just this one', text: '×', onclick: () => quick(s, false) }))),
             h('button', { class: 'chip-add', title: 'Add a player the model missed', 'aria-label': `Add a player to ${list[0].photo}`, text: '+', onclick: () => toggle(addPicker) })),
+          h('div', { class: 'row review-actions' },
+            list.length > 1 ? h('button', { text: 'Reject all on this photo', onclick: async () => {
+              const ids = list.filter(s => open.has(s.id)).map(s => s.id);
+              if (!ids.length) return;
+              const res = await api('/api/admin/players/review', { method: 'POST', body: { reject: ids } });
+              if (res.ok) list.filter(s => ids.includes(s.id)).forEach(s => settle(s, 'rejected')); else msg.textContent = aiErr(res);
+            } }) : null,
+            rerun),
           addPicker, ...fixers));
-      card.querySelectorAll('.tag-chip').forEach((chip, i) => chip.addEventListener('contextmenu', e => fixMenu(e, pid, menuFor(list[i]))));
+      card.querySelectorAll('.tag-chip:not(.tagged)').forEach((chip, i) => { chipEls.set(list[i].id, chip); chip.addEventListener('contextmenu', e => fixMenu(e, pid, menuFor(list[i]))); });
       cards.set(pid, card);
       return card;
     });

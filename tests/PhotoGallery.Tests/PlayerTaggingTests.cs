@@ -661,6 +661,42 @@ public class PlayerTaggingTests(VisionAppFactory app) : IClassFixture<VisionAppF
         finally { Serial.Release(); }
     }
     [Fact]
+    public async Task One_photo_can_be_sent_back_through_automatic_tagging()
+    {
+        await Serial.WaitAsync();
+        try
+        {
+            var admin = await app.AdminAsync();
+            await SetProvidersAsync(admin, new { kind = "ollama", enabled = true, url = "http://ollama.local:11434", model = "qwen3-vl:8b" });
+            var (gid, slug, _) = await GalleryWithTeamAsync(admin, "Retag One", 2);
+            var ids = await AppFactory.PhotoIdsAsync(admin, slug);
+            app.Reader.Answers["ollama"] = () => "{\"numbers\": [{\"number\": \"10\", \"confidence\": 90}, {\"number\": \"7\", \"confidence\": 80}]}";
+            await admin.PostAsJsonAsync($"/api/admin/galleries/{gid}/players/check", new { });
+            var s = await WaitAsync(admin, gid);
+            Assert.Equal(4, s.GetProperty("pending").GetArrayLength());
+
+            // #7 rejected by hand on the first photo; #3 tagged by hand
+            var seven = s.GetProperty("pending").EnumerateArray().First(x => x.GetProperty("photoId").GetInt32() == ids[0] && x.GetProperty("number").GetString() == "7").GetProperty("id").GetInt32();
+            await admin.PostAsJsonAsync("/api/admin/players/review", new { reject = new[] { seven } });
+            await admin.PostAsJsonAsync($"/api/admin/photos/{ids[0]}/players", new { add = new[] { "3" } });
+
+            // the model now reads only #7 and #3: the old #10 reading on that photo gives way, #7 stays rejected, #3 stays tagged
+            app.Reader.Answers["ollama"] = () => "{\"numbers\": [{\"number\": \"7\", \"confidence\": 90}, {\"number\": \"3\", \"confidence\": 90}]}";
+            var asked = app.Reader.Asked.Count;
+            Assert.Equal(HttpStatusCode.Accepted, (await admin.PostAsync($"/api/admin/photos/{ids[0]}/players/recheck", null)).StatusCode);
+            s = await WaitAsync(admin, gid);
+            Assert.Equal(asked + 1, app.Reader.Asked.Count);   // just the one photo
+            var pending = s.GetProperty("pending").EnumerateArray().ToList();
+            Assert.DoesNotContain(pending, x => x.GetProperty("photoId").GetInt32() == ids[0]);
+            Assert.Equal(2, pending.Count(x => x.GetProperty("photoId").GetInt32() == ids[1]));   // the other photo is untouched
+            var view = await (await admin.GetAsync($"/api/g/{slug}/photo/{ids[0]}/players")).ReadAsync();
+            Assert.Equal("3", view.GetProperty("players").EnumerateArray().Single().GetProperty("number").GetString());
+            Assert.False(view.GetProperty("checking").GetBoolean());
+        }
+        finally { Serial.Release(); }
+    }
+
+    [Fact]
     public async Task The_admin_tags_several_players_at_once_from_the_photo()
     {
         var admin = await app.AdminAsync();

@@ -420,6 +420,25 @@ public static class PlayerApi
             return Results.Accepted();
         });
 
+        // one photo sent back through automatic tagging: a fresh player check, then (when descriptions are on) a new description.
+        // A description you wrote stays yours; it is only rewritten from your notes if the players change, as after any retag.
+        secured.MapPost("/photos/{photoId:int}/players/recheck", async (int photoId, HttpContext ctx, AppDb db, PlayerTagJobs jobs, SettingsService settings) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var p = await db.Photos.Include(x => x.Gallery).FirstOrDefaultAsync(x => x.Id == photoId);
+            if (p?.Gallery == null) return Results.NotFound();
+            var g = p.Gallery;
+            if (settings.Vision.Chain.Count == 0) return Results.BadRequest("No AI provider is set up yet. Open Settings, Automatic tagging.");
+            if (g.TeamId == null) return Results.BadRequest("Choose the team for this gallery first.");
+            if (!p.Approved) return Results.BadRequest("Approve this photo first.");
+            if (!await db.Players.AnyAsync(x => x.TeamId == g.TeamId)) return Results.BadRequest("Add the team's players (their numbers) first.");
+            if (!jobs.Start(g.Id, g.Title, null, true, photoId: p.Id)) return Results.Conflict("A check is already running for this gallery. Try again when it finishes.");
+            if (p.DescriptionSource == PhotoDescriptions.Ai) { p.DescriptionPlayers = ""; p.DescriptionAttempts = 0; }   // written again once the check ends
+            else if (p.DescriptionSource == "" && p.DescriptionAttempts > 0) p.DescriptionAttempts = 0;
+            await db.SaveChangesAsync();
+            return Results.Accepted();
+        });
+
         secured.MapPost("/galleries/{id:int}/players/stop", (int id, HttpContext ctx, PlayerTagJobs jobs) =>
         {
             if (!Csrf(ctx)) return Results.BadRequest("missing header");
