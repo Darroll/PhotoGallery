@@ -26,7 +26,7 @@ public static class PublicApi
 
     public static void Map(WebApplication app)
     {
-        app.MapGet("/api/site", (AppConfig cfg, ImageService img, SettingsService settings) => new
+        app.MapGet("/api/site", async (AppConfig cfg, ImageService img, SettingsService settings, AppDb db) => new
         {
             title = settings.SiteName,
             version = cfg.Version, commit = cfg.Commit, built = cfg.BuildDate,
@@ -35,7 +35,9 @@ public static class PublicApi
             watermark = img.WatermarkAvailable,
             theme = settings.Theme.ForVisitors(),
             subscribe = Subscribers.Available(settings),
-            privacy = settings.Privacy.Enabled ? settings.Privacy.Title : null
+            privacy = settings.Privacy.Enabled ? settings.Privacy.Title : null,
+            // the team whose logo and colours every page without a team of its own wears (Settings, Teams)
+            siteTeam = TeamLook.ForVisitors(await db.Teams.AsNoTracking().Where(t => t.SiteLook).OrderByDescending(t => t.CreatedAt).FirstOrDefaultAsync())
         });
 
         app.MapGet("/api/privacy", (SettingsService settings) => Results.Ok(settings.Privacy.ForVisitors(settings.SiteName)));
@@ -85,7 +87,7 @@ public static class PublicApi
                     tags = galleryTags.TryGetValue(g.Id, out var gt) ? gt : new List<string>(),
                     season = s.Season,
                     // the team chips on the home page go by name, so they cover every season of a team
-                    team = g.TeamId is { } tid && teams.TryGetValue(tid, out var tn) ? new { id = tid, name = tn.Name, season = tn.Season } : null
+                    team = g.TeamId is { } tid && teams.TryGetValue(tid, out var tn) ? new { id = tid, name = tn.Name, season = tn.Season, logo = TeamLook.LogoUrl(tn), main = tn.MainColor.Length > 0 ? tn.MainColor : null, second = tn.SecondColor.Length > 0 ? tn.SecondColor : null } : null
                 }));
             return Results.Ok(list);
         });
@@ -155,6 +157,7 @@ public static class PublicApi
                 players = players.Select(x => new { tag = x.Tag, label = x.Label, number = x.Number }),
                 playerTagging = PhotoPlayersApi.Can(ctx, g),
                 follow,
+                team = TeamLook.ForVisitors(followTeam),
                 g.Location, eventDate = g.EventDate, eventEndDate = g.EventEndDate, coverMode = g.CoverMode, shareUrl = GalleryRules.ShareUrl(g, null, settings.Email.SiteUrl, $"{ctx.Request.Scheme}://{ctx.Request.Host}"), hideRawOnly = g.HideRawOnly, allowLikes = g.AllowLikes, allowComments = g.AllowComments, allowFeedback = g.AllowFeedback, showLikeCounts = g.ShowLikeCounts || admin, links = GalleryRules.Links(g).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note, preview = previews && GalleryRules.CategoryOf(l) == "external" ? ExternalLinkPreviews.ForPage(cfg, l.Url) : null }), sections = layout.Select(s => new { folder = s.Folder, s.Title, count = sectionCounts.GetValueOrDefault(s.Folder), links = (s.Links ?? new()).Select(l => new { l.Label, l.Url, videoId = GalleryRules.YouTubeId(l.Url), category = GalleryRules.CategoryOf(l), button = GalleryRules.ButtonOf(l), l.Note }) }), favorites = favoriteIds, favoriteName, sizes =GalleryRules.Sizes(g, cfg), formats = GalleryRules.Formats(g),
                 allowDownload = g.AllowDownload,
                 allowOriginal = g.AllowDownload && !locked,

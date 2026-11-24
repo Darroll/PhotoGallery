@@ -2,6 +2,14 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.9.0
+
+- **Team logo and colors.** On Settings, **Teams**, each team's card has a **Logo and colours** section (and the **Add a team** form has one too): choose a logo picture and pick a main and a second color, or tap one of the colors taken from the logo. They belong to the team, so every season shares them, and a new season starts with them. No CSS editing.
+  - **On the team's galleries:** the main color is used for buttons, links, selected chips and highlights, made lighter or darker where needed so it stays readable in every theme (High contrast keeps its own colors). The second color is a stripe under the header. The logo shows in the header and next to the gallery title.
+  - **On the home page:** a gallery of a team with a logo shows it in the corner of its cover, the team chips show each team's logo (or a dot in its colors), and choosing a team dresses the page in that team's look.
+  - **Use on every page:** tick it for one team (your main team) and its logo and colors are used on the home page, search and every gallery without a team, and its logo becomes the browser tab icon.
+  - Logos can be PNG, JPEG, WebP or GIF up to 5 MB. They are shrunk to 512 pixels and saved as a new PNG in the data folder (`team-logos`), keeping a transparent background.
+
 ## 2.8.1
 
 - **The viewer remembers the Details panel.** If you had Details (or Comments) open, it stays open as you move between photos and opens again the next time you view a photo, in any gallery, until you close it with its **Close** button.

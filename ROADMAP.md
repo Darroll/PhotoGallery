@@ -139,7 +139,7 @@ The main use is photos of a youth soccer team plus a link to the game film, shar
 | 33 | **Short visitor guide**: a dismissible "how to find and save your photos" card on a gallery | S | Low | Pixieset |
 | 34 | [x] **Seasons and a team filter on the home page** (built, not yet released): galleries grouped by season, newest first with earlier seasons folded (Fall/Spring, August to July, or calendar year, worked out from the event date; a gallery can name its own season, and a preset can carry it), and team chips that show one team's galleries, also in search and the admin list. Not the declined multi-folder library | M | Med | SmugMug, Pixieset, Piwigo |
 | 36 | **Install on a phone like an app** (moved up from Later / ideas) | M | Low | Pixieset, Immich |
-| 37 | **Team branding**: logo, favicon and accent color in the app, no CSS | S to M | Low | Pixieset, ShootProof |
+| 37 | [x] **Team branding** (built, not yet released): each team gets a logo and a main and second color on the Teams page, shared by all its seasons. Its galleries wear them (accent color, header stripe, logo by the title), the home page shows logos on cards and team chips, and one team can dress every page including the favicon. No CSS | S to M | Low | Pixieset, ShootProof |
 | 38 | **Upload from the admin page / Lightroom publish**: needs a write path, the library is a read-only mount today | M / L | High | All pro hosts, Piwigo |
 | 39 | **Find me by face**: opt-in, processed only on this server, admin-controlled. Faces of minors are biometric data, so this needs its own privacy design and a decision before work starts | XL | High | Pic-Time, Immich |
 
