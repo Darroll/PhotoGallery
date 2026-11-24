@@ -52,6 +52,7 @@ function currentTheme() {
 function applyTheme() {
   const c = currentTheme(), root = document.documentElement;
   if (c === 'auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', c);
+  if (typeof paintLook === 'function') paintLook();
 }
 // Signed-in people (those with an account id) also keep the pick on the server, so it follows them to every device.
 const hasAccountPrefs = () => !!(me && me.preferences);
@@ -81,6 +82,73 @@ function themePicker() {
   });
   return sel;
 }
+// ---------- team look ----------
+// A team's logo and colours (Settings, Teams) dress the page: its galleries wear them, and one team can lend them to every
+// other page (site.siteTeam). The main colour becomes the accent (buttons, links, highlights), nudged lighter or darker
+// until it reads well on the theme's background; the second colour is a stripe under the header. The High contrast theme
+// keeps its own colours, for the people who chose it to see better.
+let pageTeam;   // the look of the team the current page belongs to; undefined means "not set by this page"
+const lookNow = () => pageTeam || site.siteTeam || null;
+function setTeamLook(look) { pageTeam = look && (look.logo || look.main || look.second) ? look : null; paintLook(); }
+function hexRgb(s) {
+  s = String(s || '').trim();
+  let m = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(s);
+  if (m) return m.slice(1).map(x => parseInt(x + x, 16));
+  m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(s);
+  if (m) return m.slice(1).map(x => parseInt(x, 16));
+  m = /^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i.exec(s);
+  return m ? m.slice(1).map(Number) : null;
+}
+const rgbHex = (c) => '#' + c.map(v => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+function luminance(c) { const [r, g, b] = c.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
+function contrast(a, b) { const x = luminance(a), y = luminance(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+// the team colour, moved toward white on a dark background (or black on a light one) until it stands out at least 3:1
+function readableOn(color, bg) {
+  const towards = luminance(bg) < 0.4 ? [255, 255, 255] : [0, 0, 0];
+  let c = color;
+  for (let i = 1; i <= 10 && contrast(c, bg) < 3; i++) c = color.map((v, k) => v + (towards[k] - v) * i / 10);
+  return c;
+}
+function paintLook() {
+  const look = lookNow(), root = document.documentElement;
+  for (const v of ['--accent', '--accent-fg', '--team-2']) root.style.removeProperty(v);
+  root.classList.toggle('team-look', !!look);
+  const top = $('#top');
+  if (top) top.classList.toggle('team-stripe', !!(look && (look.second || look.main)));
+  const brandLogo = top && top.querySelector('.brand-logo');
+  if (brandLogo) { if (look && look.logo) { brandLogo.src = look.logo; brandLogo.alt = look.name + ' logo'; brandLogo.hidden = false; } else { brandLogo.hidden = true; brandLogo.removeAttribute('src'); } }
+  // the site's own team logo is the browser tab icon too
+  const icon = site.siteTeam && site.siteTeam.logo;
+  let link = document.querySelector('link[rel="icon"][data-team]');
+  if (icon) { if (!link) { link = h('link', { rel: 'icon', type: 'image/png', 'data-team': '1' }); document.head.append(link); } if (link.getAttribute('href') !== icon) link.setAttribute('href', icon); }
+  else if (link) link.remove();
+  if (!look || root.getAttribute('data-theme') === 'contrast') return;
+  const bg = hexRgb(getComputedStyle(root).getPropertyValue('--bg')) || [255, 255, 255];
+  const main = hexRgb(look.main), second = hexRgb(look.second);
+  if (main) {
+    const a = readableOn(main, bg);
+    root.style.setProperty('--accent', rgbHex(a));
+    root.style.setProperty('--accent-fg', contrast(a, [255, 255, 255]) >= contrast(a, [0, 0, 0]) ? '#ffffff' : '#000000');
+  }
+  if (second || main) root.style.setProperty('--team-2', rgbHex(second || main));
+}
+// a device switching between light and dark changes the background under "Auto", so the accent is worked out again
+try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => paintLook()); } catch { }
+// after a team's look changes: the site's own team look may have changed too
+async function refreshSite() {
+  const r = await api('/api/site');
+  if (r.ok) { site.siteTeam = r.data.siteTeam; paintLook(); }
+}
+// a small round logo (or a dot in the team colour) for chips and cards
+function teamBadge(t, cls) {
+  if (!t) return null;
+  if (t.logo) return h('img', { class: cls || 'team-badge', src: t.logo, alt: '', loading: 'lazy' });
+  if (!t.main) return null;
+  const dot = h('span', { class: (cls || 'team-badge') + ' team-dot', 'aria-hidden': 'true' });
+  dot.style.background = t.second ? `linear-gradient(135deg, ${t.main} 50%, ${t.second} 50%)` : t.main;
+  return dot;
+}
+
 let license = { enabled: false, require: false };
 // Acceptance is recorded on the server (against the account, or the browser's visitor id); the server reports whether this visitor has accepted the current wording.
 async function recordLicenseAcceptance() {
@@ -253,6 +321,7 @@ async function route(force = false) {
   }
   galleryView = null; closeLightbox(); app.replaceChildren();
   document.title = site.title;
+  setTeamLook(null);   // pages without a team of their own wear the site's team look, if one is chosen
   if (parts[0] === 'admin' && parts[1] === 'stats') return viewStats(app);
   if (parts[0] === 'admin' && parts[1] === 'comments') return viewComments(app);
   if (parts[0] === 'admin' && parts[1] === 'feedback') return viewFeedback(app);
@@ -374,7 +443,7 @@ function renderHeader() {
   const top = $('#top'), m = me || {};
   const next = encodeURIComponent(location.pathname + location.search);
   top.replaceChildren(
-    h('a', { class: 'brand', href: '/', text: site.title }),
+    h('a', { class: 'brand', href: '/' }, h('img', { class: 'brand-logo', hidden: true, alt: '' }), h('span', { text: site.title })),
     h('nav', {},
       signinFailed ? h('span', { class: 'chip warn', text: 'Sign-in failed' }) : null,
       m.likes > 0 ? h('a', { href: '/likes', text: '♥ My likes' }) : null,
@@ -383,6 +452,7 @@ function renderHeader() {
       m.sso && m.signedIn ? h('span', { class: 'who', text: m.name || 'Signed in' }) : null,
       m.sso ? (m.signedIn ? h('a', { href: '/auth/logout', text: 'Sign out' }) : h('a', { href: '/auth/login?next=' + next, text: 'Sign in' })) : null,
       themePicker()));
+  paintLook();
 }
 
 // On gallery cards the date and the location each get their own line.
@@ -493,15 +563,18 @@ async function viewHome(app) {
   app.append(searchForm({}));
   if (!r.ok || !r.data.length) return app.append(h('p', { class: 'muted', text: 'No public galleries yet. Private galleries are reached through their share link.' }));
   const all = r.data;
+  // a gallery of a team with a logo shows it in the corner of the cover
   const card = (g) => h('a', { class: 'card', href: '/g/' + encodeURIComponent(g.slug) },
-    g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
+    h('div', { class: 'cover-wrap' },
+      g.cover ? h('img', { class: 'cover', loading: 'lazy', src: `/img/${g.cover}/thumb`, alt: '' }) : h('div', { class: 'cover' }),
+      g.team && g.team.logo ? h('img', { class: 'card-logo', src: g.team.logo, alt: '', loading: 'lazy' }) : null),
     h('div', { class: 'meta' }, h('b', { text: g.title }), eventLines(g), h('span', { class: 'muted', text: plural(g.count, 'photo') }), adminStatus(g, me && me.admin, true), tagChips(g)));
 
   // Team filter: the teams set on the galleries (Settings, Teams), by name, so one chip covers all of a team's seasons.
   // Offered only when picking one would leave some galleries out. The choice lives in the address (?team=Hurricanes, so it
   // can be shared) and is remembered on this device.
   const key = (n) => (n || '').toLowerCase();
-  const teams = [...new Map(all.filter(g => g.team).map(g => [key(g.team.name), { id: key(g.team.name), name: g.team.name }])).values()].sort((a, b) => a.name.localeCompare(b.name));
+  const teams = [...new Map(all.filter(g => g.team).map(g => [key(g.team.name), { id: key(g.team.name), name: g.team.name, logo: g.team.logo, main: g.team.main, second: g.team.second }])).values()].sort((a, b) => a.name.localeCompare(b.name));
   const ofTeam = (g, t) => g.team && key(g.team.name) === t.id;
   const filterable = teams.some(t => all.some(g => !ofTeam(g, t)));
   const teamKey = 'pg-home-team';
@@ -520,7 +593,9 @@ async function viewHome(app) {
   const render = () => {
     if (teamBar) teamBar.replaceChildren(h('span', { class: 'player-lead muted', text: 'Teams' }),
       h('button', { class: 'player-chip' + (team ? '' : ' on'), 'aria-pressed': team ? 'false' : 'true', text: 'All teams', onclick: () => pickTeam(null) }),
-      ...teams.map(t => h('button', { class: 'player-chip' + (team && team.id === t.id ? ' on' : ''), 'aria-pressed': team && team.id === t.id ? 'true' : 'false', text: t.name, onclick: () => pickTeam(t) })));
+      ...teams.map(t => h('button', { class: 'player-chip team-chip' + (team && team.id === t.id ? ' on' : ''), 'aria-pressed': team && team.id === t.id ? 'true' : 'false', onclick: () => pickTeam(t) }, teamBadge(t), h('span', { text: t.name }))));
+    // showing one team's galleries dresses the page in that team's logo and colours
+    setTeamLook(team);
     const shown = team ? all.filter(g => ofTeam(g, team)) : all;
     // the server sends the galleries grouped by season, newest season first; a heading starts where the season changes
     const groups = [];
@@ -616,6 +691,7 @@ async function viewGallery(app, slug) {
   if (r.status === 401 && r.data && r.data.needsSignIn) return signInPrompt(app, r.data.title);
   if (r.status === 410) document.title = ((r.data && r.data.title) || 'Gallery') + ' - Closed';
   if (r.status === 410) return app.append(h('div', { class: 'center' }, h('h1', { text: (r.data && r.data.title) || 'Gallery closed' }), h('p', { class: 'sub', text: 'This gallery is no longer available.' })));
+  setTeamLook(r.ok ? r.data.team : null);
   if (!r.ok) document.title = 'Not available - ' + site.title;
   if (!r.ok) return app.append(h('div', { class: 'center' }, h('h1', { text: 'Not available' }), h('p', { class: 'sub', text: 'This gallery does not exist or you do not have access.' })));
   G = r.data;
@@ -623,7 +699,9 @@ async function viewGallery(app, slug) {
   sel = new Set();
   favs = new Set(G.favorites || []);
   document.title = G.title;
-  app.append(h('h1', { class: 'g-title', text: G.title }));
+  app.append(G.team && G.team.logo
+    ? h('div', { class: 'g-head' }, h('img', { class: 'g-logo', src: G.team.logo, alt: G.team.name + ' logo' }), h('h1', { class: 'g-title', text: G.title }))
+    : h('h1', { class: 'g-title', text: G.title }));
   const status = adminStatus(G, G.admin, false);
   if (status) app.append(status);
   if (G.eventDate || G.location) app.append(h('p', { class: 'muted', text: eventLine(G) }));
@@ -3319,6 +3397,114 @@ function colourInput(value, label, placeholder) {
   return wrap;
 }
 
+// The team's logo and colours, for its galleries (and every page when "Use on every page" is on). They belong to the team,
+// not a season, so they are set once on the team's card. For a team being added (t is null) nothing is saved until the
+// team exists: the form's Add button calls el.saveFor(id) after it is created.
+function teamLookEditor(t, onSaved) {
+  let logo = t ? t.logo : null, file = null, fileUrl = null;
+  const msg = h('span', { class: 'muted', role: 'status' });
+  const logoBox = h('div', { class: 'look-logo' });
+  const fileIn = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', hidden: true });
+  const pickBtn = h('button', { type: 'button', onclick: () => fileIn.click() });
+  const removeBtn = h('button', { type: 'button', class: 'danger', text: 'Remove logo' });
+  const suggest = h('span', { class: 'look-suggest' });
+  const colour = (value, label) => {
+    const text = h('input', { type: 'text', maxlength: 7, value: value || '', placeholder: 'none', 'aria-label': label + ' (hex)' });
+    const pick = h('input', { type: 'color', value: value || '#888888', 'aria-label': label });
+    pick.addEventListener('input', () => { text.value = pick.value; draw(); });
+    text.addEventListener('input', () => { const v = cleanHex(text.value); if (v) pick.value = v; draw(); });
+    const clear = h('button', { type: 'button', class: 'kit-x', text: '×', title: 'No ' + label.toLowerCase(), 'aria-label': 'No ' + label.toLowerCase(), onclick: () => { text.value = ''; draw(); } });
+    const wrap = h('span', { class: 'look-colour' }, pick, text, clear);
+    wrap.get = () => text.value.trim();
+    wrap.set = (v) => { text.value = v; pick.value = v; draw(); };
+    return wrap;
+  };
+  const cleanHex = (v) => { v = String(v || '').trim().toLowerCase(); if (v && v[0] !== '#') v = '#' + v; if (/^#[0-9a-f]{3}$/.test(v)) v = '#' + [...v.slice(1)].map(c => c + c).join(''); return /^#[0-9a-f]{6}$/.test(v) ? v : ''; };
+  const main = colour(t ? t.mainColor : '', 'Main colour'), second = colour(t ? t.secondColor : '', 'Second colour');
+  const siteWide = h('input', { type: 'checkbox', checked: !!(t && t.siteLook) });
+  const preview = h('div', { class: 'look-preview', 'aria-hidden': 'true' });
+  const draw = () => {
+    const src = fileUrl || logo;
+    logoBox.replaceChildren(src ? h('img', { src, alt: 'Logo' }) : h('span', { class: 'muted', text: 'No logo' }));
+    pickBtn.textContent = src ? 'Change logo' : 'Choose logo';
+    removeBtn.hidden = !src;
+    const m = cleanHex(main.get()), sc = cleanHex(second.get());
+    const btn = h('span', { class: 'btn primary', text: 'Download' });
+    if (m) { const c = hexRgb(m); btn.style.background = m; btn.style.borderColor = m; btn.style.color = contrast(c, [255, 255, 255]) >= contrast(c, [0, 0, 0]) ? '#fff' : '#000'; }
+    preview.style.borderBottomColor = sc || m || 'var(--line)';
+    preview.replaceChildren(...[src ? h('img', { src, alt: '' }) : null, h('b', { text: (t && t.name) || 'Your team' }), h('span', { class: 'grow' }), btn].filter(Boolean));
+  };
+  // the logo's own colours, offered with one tap: the most common strong colours, skipping white, black and grey
+  const logoColours = (src) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const cv = document.createElement('canvas'), n = 48; cv.width = n; cv.height = n;
+        const cx = cv.getContext('2d'); cx.drawImage(img, 0, 0, n, n);
+        const d = cx.getImageData(0, 0, n, n).data, bins = new Map();
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i + 3] < 200) continue;
+          const r = d[i], g = d[i + 1], b = d[i + 2], mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+          if (mx - mn < 40 && (mx > 200 || mx < 60)) continue;   // white, black
+          const k = (r >> 5) + ',' + (g >> 5) + ',' + (b >> 5);
+          const e = bins.get(k) || { n: 0, r: 0, g: 0, b: 0 }; e.n++; e.r += r; e.g += g; e.b += b; bins.set(k, e);
+        }
+        const top = [...bins.values()].sort((a, b) => b.n - a.n).map(e => [e.r / e.n, e.g / e.n, e.b / e.n]);
+        const picked = [];
+        for (const c of top) { if (picked.every(p => contrast(p, c) > 1.6)) picked.push(c); if (picked.length === 4) break; }
+        suggest.replaceChildren(...(picked.length ? [h('span', { class: 'muted', text: 'From the logo: ' }), ...picked.map(c => {
+          const hex = rgbHex(c);
+          const b = h('button', { type: 'button', class: 'swatch', title: `${hex}: tap for the main colour, again for the second`, 'aria-label': 'Use ' + hex });
+          b.style.background = hex;
+          b.onclick = () => { if (cleanHex(main.get()) && cleanHex(main.get()) !== hex && !cleanHex(second.get())) second.set(hex); else main.set(hex); };
+          return b;
+        })] : []));
+      } catch { suggest.replaceChildren(); }
+    };
+    img.src = src;
+  };
+  const upload = async (id) => {
+    if (!file) return true;
+    const fd = new FormData(); fd.append('file', file);
+    const res = await api(`/api/admin/teams/${id}/logo`, { method: 'POST', form: fd });
+    if (!res.ok) { msg.textContent = aiErr(res); return false; }
+    logo = res.data.logo; file = null; if (fileUrl) URL.revokeObjectURL(fileUrl); fileUrl = null;
+    return true;
+  };
+  const saveLook = async (id) => {
+    const res = await api(`/api/admin/teams/${id}/look`, { method: 'PUT', body: { mainColor: main.get(), secondColor: second.get(), siteLook: siteWide.checked } });
+    if (!res.ok) { msg.textContent = aiErr(res); return false; }
+    return true;
+  };
+  fileIn.addEventListener('change', async () => {
+    const f = fileIn.files[0]; fileIn.value = '';
+    if (!f) return;
+    if (f.size > 5e6) { msg.textContent = 'That picture is too big. Use one under 5 MB.'; return; }
+    file = f; if (fileUrl) URL.revokeObjectURL(fileUrl); fileUrl = URL.createObjectURL(f);
+    draw(); logoColours(fileUrl);
+    if (t) { msg.textContent = 'Uploading...'; if (await upload(t.id)) { msg.textContent = 'Logo saved.'; onSaved && onSaved(); } }
+  });
+  removeBtn.addEventListener('click', async () => {
+    if (file) { file = null; URL.revokeObjectURL(fileUrl); fileUrl = null; draw(); if (!t || !logo) return; }
+    if (!t) return;
+    const res = await api(`/api/admin/teams/${t.id}/logo`, { method: 'DELETE' });
+    if (res.ok) { logo = null; draw(); suggest.replaceChildren(); msg.textContent = 'Logo removed.'; onSaved && onSaved(); } else msg.textContent = aiErr(res);
+  });
+  const save = t ? h('button', { type: 'button', class: 'primary', text: 'Save colours', onclick: async () => {
+    if (await saveLook(t.id)) { msg.textContent = ''; toast(`${t.name}'s colours saved`); onSaved && onSaved(true); }
+  } }) : null;
+  draw();
+  if (logo) logoColours(logo);
+  const el = h('div', { class: 'team-look-editor' },
+    h('div', { class: 'look-row' }, logoBox, h('div', {}, h('div', { class: 'row' }, pickBtn, removeBtn, fileIn), h('div', { class: 'muted', text: 'PNG with a clear background looks best. Shown on this team\'s galleries and in the header.' }))),
+    h('div', { class: 'look-row' }, h('label', {}, h('span', { class: 'muted', text: 'Main ' }), main), h('label', {}, h('span', { class: 'muted', text: 'Second ' }), second), suggest),
+    h('label', {}, siteWide, ' Use on every page (the home page, search, and galleries without a team)'),
+    preview,
+    h('div', { class: 'row' }, save, msg));
+  el.saveFor = async (id) => (await upload(id)) && (main.get() || second.get() || siteWide.checked ? await saveLook(id) : true);
+  return el;
+}
+
 async function teamsPanel() {
   const box = h('div');
   const render = async () => {
@@ -3426,11 +3612,16 @@ async function teamsPanel() {
       const roster = h('div', {}, foundList, rosterList, rosterMsg,
         h('div', { class: 'row' }, h('button', { text: '+ Add player', onclick: addRow })), foundChips);
       roster.read = () => [...rosterList.children].map(r => { const n = r.num.value.trim(), nm = r.pname.value.trim(); return n ? (nm ? `${n} ${nm}` : n) : ''; }).filter(Boolean).join('\n');
+      const look = t ? null : teamLookEditor(null);
       const save = h('button', { class: 'primary', text: t ? 'Save' : 'Add team', onclick: async () => {
         if (!check()) { msg.textContent = 'Fix the roster first.'; return; }
         const body = { name: name.value, season: season.value, colors: colors.read(), tagWithNames: names.checked, roster: roster.read() };
         const res = await api(t ? `/api/admin/teams/${t.id}` : '/api/admin/teams', { method: t ? 'PUT' : 'POST', body });
-        if (res.ok) { toast(t ? 'Team saved' : 'Team added'); render(); } else msg.textContent = aiErr(res);
+        if (!res.ok) { msg.textContent = aiErr(res); return; }
+        // a new team's logo and colours are saved once it exists (a new season of a known team already has that team's)
+        if (look && !res.data.logo && !res.data.mainColor && !(await look.saveFor(res.data.id))) toast('Team added, but its logo or colours were not saved. Set them on the team\'s card.');
+        else toast(t ? 'Team saved' : 'Team added');
+        render(); if (!t) refreshSite();
       } });
       const del = t ? h('button', { class: 'danger', text: t.season ? 'Delete this season' : 'Delete team', onclick: async () => {
         if (!confirm(`Delete ${t.fullName || t.name} and its roster? Tags already on photos stay. Suggestions still waiting are removed.`)) return;
@@ -3442,7 +3633,8 @@ async function teamsPanel() {
         field('Season', season, 'Such as Fall 2026. Each season has its own roster and jerseys. A gallery of this season is listed under it on the home page.'),
         field('Jerseys', colors, 'Each jersey the team wears: a name (Home, Away), the shirt colour and the number colour. Each gallery picks the jersey worn that day. Other teams may use the same colours.'),
         field('Roster', roster, 'One player per row: the jersey number (type it, or pick one the AI found in this team\'s photos), then a name if you like. Only these numbers are tagged. On the right you see the other teams a player with that name is on. Type a girl\'s name the same way on every roster she is on (#42 on one team, #11 on another, or a new season) so she is one player: a parent who follows her gets her photos from all of them. Two different girls with the same name need names that differ, such as Emma S. and Emma K. Names stay off the site unless names in tags is on.'),
-        field('Names in tags', h('label', {}, names, ' Tag photos with the player\'s name ("Emma 10")'), 'Off keeps children\'s names off the site: tags use the team and number.'));
+        field('Names in tags', h('label', {}, names, ' Tag photos with the player\'s name ("Emma 10")'), 'Off keeps children\'s names off the site: tags use the team and number.'),
+        look ? field('Logo and colours', look, 'The team\'s logo and colours dress its galleries: the main colour for buttons and highlights, the second for the stripe under the header. Every season shares them.') : null);
       const actions = h('div', { class: 'row' }, save, del, msg);
       if (!t) return h('div', { class: 'group-card' }, h('b', { text: 'Add a team' }), body, actions);
       const count = `${t.players.length} player${t.players.length === 1 ? '' : 's'}, ${t.galleries} galler${t.galleries === 1 ? 'y' : 'ies'}`;
@@ -3471,7 +3663,11 @@ async function teamsPanel() {
       next.addEventListener('keydown', e => { if (e.key === 'Enter') start(); });
       const players = seasons.reduce((n, x) => n + x.players.length, 0);
       return h('details', { class: 'group-card team-card', 'data-remember': 'team:' + last.name.toLowerCase() },
-        h('summary', {}, h('b', { text: last.name }), h('span', { class: 'muted', text: ` ${seasons.length} season${seasons.length === 1 ? '' : 's'}` + (seasons[0].season ? `, latest ${seasons[0].season}` : '') })),
+        h('summary', {}, teamBadge({ logo: last.logo, main: last.mainColor, second: last.secondColor }), h('b', { text: last.name }), h('span', { class: 'muted', text: ` ${seasons.length} season${seasons.length === 1 ? '' : 's'}` + (seasons[0].season ? `, latest ${seasons[0].season}` : '') }),
+          last.siteLook ? h('span', { class: 'chip', text: 'Every page' }) : null),
+        h('details', { class: 'group-card season-card', 'data-remember': 'team-look:' + last.name.toLowerCase() },
+          h('summary', {}, h('b', { text: 'Logo and colours' }), h('span', { class: 'muted', text: last.logo || last.mainColor ? ' for every season' : ' not set' })),
+          field('', teamLookEditor(last, () => { refreshSite(); render(); }), 'The main colour is used for buttons, links and highlights on this team\'s galleries, made lighter or darker where needed so it reads well in every theme. The second colour is the stripe under the header. Every season of the team shares them.')),
         ...seasons.map(editor),
         h('div', { class: 'row new-season' }, h('label', {}, 'New season ', next), h('button', { class: 'primary', text: 'Start season', onclick: start }),
           h('span', { class: 'muted', text: `Starts with the roster and jerseys of ${last.season || 'the latest season'}.` }), msg));

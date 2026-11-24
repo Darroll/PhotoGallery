@@ -15,7 +15,7 @@ partial class AppDbModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261123232405_DescriptionNotes";
+    public override string LastMigrationId => "20261124034314_TeamLogoAndColors";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -1105,6 +1105,14 @@ partial class AppDbModelSnapshot : ModelSnapshot
                 b.Property<DateTime>("CreatedAt")
                     .HasColumnType("TEXT");
 
+                b.Property<string>("LogoFile")
+                    .IsRequired()
+                    .HasColumnType("TEXT");
+
+                b.Property<string>("MainColor")
+                    .IsRequired()
+                    .HasColumnType("TEXT");
+
                 b.Property<string>("Name")
                     .IsRequired()
                     .HasColumnType("TEXT");
@@ -1112,6 +1120,13 @@ partial class AppDbModelSnapshot : ModelSnapshot
                 b.Property<string>("Season")
                     .IsRequired()
                     .HasColumnType("TEXT");
+
+                b.Property<string>("SecondColor")
+                    .IsRequired()
+                    .HasColumnType("TEXT");
+
+                b.Property<bool>("SiteLook")
+                    .HasColumnType("INTEGER");
 
                 b.Property<bool>("TagWithNames")
                     .HasColumnType("INTEGER");

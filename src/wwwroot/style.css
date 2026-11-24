@@ -742,3 +742,29 @@ details.season .season-name { font-family: var(--font-heading); font-size: 20px;
 .info-sec > div { padding: 4px 0 6px; }
 .info-desc textarea { width: 100%; box-sizing: border-box; }
 .info-desc .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+
+/* Team look (Settings, Teams): a logo in the header and on the gallery, a stripe in the team's second colour under the header,
+   and the team's main colour as the accent, all set from app.js without editing this file. */
+header#top a.brand { display: inline-flex; align-items: center; gap: 10px; }
+header#top .brand-logo { height: 36px; width: auto; max-width: 96px; object-fit: contain; }
+header#top .brand-logo[hidden] { display: none; }
+header#top.team-stripe { border-bottom: 4px solid var(--team-2, var(--accent)); }
+.g-head { display: flex; align-items: center; gap: 14px; margin: 0 0 4px; }
+.g-head .g-title { margin: 0; }
+.g-logo { height: 64px; width: auto; max-width: 140px; object-fit: contain; flex: none; }
+@media (max-width: 700px) { .g-logo { height: 48px; max-width: 100px; } header#top .brand-logo { height: 30px; } }
+.cover-wrap { position: relative; }
+.card-logo { position: absolute; right: 8px; bottom: 8px; width: 44px; height: 44px; object-fit: contain; padding: 4px; border-radius: 50%; background: rgba(255,255,255,.92); box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+.team-chip { display: inline-flex; align-items: center; gap: 6px; }
+.team-badge { width: 20px; height: 20px; object-fit: contain; flex: none; }
+.team-dot { display: inline-block; border-radius: 50%; border: 1px solid var(--line); }
+/* the logo and colours editor on a team's card */
+.look-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.look-logo { width: 72px; height: 72px; object-fit: contain; border: 1px dashed var(--line); border-radius: var(--radius); background: var(--card); display: flex; align-items: center; justify-content: center; }
+.look-logo img { max-width: 100%; max-height: 100%; }
+.look-colour { display: inline-flex; align-items: center; gap: 6px; }
+.look-colour input[type=color] { width: 44px; height: 32px; padding: 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); cursor: pointer; }
+.look-colour input[type=text] { width: 96px; font-family: ui-monospace, monospace; }
+.look-preview { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); border-bottom-width: 4px; }
+.look-preview img { height: 28px; width: auto; }
+.look-preview .btn { pointer-events: none; }

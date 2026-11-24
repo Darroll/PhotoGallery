@@ -24,6 +24,17 @@ public class Team
     public string Colors { get; set; } = "";
     /// <summary>Tag photos with the player's name ("Emma 10") instead of the team and number ("Hurricanes 10"). Off by default: names of children stay off the site unless chosen.</summary>
     public bool TagWithNames { get; set; }
+    /// <summary>
+    /// The team's logo: a PNG file name under DATA_DIR/team-logos, or empty. Like the colours below it belongs to the team,
+    /// not one season, so every season with this name has the same one (<see cref="TeamLook"/>).
+    /// </summary>
+    public string LogoFile { get; set; } = "";
+    /// <summary>The team's main colour as #rrggbb, or empty: buttons, links and highlights on its galleries.</summary>
+    public string MainColor { get; set; } = "";
+    /// <summary>The team's second colour as #rrggbb, or empty: the stripe under the header on its galleries.</summary>
+    public string SecondColor { get; set; } = "";
+    /// <summary>Use this team's logo and colours on every page, not only its galleries (the home page, search, a gallery without a team). One team at most.</summary>
+    public bool SiteLook { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public List<Player> Players { get; set; } = new();
 }

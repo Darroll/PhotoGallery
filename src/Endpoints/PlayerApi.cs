@@ -19,6 +19,8 @@ public static class PlayerApi
     record NewPlayerInput(string? Number, string? Name, List<int>? Skip = null);
     record NumberInput(string? Number);
     record CopyTeamInput(string? Season, string? Name = null);
+    /// <summary>The team's colours and whether every page uses its look. Applies to all its seasons.</summary>
+    record TeamLookInput(string? MainColor, string? SecondColor, bool? SiteLook);
 
     static bool Csrf(HttpContext ctx) => ctx.Request.Headers["X-Requested-With"] == "pg";
     static string Cut(string? s, int max) { s = (s ?? "").Trim(); return s.Length > max ? s[..max] : s; }
@@ -28,6 +30,7 @@ public static class PlayerApi
     static object TeamOut(Team t, int galleries, IEnumerable<FoundNumber>? found = null) => new
     {
         t.Id, t.Name, t.Season, fullName = t.FullName, t.Colors, t.TagWithNames, galleries, t.CreatedAt,
+        logo = TeamLook.LogoUrl(t), mainColor = t.MainColor, secondColor = t.SecondColor, siteLook = t.SiteLook,
         // numbers the AI read on players in this team's jerseys (not ones the admin said are not ours), most photos first
         found = found ?? [],
         kits = PlayerTags.Kits(t.Colors).Select(k => { var (shirt, number) = PlayerTags.SplitJersey(k.Description); return new { name = k.Name, description = k.Description, shirt, number }; }),
@@ -128,6 +131,7 @@ public static class PlayerApi
             var t = new Team();
             var err = await ApplyAsync(db, t, input);
             if (err != null) return Results.BadRequest(err);
+            await TeamLook.AdoptAsync(db, t);   // a new season of a team keeps its logo and colours
             db.Teams.Add(t);
             await db.SaveChangesAsync();
             await PlayerTags.LinkAthletesAsync(db, t);
@@ -140,8 +144,10 @@ public static class PlayerApi
             if (!Csrf(ctx)) return Results.BadRequest("missing header");
             var t = await db.Teams.Include(x => x.Players).FirstOrDefaultAsync(x => x.Id == id);
             if (t == null) return Results.NotFound();
+            var oldName = t.Name;
             var err = await ApplyAsync(db, t, input);
             if (err != null) return Results.BadRequest(err);
+            if (!string.Equals(oldName, t.Name, StringComparison.OrdinalIgnoreCase)) await TeamLook.AdoptAsync(db, t);   // moved to another team's name
             await db.SaveChangesAsync();
             await PlayerTags.LinkAthletesAsync(db, t);
             await PlayerTags.AdoptSightingsAsync(db, t);
@@ -160,6 +166,8 @@ public static class PlayerApi
             var t = new Team();
             var err = await ApplyAsync(db, t, new TeamInput(string.IsNullOrWhiteSpace(input.Name) ? src.Name : input.Name, src.Colors, src.TagWithNames, roster, input.Season));
             if (err != null) return Results.BadRequest(err);
+            t.LogoFile = src.LogoFile; t.MainColor = src.MainColor; t.SecondColor = src.SecondColor; t.SiteLook = src.SiteLook;
+            await TeamLook.AdoptAsync(db, t);   // copied under another team's name: that team's look
             db.Teams.Add(t);
             await db.SaveChangesAsync();
             await PlayerTags.LinkAthletesAsync(db, t);
@@ -167,7 +175,7 @@ public static class PlayerApi
         });
 
         // removes the team, its roster and its waiting suggestions; tags already on photos stay
-        secured.MapDelete("/teams/{id:int}", async (int id, HttpContext ctx, AppDb db) =>
+        secured.MapDelete("/teams/{id:int}", async (int id, HttpContext ctx, AppDb db, AppConfig cfg) =>
         {
             if (!Csrf(ctx)) return Results.BadRequest("missing header");
             var t = await db.Teams.FindAsync(id);
@@ -176,7 +184,68 @@ public static class PlayerApi
             db.Teams.Remove(t);
             await db.SaveChangesAsync();
             await PlayerTags.LinkAthletesAsync(db);   // forgets girls no roster names any more
+            await TeamLook.CleanUpAsync(db, cfg);
             return Results.NoContent();
+        });
+
+        // The team's look: colours and "use on every page". Saved on every season of the team, since they share it.
+        secured.MapPut("/teams/{id:int}/look", async (int id, TeamLookInput input, HttpContext ctx, AppDb db) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var t = await db.Teams.FindAsync(id);
+            if (t == null) return Results.NotFound();
+            var main = TeamLook.CleanColor(input.MainColor);
+            var second = TeamLook.CleanColor(input.SecondColor);
+            if (!string.IsNullOrWhiteSpace(input.MainColor) && main.Length == 0) return Results.BadRequest("The main colour should look like #1e40af.");
+            if (!string.IsNullOrWhiteSpace(input.SecondColor) && second.Length == 0) return Results.BadRequest("The second colour should look like #facc15.");
+            var seasons = await TeamLook.SeasonsAsync(db, t);
+            var site = input.SiteLook == true;
+            if (site) foreach (var o in await db.Teams.Where(x => x.SiteLook).ToListAsync()) o.SiteLook = false;   // one team dresses the whole site
+            foreach (var x in seasons) { x.MainColor = main; x.SecondColor = second; x.SiteLook = site; }
+            await db.SaveChangesAsync();
+            return Results.Ok(new { logo = TeamLook.LogoUrl(t), mainColor = main, secondColor = second, siteLook = site });
+        });
+
+        // A new logo for the team (all its seasons). Any picture works; it is shrunk and saved as a fresh PNG.
+        secured.MapPost("/teams/{id:int}/logo", async (int id, HttpContext ctx, AppDb db, AppConfig cfg) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var t = await db.Teams.FindAsync(id);
+            if (t == null) return Results.NotFound();
+            if (!ctx.Request.HasFormContentType) return Results.BadRequest("Choose a picture for the logo.");
+            var f = (await ctx.Request.ReadFormAsync()).Files.FirstOrDefault();
+            if (f == null || f.Length == 0) return Results.BadRequest("Choose a picture for the logo.");
+            if (f.Length > TeamLook.LogoMaxBytes) return Results.BadRequest("That picture is too big. Use one under 5 MB.");
+            await using var ms = new MemoryStream();
+            await f.CopyToAsync(ms);
+            string file;
+            try { file = TeamLook.SaveLogo(cfg, ms.ToArray()); }
+            catch (NetVips.VipsException) { return Results.BadRequest("That file is not a picture this site can read. Use a PNG, JPEG or WebP."); }
+            foreach (var x in await TeamLook.SeasonsAsync(db, t)) x.LogoFile = file;
+            await db.SaveChangesAsync();
+            await TeamLook.CleanUpAsync(db, cfg);
+            return Results.Ok(new { logo = "/team-logo/" + file });
+        }).DisableAntiforgery();
+
+        secured.MapDelete("/teams/{id:int}/logo", async (int id, HttpContext ctx, AppDb db, AppConfig cfg) =>
+        {
+            if (!Csrf(ctx)) return Results.BadRequest("missing header");
+            var t = await db.Teams.FindAsync(id);
+            if (t == null) return Results.NotFound();
+            foreach (var x in await TeamLook.SeasonsAsync(db, t)) x.LogoFile = "";
+            await db.SaveChangesAsync();
+            await TeamLook.CleanUpAsync(db, cfg);
+            return Results.NoContent();
+        });
+
+        // Team logos are public: they are on the gallery pages and the home page for anyone who can see those.
+        app.MapGet("/team-logo/{file}", (string file, HttpContext ctx, AppConfig cfg) =>
+        {
+            if (!TeamLook.IsLogoFile(file)) return Results.NotFound();
+            var path = Path.Combine(TeamLook.Dir(cfg), file);
+            if (!File.Exists(path)) return Results.NotFound();
+            ctx.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+            return Results.File(path, "image/png");
         });
 
         // adds one player from a number the model read, and turns the photos it was read on into suggestions
