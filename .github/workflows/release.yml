@@ -1,0 +1,68 @@
+name: Release
+
+# Publishes the version in src/PhotoGallery.csproj as a release, with no command line on anyone's computer:
+# run this workflow on main (Actions -> Release -> Run workflow, or from a Claude session). It tests main, creates the
+# tag vX.Y.Z on it, and publishes ghcr.io/darroll/photogallery :X.Y.Z, :X.Y and :latest (what Unraid installs and
+# updates to). It stops if that tag already exists, so a version is only released once: bump <Version> first.
+# A tag pushed by this workflow does not start "Publish image" again (GitHub does not chain workflows on its own token),
+# so the image is built here. Pushing a tag by hand still works through "Publish image" as before.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: v
+        name: Version from the project
+        run: |
+          v=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/PhotoGallery.csproj | head -1)
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Unexpected <Version>$v</Version>"; exit 1; }
+          if git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null; then
+            echo "v$v is already released. Bump <Version> in src/PhotoGallery.csproj first."; exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "minor=${v%.*}" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$v from $(git rev-parse --short HEAD)"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 11.0.x
+      - name: Tests
+        run: dotnet test tests/PhotoGallery.Tests -c Release --nologo
+      - name: Tag
+        run: |
+          git tag "v${{ steps.v.outputs.version }}" "$GITHUB_SHA"
+          git push origin "v${{ steps.v.outputs.version }}"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: date
+        run: echo "now=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/darroll/photogallery:${{ steps.v.outputs.version }}
+            ghcr.io/darroll/photogallery:${{ steps.v.outputs.minor }}
+            ghcr.io/darroll/photogallery:latest
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.date.outputs.now }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
