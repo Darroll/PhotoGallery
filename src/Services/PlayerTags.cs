@@ -200,7 +200,7 @@ public static class PlayerTags
     /// turns the numbers on our roster into suggestions. Numbers not on the roster are ignored.
     /// Returns what was found, or throws when every provider failed. <paramref name="trying"/> hears each provider as it is asked.
     /// </summary>
-    public static async Task<PhotoCheckResult> CheckPhotoAsync(AppDb db, ImageService images, IVisionReader reader, VisionSettings vision, Photo photo, Team team, ILogger log, CancellationToken ct, Action<VisionProvider>? trying = null, string? kit = null)
+    public static async Task<PhotoCheckResult> CheckPhotoAsync(AppDb db, ImageService images, IVisionReader reader, VisionSettings vision, Photo photo, Team team, ILogger log, CancellationToken ct, Action<VisionProvider>? trying = null, string? kit = null, bool replaceWaiting = false)
     {
         var chain = vision.Chain;
         if (chain.Count == 0) throw new VisionException("No provider is set up. Open Settings, Automatic tagging.");
@@ -225,6 +225,14 @@ public static class PlayerTags
         if (answer == null) throw new VisionException(string.Join(" / ", errors));
 
         photo.PlayersCheckedAt = DateTime.UtcNow;
+        if (replaceWaiting)
+        {
+            // a fresh look at one photo: the model's earlier readings still waiting for review give way to this one. Tags you
+            // approved, players you rejected, and suggestions from you or from parents stay as they are.
+            db.PlayerSuggestions.RemoveRange(await db.PlayerSuggestions.Where(s => s.PhotoId == photo.Id && s.Status == "pending" && s.Source != AdminSource && !s.Source.StartsWith("parent ")).ToListAsync(ct));
+            db.NumberSightings.RemoveRange(await db.NumberSightings.Where(x => x.PhotoId == photo.Id && x.TeamId == team.Id && !x.Dismissed && !x.Fixed && x.Source != AdminSource).ToListAsync(ct));
+            await db.SaveChangesAsync(ct);
+        }
         var known = await db.PlayerSuggestions.Where(s => s.PhotoId == photo.Id).ToDictionaryAsync(s => s.PlayerId, ct);
         var added = 0;
         var seenOurs = new List<string>();
@@ -483,6 +491,8 @@ public class PlayerJobStatus
     public DateTime? CurrentSince { get; set; }
     /// <summary>Started by a scan that found new photos, not by the admin.</summary>
     public bool Automatic { get; set; }
+    /// <summary>Set when the admin sent just this one photo back through the check.</summary>
+    public int? PhotoId { get; set; }
 
     /// <summary>The last 30 photos, newest first.</summary>
     public List<PlayerJobEntry> Recent { get { lock (gate) return recent.ToList(); } }
@@ -500,7 +510,7 @@ public class PlayerJobStatus
 /// </summary>
 public class PlayerTagJobs(IServiceScopeFactory scopes, ILogger<PlayerTagJobs> log) : BackgroundService
 {
-    record Job(int GalleryId, int? Limit, bool Recheck, CancellationTokenSource Stop, bool Automatic = false);
+    record Job(int GalleryId, int? Limit, bool Recheck, CancellationTokenSource Stop, bool Automatic = false, int? PhotoId = null);
 
     /// <summary>A failed photo is tried again on later automatic checks only this many times; a button press tries it again regardless.</summary>
     public const int AutoAttempts = 3;
@@ -536,17 +546,17 @@ public class PlayerTagJobs(IServiceScopeFactory scopes, ILogger<PlayerTagJobs> l
         .ToList();
 
     /// <summary>Queues a check. False when this gallery already has one running or waiting.</summary>
-    public bool Start(int galleryId, string galleryTitle, int? limit, bool recheck, bool automatic = false)
+    public bool Start(int galleryId, string galleryTitle, int? limit, bool recheck, bool automatic = false, int? photoId = null)
     {
         lock (queue)
         {
             if (status.TryGetValue(galleryId, out var s) && s.Running) return false;
             var anyRunning = status.Values.Any(x => x.Running);
-            status[galleryId] = new PlayerJobStatus { GalleryId = galleryId, Gallery = galleryTitle, Running = true, Waiting = anyRunning, Automatic = automatic };
+            status[galleryId] = new PlayerJobStatus { GalleryId = galleryId, Gallery = galleryTitle, Running = true, Waiting = anyRunning, Automatic = automatic, PhotoId = photoId };
         }
         var cts = new CancellationTokenSource();
         stops[galleryId] = cts;
-        queue.Writer.TryWrite(new Job(galleryId, limit, recheck, cts, automatic));
+        queue.Writer.TryWrite(new Job(galleryId, limit, recheck, cts, automatic, photoId));
         return true;
     }
 
@@ -606,6 +616,8 @@ public class PlayerTagJobs(IServiceScopeFactory scopes, ILogger<PlayerTagJobs> l
         if (!job.Recheck) q = q.Where(p => p.PlayersCheckedAt == null);
         // an automatic check leaves photos that keep failing for the admin, instead of trying them after every scan
         if (job.Automatic) q = q.Where(p => p.PlayerCheckAttempts < AutoAttempts);
+        // one photo sent back by the admin: its own fresh reading replaces the model's earlier suggestions still waiting
+        if (job.PhotoId is { } onlyId) q = q.Where(p => p.Id == onlyId);
         var photos = GalleryRules.Sort(await q.ToListAsync(ct), g, x => x.TakenAt, x => x.Name, x => x.AddedAt);
         if (job.Limit is { } n) photos = photos.Take(n).ToList();
         st.Total = photos.Count;
@@ -619,7 +631,7 @@ public class PlayerTagJobs(IServiceScopeFactory scopes, ILogger<PlayerTagJobs> l
             var started = DateTime.UtcNow;
             try
             {
-                var r = await PlayerTags.CheckPhotoAsync(db, images, reader, vision, p, team, log, ct, pr => st.CurrentProvider = VisionProvider.Label(pr.Kind), PlayerTags.KitFor(g, p.RelPath, folderKits));
+                var r = await PlayerTags.CheckPhotoAsync(db, images, reader, vision, p, team, log, ct, pr => st.CurrentProvider = VisionProvider.Label(pr.Kind), PlayerTags.KitFor(g, p.RelPath, folderKits), replaceWaiting: job.PhotoId != null);
                 st.Found += r.Added;
                 inARow = 0;
                 var text = r.Seen.Count == 0 ? "No players read" : string.Join(", ", r.Seen) + (r.Added < r.Seen.Count ? $" ({r.Seen.Count - r.Added} already suggested)" : "");

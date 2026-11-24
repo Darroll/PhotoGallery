@@ -768,3 +768,14 @@ header#top.team-stripe { border-bottom: 4px solid var(--team-2, var(--accent)); 
 .look-preview { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); border-bottom-width: 4px; }
 .look-preview img { height: 28px; width: auto; }
 .look-preview .btn { pointer-events: none; }
+/* review cards: each suggestion and tagged player settles on its own */
+.review-card .tag-chip.tagged { border-style: solid; font-weight: 600; }
+.review-card .tag-chip.settled { opacity: 0.45; }
+.review-card .tag-chip.settled button { display: none; }
+.review-card .chip-result { font-size: 12px; font-style: italic; padding-right: 6px; }
+.review-card .review-actions { gap: 6px; }
+.review-card .review-actions button { font-size: 13px; padding: 4px 10px; }
+/* the admin's × beside a tagged player in the viewer */
+.lb-player-tagged { display: inline-flex; align-items: center; gap: 2px; }
+.lb-player-tagged > .lb-player-no { border: 1px solid var(--line, #888); background: transparent; color: inherit; border-radius: 999px; min-width: 26px; min-height: 26px; padding: 0 6px; cursor: pointer; font-size: 14px; line-height: 1; }
+.lb-player-tagged > .lb-player-no:hover, .lb-player-tagged > .lb-player-no:focus-visible { background: #b3261e; border-color: #b3261e; color: #fff; }

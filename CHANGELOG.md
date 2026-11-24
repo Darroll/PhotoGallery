@@ -2,6 +2,14 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.10.0
+
+- **Fix every player tag on a photo, one at a time.** In a gallery's **Players** review, each photo card now shows the players already tagged on it (by you, or approved automatically) with an **×** to remove just that one, next to the suggestions waiting.
+  - **× on a suggestion rejects only that suggestion.** Before, the whole card faded and read "Rejected", so it looked as if every suggestion on the photo was gone. Now only that chip fades; the card is done once nothing on it is left to decide. **Reject all** (and a new **Reject all on this photo**) are still there.
+  - **open** (and **Open** in the right-click menu) now opens the photo in the gallery in a new tab with **Details** and its **Players** section open, so you can tag, untag and see the description there.
+  - In the viewer's **Details**, **Players**, each tagged player also has an **×** to remove it straight away.
+- **Check one photo again.** **↻ Check again** on a review card, or in the viewer's **Players** sheet, sends just that photo back through automatic tagging. Its earlier AI suggestions still waiting are replaced by the new reading; tags you set, players you rejected and parents' suggestions stay. When descriptions are on, an AI-written description is written again afterwards. A description you wrote stays yours (it is only rewritten from your notes if the players change, as before).
+
 ## 2.9.0
 
 - **Team logo and colors.** On Settings, **Teams**, each team's card has a **Logo and colours** section (and the **Add a team** form has one too): choose a logo picture and pick a main and a second color, or tap one of the colors taken from the logo. They belong to the team, so every season shares them, and a new season starts with them. No CSS editing.
