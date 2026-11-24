@@ -19,6 +19,8 @@ public static class PhotoDescriptions
     public const int MaxAttempts = 3;
     public const string Ai = "ai";
     public const string Admin = "admin";
+    /// <summary>How long a newly scanned photo waits for its automatic player check before it is described without one.</summary>
+    public static readonly TimeSpan NewPhotoWait = TimeSpan.FromMinutes(30);
 
     /// <summary>How a player is named in a description: her name from the roster ("Lilly"), or "#3" when the roster has no name for her.</summary>
     public static string Label(Team t, Player p) => p.Name.Trim().Length > 0 ? p.Name.Trim() : $"#{p.Number}";
@@ -184,7 +186,7 @@ public static class PhotoDescriptions
         var teams = await db.Teams.AsNoTracking().Include(t => t.Players).ToDictionaryAsync(t => t.Id, ct);
         var rows = await db.Photos.AsNoTracking()
             .Where(p => p.Approved && p.DescriptionAttempts < MaxAttempts)
-            .Select(p => new { p.Id, p.GalleryId, p.RelPath, p.DescriptionSource, p.DescriptionPlayers, p.DescriptionNotes, p.DescribedAt, p.PlayersCheckedAt, p.PlayerCheckAttempts })
+            .Select(p => new { p.Id, p.GalleryId, p.RelPath, p.AddedAt, p.DescriptionSource, p.DescriptionPlayers, p.DescriptionNotes, p.DescribedAt, p.PlayersCheckedAt, p.PlayerCheckAttempts })
             .ToListAsync(ct);
         var inTeams = rows.Where(r => galleries.TryGetValue(r.GalleryId, out var g) && g.TeamId != null && teams.ContainsKey(g.TeamId.Value)).Select(r => r.Id).ToList();
         var tags = inTeams.Count == 0 ? new Dictionary<int, List<string>>() : await Tags.NamesByPhotoAsync(db, inTeams);
@@ -195,7 +197,11 @@ public static class PhotoDescriptions
             if (!galleries.TryGetValue(r.GalleryId, out var g) || r.Id == GalleryRules.HiddenCoverId(g)) continue;
             if (jobs != null && jobs.Status(g.Id).Running) continue;
             var team = g.TeamId is { } tid && teams.TryGetValue(tid, out var t) ? t : null;
-            if (team != null && PlayerTagJobs.AutoTagOn(g, vision) && r.PlayersCheckedAt == null && r.PlayerCheckAttempts < PlayerTagJobs.AutoAttempts) continue;
+            // a photo a scan just added waits for the player check the scan queues, so it is written once, with the players. An older
+            // unchecked photo is written now: no check is coming for it (checks only run on new photos, or when you press Check),
+            // and waiting on it forever left it out of both the described and the waiting counts.
+            if (team != null && PlayerTagJobs.AutoTagOn(g, vision) && r.PlayersCheckedAt == null && r.PlayerCheckAttempts < PlayerTagJobs.AutoAttempts
+                && r.AddedAt > DateTime.UtcNow - NewPhotoWait) continue;
             var c = ContextFor(g, team, r.RelPath, team == null ? new() : tags.GetValueOrDefault(r.Id) ?? new());
             // written before (by the model, or by you): only again when the players changed; yours is rewritten from your notes
             var stale = r.DescriptionSource is Ai or Admin && r.DescriptionPlayers != c.Signature;
@@ -300,13 +306,22 @@ public static class PhotoDescriptions
     }
 
     /// <summary>How many photos have a description, and how many are waiting for one. For the settings page.</summary>
+    /// <remarks>
+    /// A gallery cover kept out of the photos (it only shows on the cover) is never described, so it is not counted. A RAW file
+    /// and the picture exported from it (IMG_1234.CR3 and IMG_1234.png) are one photo, so they count once and share one
+    /// description and one set of tags.
+    /// </remarks>
     public static async Task<object> CountsAsync(AppDb db)
     {
-        var described = await db.Photos.CountAsync(p => p.Approved && p.Description != "");
-        var byHand = await db.Photos.CountAsync(p => p.Approved && p.DescriptionSource == Admin);
-        var failed = await db.Photos.CountAsync(p => p.Approved && p.DescriptionSource != Admin && p.DescriptionAttempts >= MaxAttempts);
-        var total = await db.Photos.CountAsync(p => p.Approved);
-        return new { described, byHand, failed, total };
+        var covers = (await db.Galleries.AsNoTracking().ToListAsync()).Select(GalleryRules.HiddenCoverId).Where(id => id != 0).ToList();
+        var photos = db.Photos.Where(p => p.Approved && !covers.Contains(p.Id));
+        var described = await photos.CountAsync(p => p.Description != "");
+        var byHand = await photos.CountAsync(p => p.DescriptionSource == Admin);
+        var failed = await photos.CountAsync(p => p.DescriptionSource != Admin && p.DescriptionAttempts >= MaxAttempts);
+        var missingFailed = await photos.CountAsync(p => p.Description == "" && p.DescriptionAttempts >= MaxAttempts);
+        var total = await photos.CountAsync();
+        var withRaw = await photos.CountAsync(p => p.RawRelPath != null && p.RawRelPath != p.RelPath);
+        return new { described, byHand, failed, missingFailed, total, withRaw };
     }
 }
 

@@ -279,4 +279,42 @@ public class DescriptionTests(VisionAppFactory app) : IClassFixture<VisionAppFac
         }
         finally { Serial.Release(); }
     }
+
+    [Fact]
+    public async Task An_old_photo_no_player_check_is_coming_for_is_described_and_counted()
+    {
+        await Serial.WaitAsync();
+        try
+        {
+            var admin = await SetupAsync();
+            app.Reader.TextAnswers["ollama"] = Echo;
+            var (gid, slug, _, photos) = await GalleryAsync(admin, "Describe Old", 2);
+            // the gallery checks new photos automatically, but these were never checked: one is old, one was just scanned
+            await app.WithDbAsync(async db =>
+            {
+                db.Galleries.First(g => g.Id == gid).AutoTag = true;
+                foreach (var p in db.Photos.Where(p => p.GalleryId == gid)) { p.PlayersCheckedAt = null; p.PlayerCheckAttempts = 0; }
+                db.Photos.First(p => p.Id == photos[0]).AddedAt = DateTime.UtcNow.AddDays(-30);
+                await db.SaveChangesAsync();
+                return 0;
+            });
+            await RoundAsync();
+            Assert.NotEqual("", (await PhotoAsync(admin, slug, photos[0])).GetProperty("description").GetString());   // no check is coming: written now
+            Assert.Equal("", (await PhotoAsync(admin, slug, photos[1])).GetProperty("description").GetString() ?? "");   // waits for the check the scan queues
+
+            // the counts leave out a cover kept off the page
+            await app.WithDbAsync(async db =>
+            {
+                var g = db.Galleries.First(g => g.Id == gid);
+                g.CoverPhotoId = photos[1]; g.CoverMode = CoverMode.CoverOnly;
+                await db.SaveChangesAsync();
+                return 0;
+            });
+            var before = await (await admin.GetAsync("/api/admin/settings/vision/descriptions")).ReadAsync();
+            await app.WithDbAsync(async db => { var g = db.Galleries.First(g => g.Id == gid); g.CoverPhotoId = null; await db.SaveChangesAsync(); return 0; });
+            var after = await (await admin.GetAsync("/api/admin/settings/vision/descriptions")).ReadAsync();
+            Assert.Equal(after.GetProperty("total").GetInt32() - 1, before.GetProperty("total").GetInt32());
+        }
+        finally { Serial.Release(); }
+    }
 }

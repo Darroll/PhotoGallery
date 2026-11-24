@@ -2,6 +2,12 @@
 
 Newest first. "Needs attention" marks anything an existing user must do when updating.
 
+## 2.10.1
+
+- **Descriptions no longer skip older photos.** In a gallery that checks new photos for players automatically, a photo that was never checked waited for a player check before getting its description. Checks only run on photos a scan has just added (or when you press **Check**), so older photos waited forever: they had no description, yet Settings said **All caught up** because they were not counted as waiting either. Now only a photo added in the last 30 minutes waits for its check; older ones are described straight away (and rewritten with the players' names if a check tags them later).
+- **The description count is accurate.** A gallery cover kept off the page (cover only, or banner) is no longer counted, since it is never described. If photos are ever left without a description and none are waiting, the panel says so instead of **All caught up**.
+- The panel now says how a RAW file and its exported picture are counted: IMG_1234.CR3 and IMG_1234.png are one photo, with one description and one set of tags.
+
 ## 2.10.0
 
 - **Fix every player tag on a photo, one at a time.** In a gallery's **Players** review, each photo card now shows the players already tagged on it (by you, or approved automatically) with an **×** to remove just that one, next to the suggestions waiting.
